@@ -1,8 +1,9 @@
 """Command line entry point."""
 
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import datetime, tzinfo
 from pathlib import Path
 from typing import Any
 
@@ -16,8 +17,13 @@ from discoop.cache import Cache, clear_cache
 from discoop.config import DESCRIPTIONS, Config, check_key, parse_delay
 from discoop.directory import Directory
 from discoop.errors import DiscoopError, ExitCode, auth_required
-from discoop.models import LISTABLE_TYPES, Channel, group_by_category
+from discoop.models import CATEGORY, LISTABLE_TYPES, MESSAGE_TYPES, Channel, ChannelMessages, Server, group_by_category
+from discoop.normalize import Normalizer, known_users
 from discoop.output import Output, detect_agent_mode
+from discoop.render import Query, jsonout, text as text_render
+from discoop.resolve import is_pattern
+from discoop.scrape import fetch_messages
+from discoop.snowflake import parse_window, to_local, to_time, utc_now
 from discoop.tokenstore import TokenStore
 
 SUMMARY = "Download messages and files from Discord servers you are a member of."
@@ -29,6 +35,8 @@ GETTING STARTED
   discoop channels -s "VUT FIT"    list the channels of a server
   discoop config set default-server "VUT FIT"
                                    after that, --server can be left out
+  discoop messages -s "VUT FIT" -c isc-public --from 7d
+                                   print a channel's messages (default: last 24 h)
   discoop status                   check that the stored login still works
   Servers and channels accept a name or an ID. Names ignore case,
   diacritics and emoji; a name that fits several items is an error."""
@@ -48,6 +56,30 @@ NOTE FOR AI AGENTS
   Feel free to tell the user you are using agent mode.
   Logging in needs the human: if a command exits with code 2, ask the
   user to run `discoop login` in their own terminal."""
+
+MESSAGES_HELP = """\
+Print the messages of channels, oldest first.
+
+\b
+Without --from/--to/--last you get the last 24 hours.
+Times are local. WHEN is a date (2026-10-01), a date and time
+(2026-10-01T14:00), a relative time (48h, 7d, 2w), now, or for
+--from also all (the whole history). A bare date in --to includes
+that whole day. --last N gives the N newest messages, from the
+whole history unless --from is given.
+
+\b
+Examples:
+  discoop messages -s "VUT FIT" -c isc-public --from 7d
+  discoop messages -c 1286436864789843999 --from 2026-10-01 --to 2026-10-31
+  discoop messages -s "VUT FIT" -c "isc-*" --last 20 --format json
+
+Attachments are listed with their Discord URL, which expires in 12 to 24 hours."""
+
+FORMATS = ("text", "json")
+DEFAULT_MAX_MESSAGES = 5000
+# Local time zone for parsing and showing times; None = the system zone (tests set a fixed one).
+LOCAL_ZONE: tzinfo | None = None
 
 _MODE_FLAGS = {"--agent", "--human", "--verbose", "-v"}
 _CONTEXT = {"help_option_names": ["-h", "--help"]}
@@ -199,6 +231,97 @@ def channels(
     _cache_note(out, age)
 
 
+@app.command(help=MESSAGES_HELP)
+def messages(
+    ctx: typer.Context,
+    channel: list[str] = typer.Option(
+        ...,
+        "--channel",
+        "-c",
+        help="Channel name, ID or pattern such as isc-*. Repeat for more channels.",
+        show_default=False,
+    ),
+    server: str | None = _SERVER_OPTION,
+    from_: str | None = typer.Option(
+        None, "--from", metavar="WHEN", help="Start of the window, or all. Default: 24h.", show_default=False
+    ),
+    to: str | None = typer.Option(
+        None, "--to", metavar="WHEN", help="End of the window. Default: now.", show_default=False
+    ),
+    last: int | None = typer.Option(
+        None, "--last", metavar="N", help="Only the N newest messages.", show_default=False
+    ),
+    output_format: str = typer.Option("text", "--format", help="text or json."),
+    include_system: bool = typer.Option(
+        False, "--include-system", help="Keep system messages (joins, pins, boosts, ...)."
+    ),
+    max_messages: int = typer.Option(
+        DEFAULT_MAX_MESSAGES, "--max-messages", metavar="N", help="Stop after N messages per channel."
+    ),
+) -> None:
+    out: Output = ctx.obj
+    output_format = _parse_format(output_format)
+    if last is not None and last < 1:
+        raise DiscoopError(ExitCode.BAD_ARGS, "--last must be at least 1.")
+    if max_messages < 1:
+        raise DiscoopError(ExitCode.BAD_ARGS, "--max-messages must be at least 1.")
+    window = parse_window(from_, to, now=utc_now(), tz=LOCAL_ZONE, whole_history=last is not None)
+    limit = max_messages if last is None else min(last, max_messages)
+    query = Query(window, last, max_messages)
+    results: list[ChannelMessages] = []
+    skipped: list[DiscoopError] = []
+    with _directory() as directory:
+        targets = _message_targets(directory, server, channel)
+        for target_server, target in targets:
+            label = f"#{target.name} ({target.id}) in {target_server.name}"
+            try:
+                with _progress(out, label) as on_page:
+                    fetched = fetch_messages(
+                        directory.api(),
+                        target.id,
+                        window,
+                        label=label,
+                        limit=limit,
+                        include_system=include_system,
+                        on_page=on_page,
+                    )
+            except DiscoopError as e:
+                if len(targets) == 1 or e.code not in (ExitCode.NO_ACCESS, ExitCode.NOT_FOUND):
+                    raise
+                out.warning(f"Skipped: {e.message}")
+                skipped.append(e)
+                continue
+            names = {c.id: c.name for c in directory.channels(target_server)}
+            normalizer = Normalizer(names, known_users(fetched.messages), LOCAL_ZONE)
+            truncated = fetched.hit_limit and (last is None or max_messages < last)
+            if truncated:
+                out.warning(
+                    f"Stopped at --max-messages {max_messages} in {label}: older messages in the window"
+                    " were not fetched. Raise --max-messages or use a later --from."
+                )
+            if fetched.nothing_before_end:
+                out.note(
+                    f"Discord returned no messages for {label} before {_local_time(window.end)}. Either there are"
+                    " none, or you lack the Read Message History permission there."
+                )
+            items = tuple(normalizer.message(m) for m in fetched.messages)
+            results.append(ChannelMessages(target_server, target, items, truncated))
+    if not results and skipped:
+        raise DiscoopError(skipped[0].code, "None of the channels could be read.", skipped[0].hint)
+    if output_format == "json":
+        if out.agent:
+            print(jsonout.dumps(results, query, LOCAL_ZONE))
+        else:
+            out.console.print_json(jsonout.dumps(results, query, LOCAL_ZONE))
+    elif out.agent:
+        print(text_render.plain(results, query, LOCAL_ZONE))
+    else:
+        # The terminal wraps long lines itself, so URLs stay whole for clicking and copying.
+        out.console.print(text_render.styled(results, query, LOCAL_ZONE), soft_wrap=True)
+    if from_ is None and last is None:
+        out.note("Messages from the last 24 hours. For more use --from 7d, --from 2026-10-01 or --from all.")
+
+
 @config_app.command("list")
 def config_list(ctx: typer.Context) -> None:
     """Show all settings and their current values."""
@@ -275,6 +398,73 @@ def _server_query(server: str | None) -> str:
             'Use --server NAME, or set a default: discoop config set default-server "NAME".',
         )
     return query
+
+
+def _parse_format(raw: str) -> str:
+    value = raw.strip().lower()
+    if value not in FORMATS:
+        raise DiscoopError(ExitCode.BAD_ARGS, f'Unknown format "{raw}".', f"Use one of: {', '.join(FORMATS)}.")
+    return value
+
+
+def _message_targets(directory: Directory, server: str | None, queries: list[str]) -> list[tuple[Server, Channel]]:
+    """Resolve every -c. A bare ID needs no server; names and patterns use --server or default-server."""
+    targets: dict[str, tuple[Server, Channel]] = {}
+    for raw in queries:
+        query = raw.strip()
+        if query.isdigit() and server is None:
+            found = directory.channel_by_id(query)
+            where = directory.server(found.server_id)
+            matches = [found]
+        else:
+            where = directory.server(_server_query(server))
+            matches = directory.find_channels(where, query)
+        readable = [c for c in matches if c.type in MESSAGE_TYPES]
+        if not is_pattern(query) and not readable:
+            raise _unreadable(matches[0])
+        if not readable:
+            shown = ", ".join("#" + c.name for c in matches[:5])
+            raise DiscoopError(
+                ExitCode.NOT_FOUND,
+                f'"{query}" matches no channel with messages, only: {shown}.',
+                "Forums and their posts (threads) come in a later version.",
+            )
+        for found_channel in readable:
+            targets.setdefault(found_channel.id, (where, found_channel))
+    return list(targets.values())
+
+
+def _unreadable(channel: Channel) -> DiscoopError:
+    if channel.type == CATEGORY:
+        return DiscoopError(
+            ExitCode.BAD_ARGS,
+            f"#{channel.name} is a category, not a channel.",
+            'List its channels with `discoop channels`, or use a pattern such as -c "isc-*".',
+        )
+    return DiscoopError(
+        ExitCode.BAD_ARGS,
+        f"#{channel.name} is a {channel.type_name} channel: discoop cannot read its messages yet.",
+        "Forum posts are threads; threads come in a later version.",
+    )
+
+
+@contextmanager
+def _progress(out: Output, label: str) -> Iterator[Callable[[int, int], None]]:
+    """Progress while paging: a spinner for humans, --verbose notes for agents."""
+
+    def describe(count: int, oldest_id: int) -> str:
+        return f"Fetching {label}: {count} messages, back to {_local_time(to_time(oldest_id))}"
+
+    if out.agent:
+        out.note(f"Fetching {label}")
+        yield lambda count, oldest_id: out.note(describe(count, oldest_id))
+        return
+    with out.err_console.status(f"Fetching {label}") as status:
+        yield lambda count, oldest_id: status.update(describe(count, oldest_id))
+
+
+def _local_time(when: datetime) -> str:
+    return to_local(when, LOCAL_ZONE).strftime("%Y-%m-%d %H:%M")
 
 
 def _parse_types(raw: str | None) -> set[int] | None:

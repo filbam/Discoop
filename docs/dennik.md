@@ -124,10 +124,57 @@ skončí chybou s radou na `--token`.
 - Agenti necommitujú. Píšuci agenti nemenia rovnaké súbory a denník v bloku práce píše len jeden.
 - `CLAUDE.md` má novú sekciu „Práca cez agentov“ a aktuálny stav projektu.
 
+**Prieskum prístupu ku kanálom** → [analyzy/pristup-ku-kanalom.md](analyzy/pristup-ku-kanalom.md)
+- Robil ho agent z dokumentácie a cudzieho kódu, bez volaní Discord API.
+- REST vie vrátiť vypočítané práva cez `GET /guilds/{id}/channels?permissions=true` (Userdoccers).
+- Záložná cesta: roly z `GET /users/@me/guilds/{id}/member` a lokálny výpočet z `permission_overwrites`.
+  `/guilds/{id}/roles` netreba.
+- Všetko je zatiaľ **[PREDPOKLAD]**. Overenie na účte používateľa je odložené spolu s rozhodnutím 9.
+- `is_hidden` (`___hidden___`, flag `1<<17`) je obfuskácia v gatewayi. REST ju nikdy nepošle, takže v `channels`
+  nič nefiltruje.
+- Discord oznámil (changelog 2026-08-12), že REST prestane vracať nedostupné kanály: pre botov od 2026-11-16,
+  pre používateľov neskôr.
+- Opt-in kanály sú len zobrazovacia preferencia.
+- **Rozhodnutie 9 (výpočet prístupu) je odložené s nízkou prioritou.** Používateľ povedal, že nie je dôležité,
+  ak by s ním boli problémy. Rozpracovaný `prototype/access_probe.py`, `src/discoop/permissions.py`
+  a `tests/test_permissions.py` sa zahodili.
+
+**Rozhodnutia 4 až 6** ([ADR 0011](rozhodnutia/0011-predvolene-spravanie-messages.md)): používateľ potvrdil, že
+vlákna sa predvolene sťahujú, predvolené okno je 24 h (celá história len cez `--from all`) a formát v agent
+režime je `text`.
+
+**Krok 2 implementácie (`messages` do konzoly):**
+- Hotové, 161 testov (90 nových). Discord v testoch nahrádza `httpx.MockTransport` s anonymizovanými správami.
+- Proti reálnemu Discordu to nebežalo. Lokálne bežali len `--help` a chybné vstupy, ktoré skončia pred volaním API.
+- **Obsah:**
+  - výber kanálov menom, ID alebo vzorom, aj viac `-c` naraz,
+  - časové okno prepočítané na snowflake, stránkovanie po 100 cez `before`, `--last N`,
+  - formáty `text` a `json`, v human režime farebný text,
+  - prílohy len ako meno, veľkosť a URL.
+- **Chyby podľa prieskumu prístupu:**
+  - `403` s kódom 50001/50013 → kód 5,
+  - iný `403` (anti-abuse, Cloudflare) → kód 1, lebo to nie je chýbajúci prístup,
+  - `404` → kód 4,
+  - prázdna prvá strana → poznámka o možnom chýbajúcom `READ_MESSAGE_HISTORY`.
+- **Odchýlky od návrhu** (podrobne v návrhu, sekcia 4.5):
+  - bez `--from` je okno 24 h pred `--to`,
+  - `--last` sa dá kombinovať s `--from`/`--to`,
+  - správy typu 20 a 23 (odpovede botov na príkazy) nie sú systémové,
+  - zóna v hlavičke je posun `UTC+01:00`, nie meno,
+  - `--all-channels` čaká na výpočet prístupu (rozhodnutie 9, odložené),
+  - z návrhu pribudli aj `--max-messages` a `--include-system`.
+- **Neoverené na účte:** `GET /channels/{id}` (ID kanála, ktoré nie je v cache), kódy chýb `403` a tvar forwardov.
+
 **Ďalej:**
-1. Rozhodnutie 9: výpočet prístupu ku kanálom. Treba overiť, ako pre user token získať roly člena.
-2. Potvrdiť zvyšné rozhodnutia z návrhu (sekcia 15, body 4 až 6). Týkajú sa `messages`.
-3. Krok 2: `messages` do konzoly (`text`/`json`), časové okno, `--last`.
+1. **Test kroku 2 používateľom:** `discoop messages` na jeho účte (VUT FIT, kanál `1282100102743330887`
+   z prototypu), v oboch režimoch a formátoch.
+2. Krok 3: prílohy, `--out`/`--zip`, manifest.
+3. **Odložené, nízka priorita: rozhodnutie 9, výpočet prístupu ku kanálom.**
+   - Dôvody: používateľ to nepovažuje za dôležité a Discord podľa changelogu 2026-08-12 plánuje, že REST
+     prestane vracať nedostupné kanály aj používateľom.
+   - Podklady a možný postup sú v [analyzy/pristup-ku-kanalom.md](analyzy/pristup-ku-kanalom.md), sekcia 9.
+
+Hotové z predchádzajúceho zoznamu: rozhodnutia 4 až 6 (ADR 0011) a krok 2 (čaká na test používateľa).
 
 ---
 

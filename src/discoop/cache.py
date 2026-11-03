@@ -92,6 +92,13 @@ class Cache:
         )
         return [Channel(*row) for row in rows]
 
+    def channel(self, channel_id: str) -> Channel | None:
+        """A cached channel of any server."""
+        row = self._db.execute(
+            "SELECT id, server_id, name, type, parent_id, position, topic FROM channels WHERE id = ?", (channel_id,)
+        ).fetchone()
+        return Channel(*row) if row else None
+
     def fetched_at(self, what: str) -> float | None:
         """Unix time of the last refresh of "servers" or "channels:<server_id>"."""
         row = self._db.execute("SELECT at FROM fetched WHERE what = ?", (what,)).fetchone()

@@ -13,6 +13,14 @@ API_BASE = "https://discord.com/api/v9"
 USER_AGENT = f"discoop/{__version__}"
 # Longer rate-limit waits than this abort instead of blocking the caller.
 MAX_RETRY_WAIT = 60.0
+# JSON error codes of a 403 that really mean "no permission" (Missing Access, Missing Permissions).
+# Other 403 codes, e.g. 10008 from the anti-abuse system or 40333 from Cloudflare, are blocks, not missing
+# access (docs/analyzy/pristup-ku-kanalom.md, section 7).
+MISSING_ACCESS_CODES = {50001, 50013}
+BLOCKED_HINT = (
+    "It is not a missing permission. Discord may be blocking requests (anti-abuse or Cloudflare):"
+    " wait a while, then try again with a longer delay, e.g. `discoop config set delay 2`."
+)
 
 
 class DiscordAPI:
@@ -98,18 +106,34 @@ class DiscordAPI:
         self._last_request = self._clock()
 
 
-def raise_for_status(response: httpx.Response) -> None:
+def error_details(response: httpx.Response) -> tuple[int | None, str]:
+    """The JSON error `code` and `message` of a failed response (None and "" if there are none)."""
+    try:
+        data = response.json()
+    except ValueError:
+        return None, ""
+    if not isinstance(data, dict):
+        return None, ""
+    code = data.get("code")
+    return (code if isinstance(code, int) else None), str(data.get("message") or "")
+
+
+def is_missing_access(response: httpx.Response) -> bool:
+    return response.status_code == 403 and error_details(response)[0] in MISSING_ACCESS_CODES
+
+
+def raise_for_status(response: httpx.Response, hint: str | None = None) -> None:
     if response.status_code < 400:
         return
-    try:
-        detail = response.json().get("message", "")
-    except ValueError:
-        detail = ""
+    code, detail = error_details(response)
     request = response.request
+    if code is not None:
+        detail = f"{detail} (code {code})" if detail else f"code {code}"
     raise DiscoopError(
         ExitCode.ERROR,
         f"Discord API error {response.status_code} on {request.method} {request.url.path}"
         + (f": {detail}" if detail else ""),
+        hint,
     )
 
 

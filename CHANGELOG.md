@@ -6,6 +6,20 @@ verzie podľa [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Pridané
+- **Krok 2 implementácie: `discoop messages`** vypíše správy kanálov do konzoly.
+  - **Výber:** `-c` meno, ID alebo vzor (`isc-*`), dá sa opakovať. Server cez `-s` alebo `default-server`,
+    holé ID kanála server nepotrebuje.
+  - **Časové okno:** `--from`/`--to` (dátum, dátum a čas, `48h`/`7d`/`2w`, `now`, `--from all`), predvolene 24 h.
+    `--last N` vráti N najnovších správ. Hranice okna sa prepočítajú na snowflake, stránkuje sa po 100 cez `before`.
+  - **Formáty:** `text` (úsporný pre agentov, farebný v human režime) a `json`. Mentions, custom emoji
+    a časové značky sú prepísané na čitateľný text. Prílohy sú vo výstupe len ako meno, veľkosť a URL.
+  - `--max-messages` (predvolene 5000 na kanál, potom varovanie a `truncated`) a `--include-system`.
+  - **Chyby:** `403` s kódom 50001/50013 → kód 5, iný `403` (anti-abuse, Cloudflare) → kód 1, `404` → kód 4,
+    zlé vstupy → kód 8 ešte pred volaním API. Pri viacerých kanáloch sa nedostupný kanál preskočí s varovaním.
+  - Nové moduly `snowflake.py`, `scrape.py`, `normalize.py`, `render/text.py`, `render/jsonout.py`.
+  - 161 testov (90 nových), Discord je v nich nahradený `httpx.MockTransport` s anonymizovanými správami.
+- ADR 0011: vlákna predvolene zapnuté, predvolené okno 24 h, predvolený formát v agent režime `text`
+  (rozhodnutia 4 až 6 z návrhu).
 - ADR 0010: prácu robia agenti, hlavný Claude ich riadi, kontroluje a commituje. Pravidlá v `CLAUDE.md`,
   sekcia „Práca cez agentov“.
 - **Krok 1 implementácie:** `discoop servers`, `discoop channels`, `discoop config`.
@@ -43,6 +57,10 @@ verzie podľa [SemVer](https://semver.org/).
 - ADR 0005: QR login v termináli bez prehliadača.
 
 ### Zmenené
+- Návrh: rozhodnutia 4 až 6 prijaté (ADR 0011). Sekcia 4.5 opisuje implementovaný `messages` a odchýlky,
+  sekcia 9 mapovanie chýb `403`/`404` podľa analýzy prístupu ku kanálom.
+- Chybové hlášky Discord API obsahujú aj JSON kód chyby (`… (code 50035)`).
+- Návrh a denník: rozhodnutie 9 (výpočet prístupu ku kanálom) je odložené s nízkou prioritou.
 - `CLAUDE.md`: aktuálny stav projektu namiesto „návrh, zatiaľ bez kódu“.
 - Analýzy doplnené o výsledky prototypu:
   - `discord-analyza.md`, sekcia 15,

@@ -110,7 +110,8 @@ discoop channels [-s SERVER] [--refresh] [--type text,forum,...] [--flat]
 - **Skryté kanály** (`___hidden___`, flag `1<<17`) sa nevypisujú.
 - **Pozor, zistené pri teste 2026-11-03:** REST vracia **aj kanály, ktoré používateľ nevidí**, a to s reálnym menom
   (napr. kategórie `moderation`, `logging`). `channels` ich zatiaľ vypisuje tiež.
-  - Riešenie je otvorené rozhodnutie 9 (sekcia 15): vypočítať prístup z `permission_overwrites` a rolí používateľa.
+  - Riešenie je rozhodnutie 9 (sekcia 15): vypočítať prístup z `permission_overwrites` a rolí používateľa.
+    Od 2026-11-03 je **odložené** s nízkou prioritou.
   - Prepínač `--include-hidden` sa môže vrátiť ako „ukáž aj nedostupné“.
 - **Zdroj:** `GET /guilds/{id}/channels` **[OVERENÉ]**.
 - **Bez prístupu:** `403`/`404` na server skončí kódom `5`.
@@ -159,6 +160,62 @@ discoop messages -s "VUT FIT" -c isc-public --from 7d
 discoop messages -c 1286436864789843999 --from 2026-10-01 --to 2026-10-31 --zip D:\exporty\isc-oktober.zip
 discoop messages -c "isc-*" --since-last --agent
 ```
+
+**Implementované 2026-11-03 (krok 2, čaká na test používateľa):**
+- **Prepínače:** `-c` (opakovateľný), `-s`, `--from`, `--to`, `--last`, `--format text|json`, `--include-system`,
+  `--max-messages`. Prepínače neskorších krokov zatiaľ nie sú (`--threads/--no-threads`, `--out`, `--zip`,
+  `--print`, `--no-files`, `--since-last`, `--raw`, `--delay`, formáty `md` a `jsonl`). Tempo je z `config set delay`.
+- **Výber kanálov:**
+  - `-c` berie meno, ID alebo glob vzor. Mená a vzory sa hľadajú v kanáloch servera z `-s` alebo `default-server`
+    a **preskakujú kategórie**, takže kategória `general` a kanál `general` sa nebijú.
+  - **Holé ID bez `-s`** sa hľadá v cache všetkých serverov. Ak tam nie je, nástroj zavolá `GET /channels/{id}`
+    **[PREDPOKLAD]**, z `guild_id` zistí server a stiahne jeho zoznam kanálov. `default-server` sa pri ID nepoužije.
+  - Čítajú sa textové, hlasové a stage kanály, oznamy a vlákna zadané cez ID. Kategória alebo fórum skončí
+    kódom `8`. Vzor, ktorý nájde len kanály bez správ (napr. fóra), skončí kódom `4`.
+  - **`--all-channels` zatiaľ nie je.** REST vracia aj nedostupné kanály a bez výpočtu prístupu (rozhodnutie 9, odložené)
+    by skončil stovkami `403`.
+- **Časové okno:**
+  - Formáty podľa návrhu, navyše `now`, čas so zónou (`2026-10-01T14:00+02:00`, `…Z`) a medzera namiesto `T`.
+  - Relatívny čas má len jednotky `h`, `d`, `w`. `1m` je chyba, lebo sa dá čítať ako minúta aj mesiac.
+  - **Bez `--from` je okno 24 h pred `--to`.** Pri predvolenom `--to now` sú to posledné 24 h ([ADR 0011](rozhodnutia/0011-predvolene-spravanie-messages.md)).
+  - `--from` platí vrátane, `--to` bez.
+  - **`--last N`** sa dá kombinovať s `--from`/`--to`: vráti N najnovších správ v okne. Bez `--from` berie celú
+    históriu, nie 24 h.
+  - Zlá hodnota, `--to all` alebo `--from` po `--to` skončí kódom `8` ešte pred volaním API.
+- **Limity:**
+  - `--max-messages` (predvolene 5000 na kanál) je podľa návrhu. Pri dosiahnutí limitu nástroj vypíše varovanie
+    na stderr, hlavička má `truncated: yes`, JSON `"truncated": true` a exit kód je `0`.
+  - `--last N` sa za orezanie nepovažuje, je to presne to, čo sa pýtalo.
+- **Systémové správy:** za bežné sa okrem typov 0 a 19 považujú aj 20 a 23 (odpovede botov na slash
+  a kontextové príkazy). Návrh mal len 0 a 19. `--include-system` ukáže aj ostatné.
+- **Formát `text`** je podľa 6.2 s týmito odchýlkami a doplnkami:
+  - Príloha je `[file] meno veľkosť URL`. Lokálna cesta pribudne s exportom.
+  - Hlavička nemá `threads:` (vlákna sú krok 4). Zóna je ako posun `UTC+01:00`, nie meno
+    (IANA meno sa na Windows bez ďalšej knižnice spoľahlivo zistiť nedá).
+  - Riadok autora môže mať značky `[bot]`, `(edited)`, `(pinned)`, `(forwarded)`, `(system message, type N)`.
+  - `[thread] "meno" N messages` pri správe, z ktorej vzniklo vlákno.
+  - Embedy podľa typu: `[link]`, `[gif]`, `[image]`, `[video]`, `[embed]`. Rich embed (boti) má aj popis a polia,
+    odsadené o 4 medzery. Ďalej `[sticker]`.
+  - `<t:unix>` sa prepíše na lokálny čas a `</príkaz:id>` na `/príkaz`. `<@&id>` je vždy `@role:<id>`, mená rolí sa
+    nesťahujú. Neznámy používateľ alebo kanál je `@user:<id>`, `#channel:<id>`.
+  - Reply bez `referenced_message` je `reply-to (message not available)`. Citát má najviac 80 znakov.
+  - Medzi správami nie je prázdny riadok (menej tokenov). Správa začína riadkom `[YYYY-MM-DD HH:MM]`.
+- **Formát `json`:** jeden objekt `{from, to, last, truncated, channels: [...], messages: [...]}`.
+  - `channels` má pri každom kanáli server, kanál, počet správ a súborov a `truncated`.
+  - Správy majú schému zo 6.2, doplnené sú polia `type`, `stickers`, `forwarded` a `links[].description`.
+  - V prílohách chýba `path` (až pri exporte). `thread` je zatiaľ vždy `null`.
+  - `text` má prepísané mentions rovnako ako formát `text`.
+  - V agent režime je JSON na jednom riadku, v human režime odsadený.
+- **Human režim** (návrh presný vzhľad neopisoval): rovnaký layout ako `text`, s farbami a s prázdnym riadkom
+  medzi správami. Dlhé riadky zalamuje terminál, nie Rich, aby URL ostali celé. Počas sťahovania beží spinner
+  na stderr. Poznámka na konci pripomenie, že predvolené okno je 24 h.
+- **Forwardy** (`message_snapshots` pri `message_reference.type 1`) sa zobrazia s textom a prílohami pôvodnej
+  správy a značkou `(forwarded)`. Tvar je **[PREDPOKLAD]** (analýza, sekcia 4).
+- **Viac kanálov:** nedostupný (`NO_ACCESS`) alebo neznámy (`NOT_FOUND`) kanál sa preskočí s varovaním. Keď sa
+  nedá prečítať žiadny, koniec s kódom prvej chyby. Ostatné chyby ukončia celý beh.
+- **Prázdna prvá strana** (`200 []`): poznámka na stderr, že pred koncom okna nie sú žiadne správy, alebo chýba
+  právo `READ_MESSAGE_HISTORY` (agent ju vidí s `--verbose`). Keď kanál staršie správy má a v okne len nie sú,
+  poznámka sa nevypíše. Chyby `403`/`404` sú v sekcii 9.
 
 ### 4.6 `config`
 
@@ -326,7 +383,14 @@ Cesty k prílohám v `.md` a `.jsonl` sú relatívne. AI s prístupom k súborom
   Opakovaný `429` predĺži `delay` na dvojnásobok.
 - `5xx` a sieťové chyby: 3 pokusy s backoffom.
 - `401`: koniec s kódom `2` (treba login).
-- `403` na kanál (Missing Access): kanál sa preskočí s varovaním. Pri jedinom zadanom kanáli koniec s kódom `5`.
+- `403` na kanál s kódom `50001` (Missing Access) alebo `50013` (Missing Permissions): kanál sa preskočí
+  s varovaním. Pri jedinom zadanom kanáli koniec s kódom `5`.
+- `403` s iným kódom (`10008` z anti-abuse systému, `40333` z Cloudflare, …) **nie je „bez prístupu“**: koniec
+  s kódom `1`, hláška obsahuje `message` z odpovede a rada je počkať a zvýšiť `delay`.
+- `404` (`10003` Unknown Channel): kód `4` a rada `discoop channels --refresh`.
+- `200 []` môže znamenať aj chýbajúce `READ_MESSAGE_HISTORY`. Odlíšiť sa to dá až výpočtom prístupu (rozhodnutie 9, odložené).
+- Kódy chýb sú **[PREDPOKLAD]** podľa [analyzy/pristup-ku-kanalom.md](analyzy/pristup-ku-kanalom.md), sekcia 7.
+  Implementované 2026-11-03 v `messages` (krok 2).
 
 **Rozsah volaní:** nástroj nikdy nevolá `ack`, `science`, `metrics` ani nič, čo zapisuje.
 
@@ -430,6 +494,14 @@ Scoop/
   docs/
 ```
 
+**Stav 2026-11-03 (po kroku 2):** správy sú v týchto moduloch, mierne inak ako v strome vyššie:
+- `snowflake.py`: čas ↔ snowflake, parsovanie `--from/--to`, okno,
+- `scrape.py`: stránkovanie správ v okne (vlákna pribudnú v kroku 4),
+- `normalize.py`: surová správa → `models.Message`, prepis mentions (nový modul),
+- `models.py`: dataclasses pre správy pribudli k serverom a kanálom (namiesto `model.py`),
+- `render/text.py`: formát `text` pre agentov aj Rich výstup pre človeka, jeden layout (namiesto `plain.py` a `human.py`),
+- `render/jsonout.py`: formát `json`.
+
 ## 14. Postup implementácie
 
 0. **Spike / prototyp** (2026-11-03: **hotové**. Login aj probe prešli, výsledky v analýzach):
@@ -442,7 +514,8 @@ Scoop/
 
    Spúšťa ho používateľ, pretože beží na jeho účte. Výsledky sa zapíšu do analýzy.
 1. **Jadro:** config, cache, API klient, `servers`, `channels`, `resolve`, `status`.
-2. **`messages`** → `text`/`json` do konzoly, časové okno, `--last`.
+2. **`messages`** → `text`/`json` do konzoly, časové okno, `--last` (2026-11-03: **hotové**, čaká na test
+   používateľa, podrobnosti v 4.5).
 3. **Prílohy** + `--out` / `--zip` + manifest.
 4. **Vlákna a fóra**, `threads`.
 5. **Human režim** (Rich), `agent-guide`, help texty.
@@ -457,11 +530,11 @@ Scoop/
 | 1 | Jazyk | Python: **prijaté** ([ADR 0006](rozhodnutia/0006-python.md)) |
 | 2 | Názov príkazu | `discoop`: **prijaté** ([ADR 0004](rozhodnutia/0004-nazov-discoop.md)) |
 | 3 | Jazyk helpu a hlášok | angličtina: **prijaté** ([ADR 0007](rozhodnutia/0007-anglictina-v-nastroji.md)) |
-| 4 | Vlákna predvolene | zapnuté |
-| 5 | Predvolené časové okno | 24 h, celá história len cez `--from all` |
-| 6 | Predvolený formát v agent režime | `text` (JSON cez `--format json`) |
+| 4 | Vlákna predvolene | zapnuté: **prijaté** ([ADR 0011](rozhodnutia/0011-predvolene-spravanie-messages.md)) |
+| 5 | Predvolené časové okno | 24 h, celá história len cez `--from all`: **prijaté** ([ADR 0011](rozhodnutia/0011-predvolene-spravanie-messages.md)) |
+| 6 | Predvolený formát v agent režime | `text` (JSON cez `--format json`): **prijaté** ([ADR 0011](rozhodnutia/0011-predvolene-spravanie-messages.md)) |
 | 7 | Záložný login | **prijaté** ([ADR 0008](rozhodnutia/0008-zalozny-login-token.md)): `discoop login --token`, token zo skrytého promptu alebo stdin, nie z argumentu, aby neostal v histórii shellu. Prihlásenie cez prehliadač nie vo v1 (ťažká závislosť na každom OS). Email a heslo nie (captcha, práca s heslom) |
-| 9 | Kanály bez prístupu v `channels` | Vypočítať prístup (`VIEW_CHANNEL`, pri čítaní aj `READ_MESSAGE_HISTORY`):<br>• základné práva servera z `permissions` v `/users/@me/guilds`, vlastník servera má všetky práva,<br>• prepisy `permission_overwrites` pre @everyone, roly používateľa a jeho samotného.<br>Roly používateľa treba získať (`GET /users/@me/guilds/{id}/member`, overiť). Nedostupné kanály predvolene skryť, `--include-hidden` ich ukáže |
+| 9 | Kanály bez prístupu v `channels` | **Odložené** (2026-11-03, nízka priorita): používateľ to nepovažuje za dôležité a Discord podľa changelogu 2026-08-12 plánuje, že REST prestane vracať nedostupné kanály aj používateľom. Podklady: [analyzy/pristup-ku-kanalom.md](analyzy/pristup-ku-kanalom.md).<br>Pôvodný návrh: vypočítať prístup (`VIEW_CHANNEL`, pri čítaní aj `READ_MESSAGE_HISTORY`):<br>• základné práva servera z `permissions` v `/users/@me/guilds`, vlastník servera má všetky práva,<br>• prepisy `permission_overwrites` pre @everyone, roly používateľa a jeho samotného.<br>Roly používateľa treba získať (`GET /users/@me/guilds/{id}/member`, overiť). Nedostupné kanály predvolene skryť, `--include-hidden` ich ukáže |
 | 8 | `login` v agent režime | **prijaté** ([ADR 0009](rozhodnutia/0009-login-v-agent-rezime.md)): odmietnuť s kódom `2` a pokynom „požiadaj používateľa, nech spustí `discoop login`“. Prihlásenie potrebuje človeka s mobilom a QR je citlivý |
 
 **Nápady na neskôr (v2):** lokálny archív všetkých správ v SQLite s fulltextom, `discoop sync` pre zoznam

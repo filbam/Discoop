@@ -22,6 +22,7 @@ Rozhodnutia, ktoré ešte nie sú vyriešené, sú v [navrh-nastroja.md, sekcia 
 | [0008](0008-zalozny-login-token.md) | Záložný login `discoop login --token` | Prijaté | 2026-11-03 |
 | [0009](0009-login-v-agent-rezime.md) | `login` v agent režime odmietne | Prijaté | 2026-11-03 |
 | [0010](0010-praca-cez-agentov.md) | Práca cez agentov, hlavný Claude ich riadi | Prijaté | 2026-11-03 |
+| [0011](0011-predvolene-spravanie-messages.md) | Predvolené správanie `messages`: vlákna zapnuté, okno 24 h, formát `text` | Prijaté | 2026-11-03 |
 
 ## Šablóna
 

@@ -86,6 +86,13 @@ class Output:
         else:
             self.err_console.print(Text(text, style="dim"))
 
+    def warning(self, text: str) -> None:
+        """Something about the result that must not go unnoticed (stderr, also without --verbose)."""
+        if self.agent:
+            print(f"WARNING: {text}", file=sys.stderr)
+        else:
+            self.err_console.print(Text("Warning: ", style="bold yellow") + Text(text))
+
     def error(self, err: DiscoopError) -> None:
         if self.agent:
             print(f"ERROR {err.name}: {err.message}", file=sys.stderr)
