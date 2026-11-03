@@ -6,6 +6,18 @@ verzie podľa [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Pridané
+- **Prvý prototyp:** Python balík `discoop` (uv, Typer, Rich).
+  - `discoop login`: QR kód v termináli cez remote auth gateway, alebo `--token` zo skrytého promptu/stdin.
+    Voliteľný anonymizovaný `--trace`. V agent režime login odmietne.
+  - `discoop status` a `discoop logout`.
+  - Režimy `--agent`/`--human`:
+    - help s poznámkou pre AI agentov,
+    - chyby `ERROR <CODE>` / `HINT` a stabilné exit kódy.
+  - Token sa ukladá do keyringu OS, na Linuxe bez Secret Service do súboru `0600`.
+  - REST klient s tempom, retry pri 429 a 5xx a 401 → kód 2.
+  - Testy (42): kryptografia, celý QR tok proti falošnému gatewayu, trace bez tajomstiev, CLI, token store.
+- `prototype/probe.py`: jednorazové overenie otvorených bodov API.
+- ADR 0006–0009: Python, angličtina v nástroji, záložný `login --token`, login v agent režime.
 - Analýza dát Discord web klienta: [docs/analyzy/discord-analyza.md](docs/analyzy/discord-analyza.md).
 - Návrh nástroja `discoop`: [docs/navrh-nastroja.md](docs/navrh-nastroja.md).
 - Štruktúra dokumentácie:

@@ -405,7 +405,8 @@ Scoop/
 
 ## 14. Postup implementácie
 
-0. **Spike / prototyp:** QR `login` + malý skript, ktorý overí body [PROTOTYP]:
+0. **Spike / prototyp** (2026-11-03: kód hotový, čaká sa na spustenie používateľom, pozri `prototype/README.md`):
+   QR `login` + malý skript, ktorý overí body [PROTOTYP]:
    - QR login: či gateway vyžaduje `Origin`, či `remote-auth/login` pýta captchu, reálne rámce po naskenovaní,
    - `GET /users/@me/guilds` a `GET /guilds/{id}/channels` s user tokenom,
    - `limit=100`,

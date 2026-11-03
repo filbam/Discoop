@@ -61,9 +61,26 @@ jediná v okne, ktoré si agent vytvoril.
 - Opatrenie: pred otvorením `discord.com/login` vo vstavanom prehliadači používateľa upozorniť (CLAUDE.md, ADR 0003).
 - Karta vstavaného prehliadača je presmerovaná z login stránky preč, aby negenerovala nové QR.
 
+**Prvý prototyp.** Rozhodnutia z otázok zapísané ako ADR 0006–0009:
+- Python, angličtina v nástroji, `login --token`, login v agent režime odmietne.
+- Pravidlo commitov: commit sám po krokoch, push len na pokyn.
+- uv nainštalované cez winget.
+
+Kód (`src/discoop/`, 42 testov):
+- `login` (QR + `--token` + `--trace`), `status`, `logout`, režimy human/agent, keyring, REST klient.
+- `prototype/probe.py` na overenie REST endpointov.
+
+**Overené na reálnom Discorde** (`login --handshake-only`): QR gateway prijal spojenie z terminálového klienta
+(Python `websockets` s `Origin: https://discord.com`). Handshake prebehol až po `pending_remote_init`.
+Do účtu sa nikto neprihlásil.
+
+**Odchýlka od plánu:** neznáme `op` sa (ako vo webovom klientovi) ignorujú a iba zapíšu do trace. Neznámy close kód
+skončí chybou s radou na `--token`.
+
 **Ďalej:**
-1. Potvrdiť otvorené rozhodnutia z návrhu (sekcia 15, body 1 a 3 až 8).
-2. Prototyp: QR `login` + skript na overenie otvorených bodov API.
+1. Používateľ spustí `discoop login --trace …` a `prototype/probe.py` ([prototype/README.md](../prototype/README.md)).
+2. Výsledky zapísať do `analyzy/` (body označené „overiť prototypom“) a do návrhu.
+3. Potvrdiť zvyšné rozhodnutia z návrhu (sekcia 15, body 4 až 6).
 
 ---
 

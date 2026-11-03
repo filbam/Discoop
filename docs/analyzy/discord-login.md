@@ -338,8 +338,14 @@ handshaku (zistenia sú z [OVERENÉ] JS a prevádzky). Neoverené ostáva, či s
 
 ## 7. Neoverené / otvorené otázky
 
-- Či gateway **vyžaduje** `Origin: https://discord.com` (prípadne `User-Agent`) a aké close kódy vracia pri odmietnutí.
-  Overí to iba prototyp, ktorý spustí používateľ.
+> **Doplnené 2026-11-03, prototyp** (`discoop login --handshake-only --trace`, bez prihlásenia):
+> - Gateway **prijal klienta mimo prehliadača** (Python `websockets`, `Origin: https://discord.com`,
+>   `User-Agent: discoop/0.1.0`) a prešiel celý handshake po `pending_remote_init` **[OVERENÉ]** (prototyp).
+> - Dĺžky polí sedia s analýzou: `encoded_public_key` 392, `encrypted_nonce` 344, `nonce` 254, `fingerprint` 43 znakov.
+> - `heartbeat_interval` 41 250 ms, `timeout_ms` 245 280 ms (v rozsahu ~4 – 4,5 min).
+
+- Či gateway **vyžaduje** `Origin: https://discord.com`: s ním funguje (pozri vyššie). Bez neho sa neskúšalo.
+  Close kódy pri odmietnutí sú neznáme.
 - Tvar a obsah `pending_ticket`, `pending_login`, `cancel` a odpovede `remote-auth/login` je iba zo zdrojového kódu.
   Reálne rámce som nevidel (QR som neskenoval).
 - Či `POST /users/@me/remote-auth/login` pri ne-prehliadačovom klientovi vracia captchu a či potrebuje
