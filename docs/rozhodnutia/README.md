@@ -17,6 +17,10 @@ Rozhodnutia, ktoré ešte nie sú vyriešené, sú v [navrh-nastroja.md, sekcia 
 | [0003](0003-pravidla-pre-agentov-v-prehliadaci.md) | Pravidlá pre agentov v prehliadači používateľa | Prijaté | 2026-11-03 |
 | [0004](0004-nazov-discoop.md) | Názov nástroja `discoop` | Prijaté | 2026-11-03 |
 | [0005](0005-qr-login-bez-prehliadaca.md) | QR login v termináli bez prehliadača | Prijaté | 2026-11-03 |
+| [0006](0006-python.md) | Implementácia v Pythone (uv, Typer, Rich, …) | Prijaté | 2026-11-03 |
+| [0007](0007-anglictina-v-nastroji.md) | Help a hlášky nástroja po anglicky | Prijaté | 2026-11-03 |
+| [0008](0008-zalozny-login-token.md) | Záložný login `discoop login --token` | Prijaté | 2026-11-03 |
+| [0009](0009-login-v-agent-rezime.md) | `login` v agent režime odmietne | Prijaté | 2026-11-03 |
 
 ## Šablóna
 

@@ -20,6 +20,9 @@ config.toml
 exports/
 *.zip
 
+# Prototype outputs (probe reports, login traces)
+prototype/out/
+
 # Editors and OS
 .vscode/
 .idea/

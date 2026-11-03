@@ -426,14 +426,14 @@ Scoop/
 
 | # | Otázka | Návrh |
 |---|---|---|
-| 1 | Jazyk | Python |
+| 1 | Jazyk | Python: **prijaté** ([ADR 0006](rozhodnutia/0006-python.md)) |
 | 2 | Názov príkazu | `discoop`: **prijaté** ([ADR 0004](rozhodnutia/0004-nazov-discoop.md)) |
-| 3 | Jazyk helpu a hlášok | angličtina |
+| 3 | Jazyk helpu a hlášok | angličtina: **prijaté** ([ADR 0007](rozhodnutia/0007-anglictina-v-nastroji.md)) |
 | 4 | Vlákna predvolene | zapnuté |
 | 5 | Predvolené časové okno | 24 h, celá história len cez `--from all` |
 | 6 | Predvolený formát v agent režime | `text` (JSON cez `--format json`) |
-| 7 | Záložný login | `discoop login --token`: token zo skrytého promptu alebo stdin, nie z argumentu, aby neostal v histórii shellu. Prihlásenie cez prehliadač nie vo v1 (ťažká závislosť na každom OS). Email a heslo nie (captcha, práca s heslom) |
-| 8 | `login` v agent režime | odmietnuť s kódom `2` a pokynom „požiadaj používateľa, nech spustí `discoop login`“. Prihlásenie potrebuje človeka s mobilom a QR je citlivý |
+| 7 | Záložný login | **prijaté** ([ADR 0008](rozhodnutia/0008-zalozny-login-token.md)): `discoop login --token`, token zo skrytého promptu alebo stdin, nie z argumentu, aby neostal v histórii shellu. Prihlásenie cez prehliadač nie vo v1 (ťažká závislosť na každom OS). Email a heslo nie (captcha, práca s heslom) |
+| 8 | `login` v agent režime | **prijaté** ([ADR 0009](rozhodnutia/0009-login-v-agent-rezime.md)): odmietnuť s kódom `2` a pokynom „požiadaj používateľa, nech spustí `discoop login`“. Prihlásenie potrebuje človeka s mobilom a QR je citlivý |
 
 **Nápady na neskôr (v2):** lokálny archív všetkých správ v SQLite s fulltextom, `discoop sync` pre zoznam
 sledovaných kanálov, zhlukovanie po sebe idúcich správ jedného autora (menej tokenov), filter `--author`,

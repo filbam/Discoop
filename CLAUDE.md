@@ -42,7 +42,19 @@ Pravidlá:
 - **Prihlásenie na GitHub:** ako `filbam` (`credential.https://github.com.username`). Predvolený účet
   `FilipBambura` súkromné repo nevidí.
 - **Commit správy:** po anglicky, s Co-Authored-By riadkom.
-- **Commit a push:** iba na pokyn používateľa.
+- **Commit:** sám po každom hotovom a otestovanom kroku (dohodnuté 2026-11-03).
+- **Push:** iba na pokyn používateľa.
+
+## Vývoj
+
+- **Jazyk a nástroje:** Python 3.12+, balíky cez uv ([ADR 0006](docs/rozhodnutia/0006-python.md)), kód v `src/discoop/`, testy v `tests/`.
+- **uv mimo PATH:** v shelli Claude môže chýbať. Vtedy
+  `export PATH="$PATH:/c/Users/Filip/AppData/Local/Microsoft/WinGet/Packages/astral-sh.uv_Microsoft.Winget.Source_8wekyb3d8bbwe"`.
+- **Príkazy:** `uv sync`, `uv run pytest`, `uv run discoop …`.
+- **Help a hlášky nástroja** sú po anglicky ([ADR 0007](docs/rozhodnutia/0007-anglictina-v-nastroji.md)).
+- **Discord API** volá len prototyp alebo nástroj, ktorý spúšťa používateľ. Výnimka: `login --handshake-only`
+  (neprihlásené spojenie s QR gatewayom) na overenie spojenia.
+- **Výstupy prototypu** (`prototype/out/`) sú anonymizované a gitom ignorované.
 
 ## Práca s Discordom používateľa
 
