@@ -1,11 +1,12 @@
 """Command line entry point."""
 
 import sys
+from pathlib import Path
 from typing import Any
 
 import typer
 
-from discoop import __version__, paths
+from discoop import __version__, login as login_flow, paths
 from discoop.api import DiscordAPI
 from discoop.errors import DiscoopError, ExitCode, auth_required
 from discoop.output import Output, detect_agent_mode
@@ -62,6 +63,40 @@ def _root(
     if ctx.invoked_subcommand is None:
         typer.echo(ctx.get_help())
         raise typer.Exit()
+
+
+@app.command()
+def login(
+    ctx: typer.Context,
+    token: bool = typer.Option(
+        False, "--token", help="Paste a token (hidden prompt or stdin) instead of scanning a QR code."
+    ),
+    trace: Path | None = typer.Option(
+        None, "--trace", dir_okay=False, help="Write an anonymized protocol trace (JSON lines) to this file."
+    ),
+    handshake_only: bool = typer.Option(False, "--handshake-only", hidden=True),
+) -> None:
+    """Log in by scanning a QR code with the Discord mobile app."""
+    out: Output = ctx.obj
+    if out.agent:
+        raise DiscoopError(
+            ExitCode.AUTH_REQUIRED,
+            "Login needs the human user: it shows a QR code to scan with their phone.",
+            "Ask the user to run `discoop login` in their own terminal.",
+        )
+    store = TokenStore.default()
+    if token:
+        result = login_flow.token_login(store)
+    else:
+        result = login_flow.qr_login(out.console, store, trace_path=trace, handshake_only=handshake_only)
+    if result is None:
+        out.message("Handshake OK: the gateway accepted the connection and issued a QR code. Not logged in.")
+    else:
+        me, location = result
+        out.message(f"Logged in as {display_name(me)}.", style="bold green")
+        out.note(f"Token stored in {location}.")
+    if trace is not None:
+        out.note(f"Anonymized trace written to {trace}.")
 
 
 @app.command()

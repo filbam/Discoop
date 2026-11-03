@@ -1,71 +1,14 @@
 """The whole QR login conversation against a local fake of Discord's remote auth gateway."""
 
-import base64
-import hashlib
 import json
-import os
 
 import pytest
-from cryptography.hazmat.primitives import serialization
+from fake_gateway import TICKET, FakeGateway
 from websockets.asyncio.server import serve
 
 from discoop.errors import DiscoopError, ExitCode
-from discoop.remote_auth.crypto import OAEP_SHA256, b64url
 from discoop.remote_auth.protocol import wait_for_ticket
 from discoop.remote_auth.trace import Trace
-
-TICKET = "TICKET-SECRET-VALUE"
-
-
-class FakeGateway:
-    """Plays one scripted session per connection: complete, expire, cancel, qr_only or odd_op."""
-
-    def __init__(self, *sessions: str) -> None:
-        self.sessions = list(sessions)
-        self.origins: list[str | None] = []
-        self.proofs_ok = 0
-        self.heartbeats = 0
-        self.secrets: list[str] = []
-
-    async def handler(self, ws) -> None:
-        behavior = self.sessions.pop(0)
-        self.origins.append(ws.request.headers.get("Origin"))
-        await ws.send(json.dumps({"op": "hello", "heartbeat_interval": 50, "timeout_ms": 120000}))
-        nonce = os.urandom(190)
-        public_key = None
-        async for raw in ws:
-            message = json.loads(raw)
-            op = message["op"]
-            if op == "heartbeat":
-                self.heartbeats += 1
-                await ws.send(json.dumps({"op": "heartbeat_ack"}))
-            elif op == "init":
-                spki = base64.b64decode(message["encoded_public_key"])
-                public_key = serialization.load_der_public_key(spki)
-                encrypted = base64.b64encode(public_key.encrypt(nonce, OAEP_SHA256)).decode()
-                self.secrets += [message["encoded_public_key"], encrypted]
-                await ws.send(json.dumps({"op": "nonce_proof", "encrypted_nonce": encrypted}))
-            elif op == "nonce_proof":
-                if message["nonce"] == b64url(nonce):
-                    self.proofs_ok += 1
-                fingerprint = b64url(hashlib.sha256(spki).digest())
-                self.secrets += [message["nonce"], fingerprint]
-                await ws.send(json.dumps({"op": "pending_remote_init", "fingerprint": fingerprint}))
-                if behavior == "expire":
-                    await ws.close(4003, "Handshake Timeout")
-                    return
-                if behavior == "cancel":
-                    await ws.send(json.dumps({"op": "cancel"}))
-                elif behavior == "odd_op":
-                    await ws.send(json.dumps({"op": "something_new"}))
-                    await ws.close(4000, "Odd")
-                    return
-                elif behavior == "complete":
-                    payload = public_key.encrypt(b"123456789:0:0:some_user", OAEP_SHA256)
-                    encrypted_payload = base64.b64encode(payload).decode()
-                    self.secrets.append(encrypted_payload)
-                    await ws.send(json.dumps({"op": "pending_ticket", "encrypted_user_payload": encrypted_payload}))
-                    await ws.send(json.dumps({"op": "pending_login", "ticket": TICKET}))
 
 
 class RecordingListener:
@@ -146,7 +89,9 @@ async def test_trace_has_shapes_but_no_secrets(tmp_path):
     for secret in [TICKET, *gateway.secrets]:
         assert secret not in text
     ops = [
-        record["frame"]["op"] for record in map(json.loads, text.splitlines()) if record["kind"] == "ws"
+        record["frame"]["op"]
+        for record in map(json.loads, text.splitlines())
+        if record["kind"] == "ws" and not record["frame"]["op"].startswith("heartbeat")
     ]
     assert ops[:5] == ["hello", "init", "nonce_proof", "nonce_proof", "pending_remote_init"]
     assert "pending_login" in ops
