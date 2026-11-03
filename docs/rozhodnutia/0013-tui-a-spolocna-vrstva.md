@@ -1,8 +1,12 @@
 # 0013: Interaktívne terminálové rozhranie (TUI) a spoločná servisná vrstva
 
-- **Stav:** Prijaté
+- **Stav:** Prijaté, rozloženie TUI nahradené ADR 0014
 - **Dátum:** 2026-11-03
 - **Rozhodol:** používateľ
+
+> **Poznámka (2026-11-03):** Spoločná servisná vrstva (`service.py`), lazy import Textualu, spúšťanie a zoskupovanie úloh
+> ostávajú platné. Rozloženie TUI (tri stĺpce, záložky), ovládanie a Help sa riadia
+> [ADR 0014](0014-tui-klavesnica-jeden-strom.md).
 
 ## Kontext
 

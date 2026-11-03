@@ -31,3 +31,6 @@ porušuje podmienky Discordu.
 | P15 | 2026-11-03 | Premenovať „agent mode“ na **plain mode** (`--plain`), ktorý jasne hovorí, že výstup je čistý text bez farieb a vykresľovania. V helpe ostáva poznámka, že je vhodný pre AI agentov a skripty. Ponechať `--agent` ako skrytý alias pre spätnú kompatibilitu. |
 | P16 | 2026-11-03 | Vizuálne interaktívne prostredie v termináli (TUI) v štýle Discordu/prieskumníka ovládané klávesnicou: načítanie serverov a kanálov (jednotlivo aj všetkých naraz), zaklikávanie kanálov na export s časovým oknom (globálnym aj individuálnym), voľba `safe`/`fast` a cieľa exportu, živý progress a dynamické prispôsobenie veľkosti okna terminálu. Funguje ako nadstavba nad jadrom nástroja. |
 | P17 | 2026-11-03 | V TUI je dostupná obrazovka Help (`F1`/`?`) s vysvetlením používania rozhrania a sekciou pre príkazový riadok, ktorá vypisuje to isté čo `discoop --help`. |
+| P18 | 2026-11-03 | TUI sa primárne ovláda klávesnicou, hlavne šípkami. Myš ostáva len ako doplnok. Navigácia šípkami musí fungovať všade (strom, zoznamy, formulár). |
+| P19 | 2026-11-03 | Zoznamy kanálov servera sú v TUI predvolene zbalené. |
+| P20 | 2026-11-03 | TUI má byť jednoduchšie, viac terminálové a uhladené, s opravenými chybami: všetky ovládacie prvky majú viditeľný text a rozhranie nezadrháva. |
