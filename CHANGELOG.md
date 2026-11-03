@@ -11,10 +11,11 @@ verzie podľa [SemVer](https://semver.org/).
     - Plnohodnotné vizuálne terminálové prostredie postavené na knižnici Textual pre pohodlné interaktívne ovládanie klávesnicou (šípky, Enter, Space).
     - V `--plain` režime alebo mimo interaktívneho terminálu skončí kódom 8 (`BAD_ARGS`). Samotné `discoop` bez argumentov naďalej vypisuje help.
     - Lazy import knižnice `Textual`: bežné CLI príkazy neplatia žiadnu réžiu inicializácie TUI frameworku.
-  - **Responzívny layout v štýle Discordu:**
-    - 3 stĺpce v širokom okne (servery, kanály, nastavenia exportu a náhľad správ); automatické prispôsobenie na záložkový systém v úzkom okne.
-    - Strom kategórií a kanálov s indikáciou prístupu a stavu výberu (začiarkavacie políčka).
-    - Tlačidlá na načítanie serverov a kanálov jednotlivo aj hromadne („Načítať všetko“) s bezpečným `safe` tempovaním a možnosťou okamžitého zrušenia (storno).
+  - **Rozloženie ([ADR 0014](docs/rozhodnutia/0014-tui-klavesnica-jeden-strom.md)):**
+    - Jeden strom (servery, kategórie, kanály; všetko predvolene zbalené), vpravo panel Export (zoznam výberu a formulár), dole log, riadok s CLI príkazom a Footer s klávesmi.
+    - V úzkom okne (< 95 stĺpcov) sa ukazuje jeden panel naraz.
+    - Ovládanie primárne klávesnicou (šípky, Space, Enter, Tab, `/` filter), myš je doplnok. Tabuľka klávesov je v ADR 0014.
+    - Tlačidlá na načítanie serverov a kanálov jednotlivo aj hromadne (`R`, `r`, `L`) s `safe` tempom a okamžitým zastavením cez Esc.
   - **Pokročilá správa exportu a plánovanie úloh:**
     - Nastavenie globálneho časového okna (`--from`/`--to`), režimu sťahovania (`safe`/`fast`) a cieľa exportu (priečinok alebo ZIP).
     - Možnosť nastavenia individuálneho časového okna pre konkrétny vybraný kanál (per-channel custom window).
@@ -25,7 +26,7 @@ verzie podľa [SemVer](https://semver.org/).
     - Modálna nápoveda s dvoma záložkami: návod na ovládanie TUI a kompletný živý výpis `discoop --help` vrátane podpríkazov generovaný z Typer aplikácie.
   - **Spoločná servisná vrstva (`src/discoop/service.py`):**
     - Zjednotená orchestrácia biznis logiky (`list_servers`, `list_channels`, `load_all`, `run_messages`) pre CLI aj TUI. Žiadna duplicita pri práci s Discord API, cache a exportom.
-  - Nový balík `src/discoop/tui/` (`app.py`, `state.py`, `bridge.py`, `modals.py`, `discoop.tcss`).
+  - Nový balík `src/discoop/tui/` (`app.py`, `state.py`, `bridge.py`, `modals.py`, `widgets.py`, `discoop.tcss`).
 - **Dva režimy sťahovania (`safe` a `fast`):**
   - **`safe` režim (predvolený):**
     - Imituje prirodzené ľudské správanie a scrollovanie v prehliadači na zníženie rizika blokovania účtu.
@@ -115,6 +116,15 @@ verzie podľa [SemVer](https://semver.org/).
 - ADR 0005: QR login v termináli bez prehliadača.
 
 ### Zmenené
+- **TUI prerobené podľa [ADR 0014](docs/rozhodnutia/0014-tui-klavesnica-jeden-strom.md) (2026-11-04)** na základe skúšky používateľa:
+  - Rozloženie: jeden strom namiesto troch stĺpcov, panel Export, log vždy dole. Pôvodný „Discord-inspired“ layout z ADR 0013 nahradený.
+  - Vzhľad: téma `ansi-dark` (farby terminálu), Ctrl+P mení tému. CSS bez hex farieb, prvky vysoké 1 riadok (`compact=True`), bez emoji a veľkých tlačidiel.
+  - Nový `tui/widgets.py` (`ChoiceRow`, `InputRow`, `ActionRow`, `ConfirmRow`, `FormPanel`, `FilterInput`, `SelectedList`, `ChannelTree`, `TextView`, `display_name()`).
+  - Dialógy Help, Settings, Login, Preview a TimeWindow majú rovnaký vzhľad. `TextView` kreslí len viditeľné riadky (pri 5000 správach 0,1–0,4 s, `Static` 1,5–8,7 s), v Help a Preview preto nefunguje výber textu myšou.
+  - Pravidlá: pohyb kurzorom nevolá Discord, naraz beží jedna sieťová operácia, Esc ukončí pauzy okamžite (aj pri `L`), výber nemení kurzor ani rozbalenie.
+  - Nové: `X` vymaže celý výber, po zmene prihlásenia sa výber vyčistí, `e` a uloženie okna na nevybranom kanáli ho aj vyberie, Esc v strome vymaže aktívny filter, pri Target=preview sú skryté Attachments a Max MB, pri QR sa formulár nahradí kódom (pod 27 riadkov bez rámika a Footera).
+  - Zhrnutie behu uvádza kanály, správy, preskočené, orezané a stav príloh.
+  - 376 testov, nový `tests/test_tui_modals.py`.
 - **Premenovanie „agent mode“ na „plain mode“ (`--plain`, [ADR 0012](docs/rozhodnutia/0012-premenovanie-agent-mode-na-plain.md)):**
   - Globálny prepínač `--plain` poskytuje čistý textový výstup bez farieb, Rich tabuliek a efektov, s chybami a notifikáciami na stderr a stabilnými exit kódmi.
   - V helpe a dokumentácii je explicitne uvedené, že plain mode je ideálny pre AI agentov a automatizované skripty (menej tokenov, jednoduchý parsing).
@@ -140,6 +150,20 @@ verzie podľa [SemVer](https://semver.org/).
 - CLAUDE.md a ADR 0003: upozornenie na passkey dialóg pri `discord.com/login`.
 
 ### Opravené
+- **TUI (2026-11-04):**
+  - Prázdne tlačidlá (`height: 1` pri vysokom rámiku), prestavba celého stromu pri každom výbere (kurzor skákal hore), zadrhávanie.
+  - Kategórie boli vždy rozbalené. Kategória bez vyberateľných kanálov ukazovala `[✓]`. Enter na kategórii ju rozbalil aj vybral.
+  - Pohyb po serveroch volal sieť a súbežné workery obchádzali safe tempo.
+  - Preview posielal `--print` a `--no-files` bez `--out`, čo služba odmietla. Uloženie preview prepísalo súbor.
+  - Pauzy API sa nedali prerušiť, „Load all“ sa nedal zastaviť, `q` nezastavil beh, `space` a `e` pôsobili bez ohľadu na focus.
+  - Pri neplatnom tokene sa ukazovalo zelené `@user`. Overenie tokenu blokovalo UI vlákno, logout šiel bez potvrdenia, token sa ukladal pred overením.
+  - Nastavenia z configu (`mode`, `delay`, `export-dir`) sa v TUI neprejavili. Režim v Settings bol voľný text. Enter v poli časového okna neuložil.
+  - Správa „finished successfully“ aj pri preskočených kanáloch.
+  - Preview a Help brali hranaté zátvorky ako markup, Help nesedel s klávesmi, log nebol vidno bez scrollovania.
+  - Variačné selektory v názvoch rozhadzovali zarovnanie (`display_name()`).
+  - `WindowSpec.slug()`/`label()` pri `from_=None` a zip cesta končiaca lomkou.
+  - `filter_channels` zhodoval čísla ako podreťazec ID, teraz len celé ID.
+  - `TuiEvents` hádal argumenty cez `*args`, odstránené mŕtve záložné kópie tried v `state.py` a `bridge.py`.
 - **Výstup `discoop messages`** po teste používateľa 2026-11-03 (3 nové regresné testy, spolu 164):
   - Embed nezopakuje URL, ktorú správa už ukazuje. GIF poslaný ako holá URL mal pod textom `[image]` s tou istou
     URL. Ostane len značka s titulkom, embed bez titulku sa vynechá. JSON má embedy celé.

@@ -4,6 +4,68 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
 
 ---
 
+## 2026-11-04
+
+**Prerobené TUI (`discoop ui`, P18–P20, [ADR 0014](rozhodnutia/0014-tui-klavesnica-jeden-strom.md)):**
+- **Nález používateľa** (2026-11-03, po prvom vyskúšaní TUI z ADR 0013): veľa tlačidiel bez textu, nefunkčné šípky,
+  kanály nie sú zbalené, rozhranie zadrháva. Chcel klávesnicu ako primárne ovládanie, jednoduchšie a terminálovejšie UI.
+- **Príčiny a opravy:**
+  - Prázdne tlačidlá: `height: 1` pri predvolenom vysokom rámiku, rámik zabral celý riadok.
+  - Zadrhávanie: pri každom výbere sa prestaval celý strom a kurzor skákal hore. Pohyb po serveroch volal sieť
+    a súbežné workery obchádzali safe tempo.
+  - Kategórie boli vždy rozbalené. Kategória bez vyberateľných kanálov ukazovala `[✓]` (`all([])`).
+    Enter na kategórii ju rozbalil a zároveň vybral kanály.
+  - Preview nefungoval: posielal `--print` a `--no-files` bez `--out`, čo služba odmietla.
+  - Pauzy API sa nedali prerušiť a „Load all“ sa nedal zastaviť. `q` nezastavil beh. `space` a `e` pôsobili bez ohľadu na focus.
+  - Pri neplatnom tokene sa ukazovalo zelené `@user`. Overenie tokenu blokovalo UI vlákno, logout šiel bez potvrdenia.
+  - Nastavenia z configu (`mode`, `delay`, `export-dir`) sa v TUI neprejavili.
+  - Správa „finished successfully“ aj pri preskočených kanáloch. Zhrnutie teraz uvádza kanály, správy, preskočené,
+    orezané a stav príloh.
+  - Log nebol vidno bez scrollovania. Enter v poli časového okna neuložil. Režim v Settings bol voľný text.
+  - Preview a Help brali hranaté zátvorky ako markup. Uloženie preview prepísalo súbor. Help nesedel s klávesmi.
+  - Variačné selektory v názvoch rozhadzovali zarovnanie (`display_name()`, len pri zobrazení).
+  - `WindowSpec.slug()`/`label()` pri `from_=None` a zip cesta končiaca lomkou.
+  - `filter_channels` zhodoval čísla ako podreťazec ID, teraz len celé ID.
+  - `TuiEvents` hádal argumenty cez `*args`, v `state.py` a `bridge.py` boli mŕtve záložné kópie tried.
+- **Nové rozloženie:**
+  - Jeden strom (servery → kategórie → kanály, všetko predvolene zbalené), vpravo panel Export (zoznam výberu a formulár),
+    dole log, riadok s CLI príkazom a Footer s klávesmi klikateľný myšou. V úzkom okne (< 95 stĺpcov) jeden panel naraz.
+  - Téma `ansi-dark` (farby terminálu), Ctrl+P mení tému. CSS bez hex farieb, prvky vysoké 1 riadok (`compact=True`),
+    bez emoji a veľkých tlačidiel.
+  - Nový `widgets.py`: `ChoiceRow`, `InputRow`, `ActionRow`, `ConfirmRow`, `FormPanel`, `FilterInput`, `SelectedList`,
+    `ChannelTree`, `TextView`, `display_name()`. Dialógy v `modals.py` (Help, Settings, Login, Preview, TimeWindow)
+    majú rovnaký vzhľad. Nový `tests/test_tui_modals.py`.
+- **Pravidlá správania:** pohyb kurzorom nevolá Discord, naraz beží jedna sieťová operácia, Esc ukončí pauzy okamžite
+  (aj pri `L`), výber nemení kurzor ani rozbalenie.
+- **Doplnky mimo pôvodnej tabuľky opráv:**
+  - `X` na zozname výberu vymaže celý výber (hromadné zrušenie inak zmizlo spolu s tlačidlami, doplnené po kontrole).
+  - Po zmene prihlásenia sa výber vyčistí. `e` a uloženie okna na nevybranom kanáli ho aj vyberie.
+  - Esc v strome pri aktívnom filtri filter vymaže. Pri Target=preview sú skryté Attachments a Max MB.
+  - Pri QR sa formulár nahradí kódom. Pod 27 riadkov zmizne rámik a Footer, aby sa QR zmestil do 80×24.
+  - `TextView` kreslí len viditeľné riadky: zmena formátu pri 5000 správach trvá 0,1–0,4 s (`Static` 1,5–8,7 s).
+    Cena: v Help a Preview nefunguje výber textu myšou.
+  - Token z TUI sa ukladá až po overení na UI vlákne, Esc počas overovania nič neuloží.
+- **Ako prebiehala práca:** podľa [ADR 0010](rozhodnutia/0010-praca-cez-agentov.md) cez agentov, hlavný Claude výsledky
+  kontroloval (diff, `uv run pytest`, SVG screenshoty vykreslené do PNG). Commity (všetky na `main`, nepushnuté):
+  `a7a5347` (rozhodnutia P18–P20, ADR 0014), `470c127` (preview joby a typované udalosti), `4e13acb` (hlavná obrazovka),
+  `4dc5f8b` (dialógy).
+- **Overené `[OVERENÉ]`:** `uv run pytest`: 376 testov prechádza. Automatické testy cez Textual Pilot s falošnými dátami,
+  vzhľad podľa screenshotov. QR v `ansi-dark` má len čierne a biele segmenty.
+- **Neoverené `[PREDPOKLAD]`:** beh v skutočnom termináli (Windows Terminal), reálny účet, skenovanie QR telefónom.
+- **Známe obmedzenia:**
+  - Esc počas bežiacej HTTP požiadavky zaberie až po jej skončení (timeout 20 s).
+  - Pauzy pri opakovaní sťahovania príloh v `attachments.py` sa nedajú prerušiť hneď.
+  - V šírke 80 stĺpcov sa Footer nezmestí celý.
+  - CLI príkaz v riadku má vždy `--delay` z configu.
+
+**Ďalej:**
+1. Používateľ otestuje `uv run discoop ui` na reálnom účte vrátane prihlásenia cez QR.
+2. Krok 4: vlákna a fóra (`threads`, `--threads/--no-threads`).
+3. Kroky 5–6: `agent-guide` a help texty, `--since-last` s deduplikáciou.
+4. Rozhodnutie 9 (výpočet prístupu ku kanálom) ostáva odložené (nízka priorita).
+
+---
+
 ## 2026-11-03
 
 **Analýza Discord web klienta** → [analyzy/discord-analyza.md](analyzy/discord-analyza.md)
@@ -256,7 +318,7 @@ režime je `text`.
   - `bridge.py`: prerušiteľný spánok (`CancelToken`) pre okamžité zastavenie (`Esc`) aj počas čítacích pauz v `safe` režime a premostenie udalostí z background worker vlákna do UI.
   - `app.py`, `modals.py`, `discoop.tcss`: 3-stĺpcový Discord layout (*Servery* │ *Kanály* │ *Export a priebeh*) s automatickým prepnutím na záložky pri zúžení okna (< 95 stĺpcov), tlačidlá na obnovu serverov, kanálov vybraného servera a načítanie úplne všetkého v `safe` tempe, modálne okná pre vlastný čas kanála (`E`), vstavaný prehliadač správ, nastavenia, prihlásenie a obrazovku Help (`F1`/`?`) s generovaným výpisom `discoop --help`.
 
-**Ďalej:**
+**Ďalej (nahradené zoznamom v sekcii 2026-11-04):**
 1. Krok 4: vlákna a fóra (`threads`, `--threads/--no-threads`).
 2. Rozhodnutie 9 (výpočet prístupu ku kanálom) ostáva odložené (nízka priorita).
 

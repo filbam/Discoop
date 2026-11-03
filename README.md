@@ -25,7 +25,8 @@ uv run discoop config set mode safe               # režim: safe (predvolený) a
 uv run pytest                # testy
 ```
 
-Interaktívne terminálové rozhranie (TUI v štýle Discordu, výber kanálov, Help cez `F1`):
+Interaktívne terminálové rozhranie (TUI ovládané klávesnicou: jeden strom serverov, kategórií a kanálov, šípky na pohyb,
+Space/Enter na výber, Tab na prepnutie panelu, `F5` spustí export, Help cez `F1`; farby podľa terminálu):
 
 ```
 uv run discoop ui

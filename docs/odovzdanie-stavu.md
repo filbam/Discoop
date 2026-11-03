@@ -14,19 +14,19 @@ Pred začatím akejkoľvek práce si **povinne prečítaj** nasledujúce dokumen
    - **Git pravidlá:** Vetva `main`, autor `filbam <f.bambura@gmail.com>`. Commitovanie po každom overenom kroku (robí hlavný Claude), **zákaz `git push` bez výslovného pokynu používateľa**.
    - **Zaznamenávanie všetkého ([ADR 0001](rozhodnutia/0001-zaznamenavanie-a-verzovanie.md)):** Každá zmena, rozhodnutie alebo požiadavka musí byť zapísaná v dokumentácii v tom istom pracovnom kroku.
 2. **[docs/poziadavky.md](poziadavky.md):**
-   - Zoznam všetkých požiadaviek používateľa (P1–P17). Zdroj pravdy o tom, čo má nástroj dokázať.
+   - Zoznam všetkých požiadaviek používateľa (P1–P20). Zdroj pravdy o tom, čo má nástroj dokázať.
 3. **[docs/navrh-nastroja.md](navrh-nastroja.md):**
    - Architektúra celého nástroja, štruktúra balíka `src/discoop/`, zoznam príkazov, exit kódy, dátové toky a otvorené otázky.
 4. **[docs/dennik.md](dennik.md):**
    - Chronologický denník doterajšieho vývoja, záznamy testov na reálnom účte používateľa a riešené incidenty.
 5. **[docs/rozhodnutia/README.md](rozhodnutia/README.md):**
-   - Register všetkých Architectural Decision Records ([ADR 0001](rozhodnutia/0001-zaznamenavanie-a-verzovanie.md) až [ADR 0013](rozhodnutia/0013-tui-a-spolocna-vrstva.md)).
+   - Register všetkých Architectural Decision Records ([ADR 0001](rozhodnutia/0001-zaznamenavanie-a-verzovanie.md) až [ADR 0014](rozhodnutia/0014-tui-klavesnica-jeden-strom.md)).
 
 ---
 
-## 2. Aktuálny stav projektu (k 2026-11-03)
+## 2. Aktuálny stav projektu (k 2026-11-04)
 
-- **Testovacie pokrytie:** Všetkých **262 automatizovaných testov** prechádza (`uv run pytest`).
+- **Testovacie pokrytie:** Všetkých **376 automatizovaných testov** prechádza (`uv run pytest`).
 - **Nainštalované prostredie:** Python 3.12+, projekt spravovaný cez `uv`. Spúšťanie cez `uv run discoop ...`.
 
 ### Prehľad implementovaných funkcií
@@ -89,20 +89,16 @@ Nástroj umožňuje voľbu tempa cez konfiguráciu (`discoop config set mode saf
 - **Spoločná servisná vrstva (`src/discoop/service.py`):**
   - Vyčlenená biznis logika pre načítanie serverov (`list_servers`), kanálov (`list_channels`), kompletnej štruktúry (`load_all`), rezolúciu cieľov (`resolve_targets`) a sťahovanie správ (`run_messages`).
   - Spoločná pre CLI aj TUI. TUI akcie sa mapujú na `MessagesRequest`.
-- **Textual aplikácia (`src/discoop/tui/`):**
-  - 3-stĺpcový responzívny layout inšpirovaný Discordom: *Servery* │ *Kanály* │ *Export a logy*.
-  - Pri zúžení terminálu (< 95 stĺpcov) sa rozhranie automaticky prepne na responzívne záložky (klávesy `1`, `2`, `3`).
-  - Tlačidlá na načítanie serverov (`R`), kanálov vybraného servera (`C`) a kompletného načítania všetkých serverov naraz (`A` – beží v bezpečnom `safe` tempe).
-  - Možnosť kedykoľvek zastaviť prebiehajúcu operáciu cez tlačidlo *Stop* / kláves `Esc` (implementované cez prerušiteľný `CancelToken` v `bridge.py`).
-  - Výber kanálov medzerníkom (`Space`) naprieč viacerými servermi.
-  - Individuálne časové okno pre vybraný kanál cez kláves `E` (`CustomWindowModal`).
-  - Plánovač úloh (`plan_jobs` v `state.py`): zoskupuje kanály s rovnakým časovým oknom do dávok; pri rôznych oknách vytvára podpriečinky (`01-7d`, `02-24h`...).
-  - Živý stavový riadok zobrazujúci presný ekvivalentný príkaz CLI (`discoop messages ...`), ktorý je možné skopírovať do schránky klávesom `C`.
-  - **Modálne dialógy:**
-    - `HelpScreen` (`F1` / `?`): kompletný manuál k TUI a živý výpis `discoop --help` generovaný cez `command_help()`.
-    - `PreviewScreen`: okamžitý náhľad stiahnutých správ priamo v TUI.
-    - `SettingsModal`: nastavenie režimu (`safe`/`fast`), cieľového priečinka, zipu a prepínačov.
-    - `LoginModal`: plnohodnotné prihlásenie priamo v TUI – vygenerovanie a živé zobrazenie QR kódu v termináli aj možnosť manuálneho zadania tokenu.
+- **Textual aplikácia (`src/discoop/tui/`, rozloženie a klávesy podľa [ADR 0014](rozhodnutia/0014-tui-klavesnica-jeden-strom.md)):**
+  - Hlavná obrazovka: jeden strom (servery → kategórie → kanály, všetko predvolene zbalené), vpravo panel Export (zoznam výberu a formulár), dole log, riadok s CLI príkazom (kopírovanie `c`) a klikateľný Footer. V úzkom okne (< 95 stĺpcov) jeden panel naraz (`1`, `2`, `3`, Tab).
+  - Ovládanie primárne klávesnicou: šípky, Space/Enter, `/` filter, `e` vlastné okno kanála, `x`/Delete odoberie z výberu, `X` vymaže celý výber, `r`/`R`/`L` načítanie, `F5` export, Esc zastaví operáciu, `q` koniec. Tabuľka je v ADR 0014.
+  - Vzhľad: téma `ansi-dark` (farby terminálu, Ctrl+P mení tému), ovládacie prvky `compact=True`, bez emoji.
+  - Pravidlá: pohyb kurzorom nevolá Discord, naraz beží jedna sieťová operácia, Esc ukončí aj pauzy safe režimu (`CancelToken` v `bridge.py`), výber nemení kurzor ani rozbalenie.
+  - `widgets.py`: `ChoiceRow`, `InputRow`, `ActionRow`, `ConfirmRow`, `FormPanel`, `FilterInput`, `SelectedList`, `ChannelTree`, `TextView`, `display_name()`.
+  - Plánovač úloh (`plan_jobs` v `state.py`): kanály s rovnakým oknom do jednej úlohy, pri rôznych oknách podpriečinky (`01-7d`, `02-24h`...).
+  - **Dialógy (`modals.py`):** Help (`F1`/`?`, živý `discoop --help`), Settings (`F2`), Login (`F3`, QR alebo token, token sa ukladá po overení), Preview, TimeWindow.
+  - **Známe obmedzenia:** Esc počas bežiacej HTTP požiadavky zaberie až po jej skončení (timeout 20 s), pauzy pri opakovaní sťahovania príloh v `attachments.py` sa nedajú prerušiť hneď, v šírke 80 stĺpcov sa Footer nezmestí celý, CLI príkaz má vždy `--delay` z configu, v Help a Preview nefunguje výber textu myšou.
+  - **Neoverené:** beh v skutočnom termináli (Windows Terminal), reálny účet, skenovanie QR telefónom. Overené sú Pilot testy s falošnými dátami a screenshoty.
 
 ---
 
@@ -119,6 +115,10 @@ Všetky zmeny sú lokálne otestované a zakommitované na vetve `main`. Na vzdi
 | `21e9e5c` | `Add Textual TUI screens, modals, styles and Pilot tests` | Kompletná implementácia Textual TUI (`app.py`, `modals.py`, `discoop.tcss`) a pilotné testy. |
 | `75f0310` | `Document discoop ui TUI and ADR 0013` | Dokumentácia TUI v požiadavkách (P16, P17), návrhu nástroja, denníku a zápis [ADR 0013](rozhodnutia/0013-tui-a-spolocna-vrstva.md). |
 | `bde52c6` | `Add live QR code login inside TUI LoginModal` | Zapojenie živého generovania a skenovania QR kódu priamo v TUI dialógu prihlásenia. |
+| `a7a5347` | `Record keyboard-first TUI decisions` | Požiadavky P18–P20 a ADR 0014. |
+| `470c127` | `Fix TUI preview jobs and typed event bridge` | Oprava preview jobov, typované udalosti namiesto `*args`. |
+| `4e13acb` | `Redesign TUI main screen` | Jeden strom, panel Export, `widgets.py`, téma `ansi-dark`. |
+| `4dc5f8b` | `Restyle TUI dialogs for keyboard use` | Help, Settings, Login, Preview, TimeWindow v rovnakom vzhľade, `tests/test_tui_modals.py`. |
 
 ---
 
@@ -126,9 +126,8 @@ Všetky zmeny sú lokálne otestované a zakommitované na vetve `main`. Na vzdi
 
 Podľa plánu v [docs/navrh-nastroja.md](navrh-nastroja.md) (sekcia 14) a záznamu v [docs/dennik.md](dennik.md):
 
-1. **Používateľský test TUI a safe/fast režimov na reálnom účte:**
-   - Používateľ otestuje interaktívne rozhranie spustením `uv run discoop ui`.
-   - Overenie správania načítania serverov/kanálov, priebehu sťahovania v `safe` tempe a prípadného prihlásenia cez QR priamo v TUI.
+1. **Používateľský test prerobeného TUI na reálnom účte:**
+   - Používateľ otestuje `uv run discoop ui` v skutočnom termináli vrátane načítania serverov/kanálov, exportu v `safe` tempe a prihlásenia cez QR.
 2. **Krok 4: Vlákna a fóra (`discoop threads`):**
    - Implementácia príkazu `discoop threads` na zobrazenie aktívnych a archivovaných vlákien kanála.
    - Podpora prepínačov `--threads / --no-threads` v príkaze `discoop messages` a integrácia do TUI výberu.

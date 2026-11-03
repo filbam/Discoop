@@ -49,6 +49,7 @@ zbalené zoznamy kanálov a krajšie, jednoduchšie, viac terminálové a uhlade
 | / | globálne | filter stromu |
 | e | strom alebo zoznam výberu | vlastné časové okno kanála |
 | x / Delete | zoznam výberu | odoberie kanál z výberu |
+| X | zoznam výberu | vymaže celý výber |
 | a | strom | vyberie všetky zobrazené kanály servera |
 | r | strom | znova načíta kanály servera z Discordu |
 | R | globálne | znova načíta zoznam serverov |
@@ -62,6 +63,8 @@ zbalené zoznamy kanálov a krajšie, jednoduchšie, viac terminálové a uhlade
 | Ctrl+P | globálne | príkazová paleta (zmena témy) |
 | q | globálne | koniec. Počas behu najprv zastaví prácu |
 
+Kláves `X` bol doplnený 2026-11-04 po kontrole, lebo hromadné zrušenie výberu zmizlo spolu s tlačidlami.
+
 ### Pravidlá správania
 - Pohyb kurzorom nikdy nevolá Discord. Sieť volá len explicitná akcia: →/Enter na nenačítanom serveri, r, R, L a F5.
 - Naraz beží najviac jedna sieťová operácia.
@@ -72,5 +75,5 @@ zbalené zoznamy kanálov a krajšie, jednoduchšie, viac terminálové a uhlade
 - ADR 0013 ostáva platné pre spoločnú servisnú vrstvu (`service.py`), lazy import, spúšťanie a zoskupovanie úloh.
   Rozloženie TUI z neho nahrádza tento ADR.
 - Help v TUI (F1 / ?) sa riadi tabuľkou klávesov z tohto ADR.
-- CSS musí dávať tlačidlám a ovládacím prvkom explicitne `border: none` (alebo primeranú výšku), aby text nezmizol.
+- Ovládacie prvky sa robia cez `compact=True` (bez rámika, výška jeden riadok), nie cez `height: 1`, aby text nezmizol.
 - Dlhé operácie musia bežať vo workeroch a pohyb kurzorom nesmie spúšťať sieťové volania, čo rieši zadrhávanie.

@@ -256,26 +256,27 @@ discoop --ui
 
 Interaktívne terminálové rozhranie (TUI) postavené na knižnici Textual (P16, P17, [ADR 0013](rozhodnutia/0013-tui-a-spolocna-vrstva.md)). Slúži ako vizuálna nadstavba pre `--human` režim. V `--plain` režime alebo pri nespustení v termináli (`not sys.stdout.isatty()`) skončí kódom `8`.
 
-**Vlastnosti a rozloženie:**
-- **Responzívny layout v štýle Discordu:**
-  - V širokom okne terminálu (≥ 110 znakov) používa 3 stĺpce:
-    1. *Servery:* zoznam serverov, tlačidlo na obnovenie a tlačidlo „Načítať všetko“ (`load_all`).
-    2. *Kanály:* strom kategórií a kanálov vybraného servera, začiarkavacie políčka pre výber kanálov na export, indikácia prístupu a počtu stiahnutých správ.
-    3. *Nastavenia exportu a náhľad:* globálne časové okno (`--from`/`--to`), voľba režimu (`safe`/`fast`), formát cieľa (priečinok alebo ZIP archív), tlačidlo na spustenie exportu a náhľad správ vybraného kanála.
-  - V úzkom okne terminálu sa layout automaticky prispôsobí a prepne na záložkový systém (tabs).
-- **Načítanie dát a tempovanie:**
-  - Tlačidlá umožňujú načítať servery a kanály jednotlivo alebo naraz (`load_all`).
-  - Hromadné načítanie rešpektuje `safe` tempo a pauzy medzi požiadavkami a dá sa kedykoľvek prerušiť (storno) bez straty už načítaných dát.
-- **Individuálne časové okná per-kanál:**
-  - Používateľ môže vybranému kanálu nastaviť vlastné časové okno odlišné od globálneho.
-  - Kanály s rovnakým časovým oknom sa automaticky zoskupia do samostatných úloh. Pri viacerých úlohách sa výstupy ukladajú do podpriečinkov (`cieľ/01-7d/`, ...) alebo očíslovaných archívov (`cieľ-01-7d.zip`).
-- **Živý príkazový riadok:**
-  - V spodnej lište TUI sa naživo skladá a zobrazuje presný ekvivalentný CLI príkaz `discoop messages ...` zodpovedajúci aktuálnemu výberu a nastaveniam.
-- **Vstavaný náhľad správ:**
-  - Umožňuje rýchlo overiť obsah vybraného kanála priamo v rozhraní pred spustením samotného exportu.
-- **Help obrazovka (`F1` / `?`):**
-  - Modálne okno s pomocníkom vysvetľuje ovládanie rozhrania a klávesové skratky.
-  - Druhá záložka obsahuje kompletný živý výpis `discoop --help` a help všetkých podpríkazov, generovaný priamo z Typer CLI aplikácie.
+**Rozloženie ([ADR 0014](rozhodnutia/0014-tui-klavesnica-jeden-strom.md), nahrádza tri stĺpce z ADR 0013):**
+- **Jeden strom** servery → kategórie → kanály, všetko predvolene zbalené. Vpravo panel *Export* (zoznam výberu a formulár: časové okno, režim `safe`/`fast`, cieľ `folder`/`zip`/`preview`, formát, prílohy, Max MB, Start).
+- Dole log (vždy viditeľný), pod ním riadok s ekvivalentným CLI príkazom `discoop messages ...` a Footer s klávesmi (klikateľný myšou). V úzkom okne (< 95 stĺpcov) sa ukazuje jeden panel naraz.
+- **Vzhľad:** téma Textual `ansi-dark` (farby terminálu, Ctrl+P mení tému), CSS bez hex farieb, ovládacie prvky vysoké jeden riadok (`compact=True`), bez emoji a veľkých tlačidiel. Pri Target=preview sú skryté Attachments a Max MB. Pri QR sa formulár nahradí kódom (pod 27 riadkov zmizne rámik a Footer, aby sa QR zmestil do 80×24).
+- **Klávesy:** primárne klávesnica, myš je doplnok. Úplná tabuľka (šípky, Space, Enter, Tab, `/`, `e`, `x`/`X`, `a`, `r`, `R`, `L`, `F5`, Esc, `c`, F1–F3, `q`) je v ADR 0014.
+
+**Načítanie dát a tempovanie:**
+- Pohyb kurzorom nikdy nevolá Discord. Sieť volá len explicitná akcia: → alebo Enter na nenačítanom serveri, `r`, `R`, `L`, `F5`.
+- Naraz beží najviac jedna sieťová operácia. `L` (všetky servery) beží v `safe` tempe.
+- Esc zastaví operáciu a ukončí pauzy okamžite (prerušiteľný `CancelToken`), už načítané dáta ostanú.
+- Výber nemení kurzor ani rozbalenie stromu. Po zmene prihlásenia sa výber vyčistí.
+
+**Úlohy a časové okná:**
+- Kanálu možno nastaviť vlastné časové okno (`e`); kanál sa tým aj vyberie. Kanály s rovnakým oknom tvoria jednu úlohu; pri viacerých úlohách sa výstupy ukladajú do podpriečinkov (`cieľ/01-7d/`, ...) alebo očíslovaných archívov (`cieľ-01-7d.zip`).
+- Zhrnutie behu uvádza kanály, správy, preskočené, orezané a stav príloh.
+- Nastavenia z configu (`mode`, `delay`, `export-dir`) sa v TUI prejavia.
+
+**Dialógy a Help:**
+- Help (`F1` / `?`): ovládanie podľa ADR 0014 a živý výpis `discoop --help` vrátane podpríkazov z Typer aplikácie. Settings (`F2`), Login (`F3`, QR alebo token), Preview a časové okno majú rovnaký vzhľad ako hlavná obrazovka. Token sa ukladá až po overení.
+
+**Známe obmedzenia:** Esc počas bežiacej HTTP požiadavky zaberie až po jej skončení (timeout 20 s); pauzy pri opakovaní sťahovania príloh sa nedajú prerušiť hneď; v šírke 80 stĺpcov sa Footer nezmestí celý; CLI príkaz má vždy `--delay` z configu. Beh v skutočnom termináli a na reálnom účte zatiaľ neoverený.
 
 ## 5. Vyhľadávanie podľa mena
 
@@ -540,9 +541,10 @@ Scoop/
     guide.py          text pre agent-guide
     tui/              interaktívne terminálové rozhranie (Textual)
       app.py          hlavná Textual aplikácia, responzívny layout, event handling
-      state.py        stav TUI (výber serverov, kanálov, nastavenia úloh)
-      bridge.py       mostík medzi TUI a service.py / API
-      modals.py       modálne dialógy (Help, per-channel nastavenie, chyby)
+      state.py        stav TUI (výber kanálov, nastavenia, plánovanie úloh)
+      bridge.py       mostík medzi TUI a service.py / API (CancelToken, udalosti)
+      widgets.py      ovládacie prvky (ChannelTree, FormPanel, ChoiceRow, TextView, ...)
+      modals.py       modálne dialógy (Help, Settings, Login, Preview, TimeWindow)
       discoop.tcss    CSS štýly komponentov rozhrania
   tests/
     fixtures/         anonymizované JSON z analýzy
@@ -557,7 +559,7 @@ Scoop/
 - `render/text.py`: formáty `text` a `md` (Markdown pre správy a kanály),
 - `render/jsonout.py`: formáty `json` a `jsonl`,
 - `service.py`: spoločná servisná vrstva pre orchestráciu načítania serverov, kanálov a sťahovania správ,
-- `tui/`: interaktívne terminálové rozhranie Textual (`discoop ui`, responzívny layout, strom kanálov, výber úloh, náhľad, live CLI bar, Help s `--help`).
+- `tui/`: interaktívne terminálové rozhranie Textual (`discoop ui`, jeden strom ovládaný klávesnicou podľa ADR 0014, panel Export, náhľad, live CLI bar, Help s `--help`).
 
 ## 14. Postup implementácie
 
