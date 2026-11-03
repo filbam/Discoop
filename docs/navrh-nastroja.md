@@ -161,7 +161,7 @@ discoop messages -c 1286436864789843999 --from 2026-10-01 --to 2026-10-31 --zip 
 discoop messages -c "isc-*" --since-last --agent
 ```
 
-**Implementované 2026-11-03 (krok 2 do konzoly, krok 3 s exportom a prílohami):**
+**Implementované 2026-11-03 (krok 2 do konzoly, krok 3 s exportom a prílohami, otestované na účte):**
 - **Prepínače:** `-c` (opakovateľný), `-s`, `--from`, `--to`, `--last`, `--format text|md|json|jsonl`, `--include-system`,
   `--max-messages`, `--out DIR`, `--zip FILE`, `--print`, `--no-files`, `--max-file-size MB`.
   Prepínače neskorších krokov zatiaľ nie sú (`--threads/--no-threads`, `--since-last`, `--raw`, `--delay`). Tempo je z `config set delay`.

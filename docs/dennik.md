@@ -214,12 +214,22 @@ režime je `text`.
   - `discoop config set export-dir <cesta>` ukladá predvolený priečinok pre relatívne exportné cesty ako absolútnu cestu.
 - **Potvrdené defaulty:** dávkovanie po 50 a predstih 60 s pri `refresh-urls`, sekvenčné sťahovanie CDN s timeoutom 60 s a 3 pokusmi (pauzy 1 s a 2 s), limity mien 100/50 znakov a 200 bajtov, overenie cieľa cez `manifest.json`, `ZIP_STORED` pre `files/`.
 
-**Ďalej:**
-1. Test kroku 3 používateľom.
-2. Krok 4: vlákna a fóra (`threads`, `--threads/--no-threads`).
-3. Rozhodnutie 9 (výpočet prístupu ku kanálom) ostáva odložené (nízka priorita).
+**Test kroku 3 používateľom** (log v `Temp/`, lokálny, gitom ignorovaný):
+- **Všetky 4 príkazy fungovali** (VUT FIT, kanál `1282100102743330887`, 84 správ za 7 dní, 5 príloh):
+  - `--out exports/fit-krok3`: úspešne stiahol 4 prílohy; jedna príloha (8,3 MB) zlyhala na HTTP 504 Gateway Timeout z CDN – export korektne pokračoval, nezhavaroval a zapísal chybu do manifestu aj do varovania na stderr.
+  - Opakovaný beh do toho istého priečinka: okamžite rozpoznal 4 už stiahnuté súbory (`already present: 4`), znova ich nesťahoval a skúsil len chýbajúcu prílohu.
+  - `--zip exports/fit-krok3.zip --print`: v agent režime vytvoril zip archív (všetkých 5 príloh stiahnutých vrátane tej, čo predtým dostala 504) a na stdout vypísal správy s lokálnymi cestami (`files/...`).
+  - `--out exports/fit-nofiles --no-files`: export bez sťahovania príloh (`skipped: 5`), správy a manifest uložené.
+- **Overené na účte:**
+  - Odolnosť voči chybám CDN (504): export nezhavaroval a korektne pokračoval.
+  - Detekcia a znovupoužitie existujúcich príloh funguje.
+  - Zip archív aj export bez príloh (`--no-files`) fungujú.
 
-Hotové z predchádzajúceho zoznamu: rozhodnutia 4 až 6 (ADR 0011), krok 2 a jeho test používateľom.
+**Ďalej:**
+1. Krok 4: vlákna a fóra (`threads`, `--threads/--no-threads`).
+2. Rozhodnutie 9 (výpočet prístupu ku kanálom) ostáva odložené (nízka priorita).
+
+Hotové z predchádzajúceho zoznamu: krok 3 a jeho test používateľom.
 
 ---
 
