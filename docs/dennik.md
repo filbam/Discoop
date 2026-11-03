@@ -43,9 +43,27 @@ jediná v okne, ktoré si agent vytvoril.
 **Záznamy:** zavedená štruktúra dokumentácie podľa požiadavky P12 ([ADR 0001](rozhodnutia/0001-zaznamenavanie-a-verzovanie.md)):
 `CLAUDE.md`, `CHANGELOG.md`, `poziadavky.md`, `dennik.md`, `rozhodnutia/`, `analyzy/`.
 
+**Nové požiadavky:** P13 (Windows, Linux, macOS) a P14 (QR login v termináli).
+
+**Analýza prihlásenia** → [analyzy/discord-login.md](analyzy/discord-login.md)
+- Robil ju agent vo vstavanom prehliadači aplikácie Claude, v neprihlásenom stave. Iba pozoroval prevádzku
+  a čítal zdrojový kód stránky. Nič neodoslal a QR neskenoval.
+- **Hlavné zistenie:** QR login (remote auth gateway `v=2`) sa dá spraviť bez prehliadača. Stačí WebSocket,
+  RSA-OAEP-SHA256 a jeden REST POST.
+- **Neoverené** (overí prototyp): kontrola `Origin`, captcha pri `remote-auth/login`, reálne rámce po naskenovaní.
+- **Návrh upravený:** login cez QR, Playwright vypadol, cesty a keyring pre všetky OS
+  ([ADR 0005](rozhodnutia/0005-qr-login-bez-prehliadaca.md)). Pribudli otvorené rozhodnutia 7 (záložný login)
+  a 8 (`login` v agent režime).
+
+**Incident 3: passkey dialóg.** Login stránka pri každom zobrazení formulára sama volá passkey autofill
+(`navigator.credentials.get`). Vstavaný prehliadač na Windows z toho spravil systémové okno Windows Security
+(„Insert your security key“). Používateľovi bolo odporučené okno zrušiť. Nič sa neprihlásilo.
+- Opatrenie: pred otvorením `discord.com/login` vo vstavanom prehliadači používateľa upozorniť (CLAUDE.md, ADR 0003).
+- Karta vstavaného prehliadača je presmerovaná z login stránky preč, aby negenerovala nové QR.
+
 **Ďalej:**
-1. Potvrdiť otvorené rozhodnutia z návrhu (sekcia 15).
-2. Prototyp: `login` + skript na overenie otvorených bodov API.
+1. Potvrdiť otvorené rozhodnutia z návrhu (sekcia 15, body 1 a 3 až 8).
+2. Prototyp: QR `login` + skript na overenie otvorených bodov API.
 
 ---
 

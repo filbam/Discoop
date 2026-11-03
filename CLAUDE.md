@@ -53,3 +53,5 @@ Platí po incidentoch z 2026-11-03 ([ADR 0003](docs/rozhodnutia/0003-pravidla-pr
 - **Nikdy nezatváraj karty ani okná** (`tabs_close_mcp` dvakrát zhodil celý Chrome). Kartu nechaj otvorenú používateľovi.
 - **Iba čítanie.** Token ani cookies nikdy nečítaj a nepoužívaj.
 - **Overenia cez vlastné API volania** robí prototyp, ktorý spúšťa používateľ na svojom účte.
+- **Passkey dialóg na login stránke:** `discord.com/login` vo vstavanom prehliadači na Windows sám vyvolá systémové
+  okno Windows Security. Používateľa vopred upozorni, nech ho zruší. Po analýze kartu presmeruj z login stránky preč (napr. `https://example.com`), inak generuje nové QR.

@@ -23,5 +23,5 @@ Lokálny priečinok projektu môže ostať `Scoop`.
 ## Dôsledky
 
 - Premenná prostredia pre agent režim: `DISCOOP_AGENT`.
-- Lokálne dáta: `%LOCALAPPDATA%\discoop\`.
+- Lokálne dáta: adresár `discoop` v dátovom adresári OS (pozri návrh, sekcia 10).
 - Kľúč v keyringu: `discoop`.

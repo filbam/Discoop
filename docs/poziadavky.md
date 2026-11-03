@@ -26,3 +26,5 @@ porušuje podmienky Discordu.
 | P10 | 2026-11-02 | Parameter, ktorý stiahne celý **export ako .zip** na zvolené miesto. |
 | P11 | 2026-11-02 | Parameter, ktorý **vypíše výstup do konzoly**. |
 | P12 | 2026-11-03 | **Zaznamenávať všetko** (analýzy, changelog, rozhodnutia atď.) a všetko **verzovať v gite**. |
+| P13 | 2026-11-03 | Nástroj beží na **Windows, Linuxe aj macOS**. |
+| P14 | 2026-11-03 | Prihlásenie cez **QR kód zobrazený v termináli**, ktorý používateľ naskenuje mobilnou aplikáciou Discordu. |

@@ -25,22 +25,25 @@ projektu môže ostať `Scoop`. Ďalej v texte je pracovný názov `discoop`.
 
 ## 3. Technológie
 
+Nástroj beží na **Windows, Linuxe aj macOS** (P13). Žiadna časť nesmie závisieť od jedného OS.
+
 | Účel | Voľba | Prečo |
 |---|---|---|
 | Jazyk | Python 3.12+ | rýchly vývoj, najlepšie knižnice na pekné CLI |
 | CLI | Typer | príkazy, parametre a help z type hintov |
 | UI pre človeka | Rich | tabuľky, stromy, progress bary, farby |
 | HTTP | httpx | timeouty, retry, streamované sťahovanie súborov |
-| Login | Playwright + **nainštalovaný Chrome** (`channel="chrome"`) | netreba sťahovať vlastný prehliadač |
-| Uloženie tokenu | keyring (Windows Credential Manager) | token nie je v čitateľnom súbore |
+| Login | QR cez remote auth gateway: `websockets` + `cryptography` + `segno` (QR v termináli) | bez prehliadača, na všetkých OS ([ADR 0005](rozhodnutia/0005-qr-login-bez-prehliadaca.md)) |
+| Uloženie tokenu | keyring (Windows Credential Manager, macOS Keychain, Linux Secret Service) | token nie je v čitateľnom súbore. Na Linuxe bez Secret Service fallback, sekcia 10 |
+| Cesty k dátam | platformdirs | správny adresár na každom OS |
 | Cache a stav | SQLite (stdlib `sqlite3`) | jeden súbor, rýchle vyhľadávanie mien |
 | Inštalácia | `uv tool install .` | príkaz `discoop` dostupný globálne |
 
 ## 4. Príkazy
 
 ```
-discoop login                 prihlásenie v okne prehliadača (zvládne aj 2FA), uloží token
-discoop logout                zmaže uložený token (--purge zmaže aj profil prehliadača)
+discoop login                 prihlásenie naskenovaním QR kódu v termináli mobilom, uloží token
+discoop logout                zmaže uložený token
 discoop status                stav prihlásenia, účet, vek cache
 discoop servers               zoznam serverov
 discoop channels              zoznam kanálov servera
@@ -60,17 +63,25 @@ Pre agentov je to jednoznačnejšie. Hodnota môže byť ID alebo meno (pozri se
 
 ### 4.1 `login`, `logout`, `status`
 
-1. `login` spustí Chrome cez Playwright s **vlastným perzistentným profilom** (`%LOCALAPPDATA%\discoop\browser`)
-   a otvorí `discord.com/login`.
-2. Prihlásiš sa ručne vrátane 2FA alebo captchy. Nástroj čaká (timeout 10 min), kým klient pošle prvý request na
-   `/api/v9/` s hlavičkou `Authorization`, a token si z neho vezme.
-3. Overí ho cez `GET /users/@me`, uloží ho do keyringu, zatvorí prehliadač a vypíše `Prihlásený ako <meno>`.
+Hlavná cesta je **QR login bez prehliadača** (P14, [ADR 0005](rozhodnutia/0005-qr-login-bez-prehliadaca.md)).
+Protokol popisuje [analyzy/discord-login.md](analyzy/discord-login.md).
+
+1. `login` sa pripojí na `wss://remote-auth-gateway.discord.gg/?v=2` (s `Origin: https://discord.com`),
+   vygeneruje kľúč RSA-2048 a prejde handshake (`hello` → `init` → `nonce_proof` → `pending_remote_init`).
+2. V termináli vykreslí QR kód `https://discord.com/ra/<fingerprint>` s odpočtom platnosti (~4,5 min).
+   Naskenuješ ho v mobilnej aplikácii Discord (Settings → Scan QR Code).
+3. Po naskenovaní vypíše „Prihlasuje sa <meno>, potvrď na telefóne“ (`pending_ticket`).
+4. Po potvrdení (`pending_login`) zavolá `POST /users/@me/remote-auth/login`, dešifruje token, overí ho cez
+   `GET /users/@me`, uloží ho do keyringu a vypíše `Prihlásený ako <meno>`.
+5. Keď QR vyprší (`4003`) alebo zrušíš prihlásenie na telefóne (`cancel`), vygeneruje nový QR. Po 3 pokusoch skončí.
 
 Ďalšie vlastnosti:
-- Discord vidí nástroj ako **samostatné zariadenie**, takže tvoje bežné prihlásenie v Chrome nijako neovplyvní.
-- Ak token neskôr prestane platiť (odhlásenie zariadenia, zmena hesla), každý príkaz skončí kódom `2` a hláškou,
-  že treba spustiť `discoop login`. Vďaka perzistentnému profilu býva opätovný login často bez 2FA.
-- V agent režime `login` funguje tiež: vypíše, že čaká na prihlásenie človeka v otvorenom okne.
+- **2FA netreba riešiť** v termináli. Prihlásenie potvrdzuje tvoj už prihlásený mobil.
+- **Samostatné zariadenie:** Discord vidí nástroj ako novú reláciu, tvoje bežné prihlásenie sa nezmení.
+- **Neplatný token** (odhlásené zariadenie, zmena hesla): každý príkaz skončí kódom `2` s hláškou, že treba
+  spustiť `discoop login`.
+- **Bezpečnosť:** QR ani token sa nikdy nelogujú.
+- **Záložná cesta** a správanie `login` v agent režime sú otvorené rozhodnutia (sekcia 15, body 7 a 8).
 
 ### 4.2 `servers`
 
@@ -141,7 +152,7 @@ discoop config set delay 1.0
 discoop config set export-dir D:\exporty
 discoop config list
 ```
-Uložené v `%LOCALAPPDATA%\discoop\config.toml`.
+Uložené v `config.toml` v konfiguračnom adresári (sekcia 10).
 
 ### 4.7 `agent-guide`
 
@@ -296,15 +307,25 @@ Cesty k prílohám v `.md` a `.jsonl` sú relatívne. AI s prístupom k súborom
 
 ## 10. Lokálne dáta
 
-`%LOCALAPPDATA%\discoop\`:
+Adresáre určí `platformdirs` podľa OS:
+
+| OS | Dáta (cache) | Konfigurácia |
+|---|---|---|
+| Windows | `%LOCALAPPDATA%\discoop\` | to isté |
+| macOS | `~/Library/Application Support/discoop/` | to isté |
+| Linux | `~/.local/share/discoop/` | `~/.config/discoop/` |
+
+Obsah:
 - `config.toml`: nastavenia.
 - `cache.db`: SQLite s tabuľkami:
   - `servers`, `channels` (vrátane typu, kategórie, normalizovaného mena),
   - `threads`,
   - `users` (z `author` a `mentions`, na preklad `<@id>`),
   - `sync_state` (`channel_id`, `last_message_id`, `last_run`).
-- `browser\`: Playwright profil na login.
-- Token **nie je v súbore**, je v Windows Credential Manager (keyring, služba `discoop`).
+- **Token nie je v súbore.** Je v systémovom úložisku hesiel cez keyring (služba `discoop`):
+  Windows Credential Manager, macOS Keychain alebo Linux Secret Service.
+- **Linux bez Secret Service** (napr. server bez GUI): token ide do súboru `token` s právami `0600`
+  a nástroj na to upozorní.
 
 Exporty obsahujú správy iných ľudí, preto zostávajú lokálne. Nástroj ich nikam neposiela.
 
@@ -362,7 +383,7 @@ Scoop/
   pyproject.toml
   src/discoop/
     cli.py            Typer app, príkazy, globálne prepínače, výber režimu
-    auth.py           login cez Playwright, keyring
+    auth.py           QR login (remote auth gateway), keyring, záložný login
     api.py            HTTP klient: tempo, retry, 429, chyby → exit kódy
     snowflake.py      čas ↔ snowflake, parsovanie --from/--to
     cache.py          SQLite: servery, kanály, vlákna, users, sync_state
@@ -384,7 +405,8 @@ Scoop/
 
 ## 14. Postup implementácie
 
-0. **Spike / prototyp:** `login` + malý skript, ktorý overí body [PROTOTYP]:
+0. **Spike / prototyp:** QR `login` + malý skript, ktorý overí body [PROTOTYP]:
+   - QR login: či gateway vyžaduje `Origin`, či `remote-auth/login` pýta captchu, reálne rámce po naskenovaní,
    - `GET /users/@me/guilds` a `GET /guilds/{id}/channels` s user tokenom,
    - `limit=100`,
    - REST cesta k aktívnym vláknam,
@@ -410,6 +432,8 @@ Scoop/
 | 4 | Vlákna predvolene | zapnuté |
 | 5 | Predvolené časové okno | 24 h, celá história len cez `--from all` |
 | 6 | Predvolený formát v agent režime | `text` (JSON cez `--format json`) |
+| 7 | Záložný login | `discoop login --token`: token zo skrytého promptu alebo stdin, nie z argumentu, aby neostal v histórii shellu. Prihlásenie cez prehliadač nie vo v1 (ťažká závislosť na každom OS). Email a heslo nie (captcha, práca s heslom) |
+| 8 | `login` v agent režime | odmietnuť s kódom `2` a pokynom „požiadaj používateľa, nech spustí `discoop login`“. Prihlásenie potrebuje človeka s mobilom a QR je citlivý |
 
 **Nápady na neskôr (v2):** lokálny archív všetkých správ v SQLite s fulltextom, `discoop sync` pre zoznam
 sledovaných kanálov, zhlukovanie po sebe idúcich správ jedného autora (menej tokenov), filter `--author`,

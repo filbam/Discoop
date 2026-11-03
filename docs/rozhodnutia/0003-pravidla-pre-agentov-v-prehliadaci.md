@@ -28,3 +28,6 @@ Agent v prehliadači používateľa na Discorde:
   ktorý spúšťa používateľ.
 - Pri analýze sa niektoré kanály vždy označia ako prečítané. Je to vedľajší účinok otvorenia kanála
   a pred analýzou treba používateľa upozorniť.
+- **Doplnené 2026-11-03:** `discord.com/login` pri každom zobrazení formulára sám volá passkey autofill
+  (`navigator.credentials.get`). Vstavaný prehliadač na Windows z toho spraví systémové okno Windows Security.
+  Pred otvorením login stránky treba používateľa upozorniť, aby okno zrušil.
