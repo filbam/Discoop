@@ -158,7 +158,7 @@ def test_out_folder(capsys, env):
     assert manifest["created"] == "2026-11-03T12:00:00+01:00"
     assert manifest["query"] == {
         "from": "2026-11-02T12:00:00+01:00", "to": "2026-11-03T12:00:00+01:00", "last": None, "max_messages": 5000,
-        "include_system": False, "files": True, "max_file_size": 50 * 1024 * 1024,
+        "include_system": False, "mode": "safe", "files": True, "max_file_size": 50 * 1024 * 1024,
     }
     assert manifest["counts"] == {
         "channels": 2, "messages": 4, "files": 4, "downloaded": 4, "present": 0, "failed": 0, "skipped": 0
@@ -197,7 +197,7 @@ def test_expired_urls_are_refreshed_in_batches_before_downloading(capsys, env):
     ]
     env.discord.channels["200"] = FakeChannel(expired)
     env.serve("200")
-    code, out, _ = run(capsys, "messages", "-s", FIT, "-c", "200", "--out", "exports/x")
+    code, out, _ = run(capsys, "messages", "-s", FIT, "-c", "200", "--out", "exports/x", "--fast")
     assert code == 0 and "downloaded: 60" in out
     assert [len(batch) for batch in env.discord.refresh_batches] == [50, 10]
     assert len(env.cdn.requests) == 60 and all(r.url.params["hm"] == "fresh" for r in env.cdn.requests)
@@ -368,6 +368,14 @@ def test_export_dir_setting(capsys, env):
     assert code == 0 and out.startswith(f"export: {base / 'fit.zip'}\n")
     code, out, _ = export(capsys, "--out", str(env.tmp / "elsewhere"))  # absolute: as given
     assert code == 0 and (env.tmp / "elsewhere" / "manifest.json").exists()
+
+
+def test_export_mode_manifest(capsys, env):
+    code, out, _ = export(capsys, "--out", "exports/fast-mode", "--fast")
+    assert code == 0
+    root = env.tmp / "exports" / "fast-mode"
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["query"]["mode"] == "fast"
 
 
 @pytest.mark.parametrize(

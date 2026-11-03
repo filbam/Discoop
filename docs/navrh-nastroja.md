@@ -134,6 +134,7 @@ discoop messages -c CHANNEL [-c CHANNEL ...] [-s SERVER]
                  [--format text|md|json|jsonl] [--raw]
                  [--print] [--out DIR] [--zip FILE] [--no-files]
                  [--max-messages N] [--delay SEC]
+                 [--safe | --fast]
 ```
 
 **Výber kanálov:**
@@ -163,8 +164,13 @@ discoop messages -c "isc-*" --since-last --agent
 
 **Implementované 2026-11-03 (krok 2 do konzoly, krok 3 s exportom a prílohami, otestované na účte):**
 - **Prepínače:** `-c` (opakovateľný), `-s`, `--from`, `--to`, `--last`, `--format text|md|json|jsonl`, `--include-system`,
-  `--max-messages`, `--out DIR`, `--zip FILE`, `--print`, `--no-files`, `--max-file-size MB`.
-  Prepínače neskorších krokov zatiaľ nie sú (`--threads/--no-threads`, `--since-last`, `--raw`, `--delay`). Tempo je z `config set delay`.
+  `--max-messages`, `--out DIR`, `--zip FILE`, `--print`, `--no-files`, `--max-file-size MB`,
+  `--safe`, `--fast`, `--delay SEC`.
+  Prepínače neskorších krokov zatiaľ nie sú (`--threads/--no-threads`, `--since-last`, `--raw`).
+- **Režimy sťahovania (`--safe` vs `--fast`):**
+  - `--safe` (predvolený): bezpečný režim imitujúci bežného používateľa v prehliadači. Stránkovanie po 25 správach, náhodný rozptyl (jitter) 2.0 až 4.5 s medzi API requestami, čítacie pauzy 8.0 až 15.0 s každých 5 až 8 requestov, pauza 3.0 až 6.0 s pri prepnutí kanála a 1.0 až 3.0 s medzi sťahovaním príloh z CDN.
+  - `--fast`: rýchly dávkový režim vhodný pre exporty s limitom 100 správ na request, pevnou pauzou podľa `--delay` (alebo z konfigurácie, predvolene 1.0 s), bez dodatočných čítacích pauz a bez pauz medzi súbormi/kanálmi.
+  - `--safe` a `--fast` sa navzájom vylučujú. Nastaviť sa dajú aj trvalo cez `discoop config set mode safe|fast`.
 - **Výber kanálov:**
   - `-c` berie meno, ID alebo glob vzor. Mená a vzory sa hľadajú v kanáloch servera z `-s` alebo `default-server`
     a **preskakujú kategórie**, takže kategória `general` a kanál `general` sa nebijú.
@@ -219,6 +225,7 @@ discoop messages -c "isc-*" --since-last --agent
 discoop config set default-server "VUT FIT"
 discoop config set delay 1.0
 discoop config set export-dir "exports"
+discoop config set mode safe
 discoop config get delay
 discoop config unset delay
 discoop config list
@@ -226,7 +233,8 @@ discoop config list
 Uložené v `config.toml` v konfiguračnom adresári (sekcia 10).
 
 **Implementované 2026-11-03:**
-- **Kľúče:** `default-server`, `delay` (predvolene 1.0 s) a `export-dir`.
+- **Kľúče:** `default-server`, `delay` (predvolene 1.0 s), `export-dir` a `mode` (hodnoty `safe` alebo `fast`, predvolene `safe`).
+- **`mode`** (pridané pre bezpečné sťahovanie): určuje predvolený režim sťahovania (`safe` alebo `fast`).
 - **`default-server`** sa pri `set` vyhľadá ako server (meno alebo ID) a uloží sa jeho **ID**, takže
   premenovanie servera nastavenie nerozbije.
 - **`export-dir`** (pridané v kroku 3): priečinok pre relatívne cesty `--out`/`--zip`. Ukladá sa ako absolútna cesta.
@@ -381,9 +389,11 @@ Cesty k prílohám v `.md` a `.jsonl` sú relatívne (`files/...`). V `channels/
   Stav sa uloží až po úspešnom dokončení kanála.
 
 **Tempo a sťahovanie CDN:**
-- API requesty idú **sekvenčne** s pauzou `--delay` (predvolene 1.0 s, s malým náhodným rozptylom).
+- Nástroj podporuje dva režimy sťahovania:
+  - **`safe` (predvolený):** bezpečné tempo imitujúce správanie používateľa vo webovom klientovi. Stránkovanie prebieha po 25 správach (`limit=25`). Medzi API requestami je náhodná pauza (jitter) 2.0 až 4.5 s. Po každých 5 až 8 requestoch sa zaradí dlhšia čítacia pauza (8.0 až 15.0 s). Pri prepnutí na ďalší kanál je pauza 3.0 až 6.0 s a medzi sťahovaním jednotlivých príloh z CDN pauza 1.0 až 3.0 s.
+  - **`fast`:** rýchle tempo pre dávkový export. Stránkovanie po 100 správach (`limit=100`), sekvenčné API requesty s pauzou `--delay` (alebo podľa `config set delay`, predvolene 1.0 s). Žiadne čítacie pauzy ani pauzy medzi kanálmi či súbormi.
+- Discord neposiela rate-limit hlavičky (analýza, sekcia 10), preto tempo riadi výhradne nástroj.
 - CDN sťahovanie beží sekvenčne s timeoutom 60 s (20 s na spojenie) a hlavičkou `Accept-Encoding: identity`.
-- Discord neposiela rate-limit hlavičky (analýza, sekcia 10), preto tempo nastavuje pevne nástroj.
 
 **Chyby:**
 - `429`: počká `retry_after` z tela odpovede a pokračuje **[PROTOTYP: tvar]**.
@@ -501,7 +511,9 @@ Scoop/
   docs/
 ```
 
-**Stav 2026-11-03 (po kroku 3):**
+**Stav 2026-11-03 (po kroku 3 a pridaní safe/fast režimov):**
+- `api.py`: podpora dvoch režimov sťahovania (`safe` a `fast`), jitter 2.0–4.5s, čítacie pauzy 8–15s, pauzy medzi kanálmi (3–6s) a súbormi (1–3s), zdvojnásobenie delay pri 429,
+- `scrape.py`: podpora dynamickej veľkosti stránky (`limit=25` pre safe, `limit=100` pre fast),
 - `attachments.py`: sťahovanie samostatným klientom bez tokenu, obnova podpisov cez `refresh-urls`, bezpečné mená súborov,
 - `export.py`: zostavenie priečinka alebo zipu, `manifest.json`, opätovné použitie súborov pri opakovanom behu,
 - `render/text.py`: formáty `text` a `md` (Markdown pre správy a kanály),

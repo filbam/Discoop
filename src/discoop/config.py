@@ -8,12 +8,16 @@ from typing import Any
 from discoop import paths
 from discoop.errors import DiscoopError, ExitCode
 
+MODES = ("safe", "fast")
+DEFAULT_MODE = "safe"
+
 DESCRIPTIONS = {
     "default-server": "server ID used when --server is not given",
     "delay": "seconds between Discord API requests",
     "export-dir": "folder for relative --out/--zip paths (default: the current folder)",
+    "mode": "download mode: safe (human-like scrolling pauses) or fast",
 }
-DEFAULTS: dict[str, Any] = {"delay": 1.0}
+DEFAULTS: dict[str, Any] = {"delay": 1.0, "mode": DEFAULT_MODE}
 
 
 class Config:
@@ -70,6 +74,17 @@ def parse_delay(raw: str) -> float:
     return value
 
 
+def parse_mode(raw: str) -> str:
+    value = raw.strip().lower()
+    if value not in MODES:
+        raise DiscoopError(
+            ExitCode.BAD_ARGS,
+            f'Unknown mode "{raw}".',
+            f"Known modes: {', '.join(MODES)}.",
+        )
+    return value
+
+
 def parse_export_dir(raw: str) -> str:
     """An absolute folder path, so the setting means the same folder whatever the current folder is later."""
     if not raw.strip():
@@ -83,4 +98,8 @@ def parse_export_dir(raw: str) -> str:
 def parse_value(key: str, raw: str) -> Any:
     """Check and convert a value for `config set` (default-server is resolved by the CLI instead)."""
     check_key(key)
-    return parse_export_dir(raw) if key == "export-dir" else parse_delay(raw)
+    if key == "export-dir":
+        return parse_export_dir(raw)
+    if key == "mode":
+        return parse_mode(raw)
+    return parse_delay(raw)

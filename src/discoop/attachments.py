@@ -236,11 +236,19 @@ class Downloader:
             self._refresh(expired, after_failure=False)
         self.progress.start(len(todo), sum(max(job.attachment.size, 0) for job in todo))
         try:
-            refused = [job for n, job in enumerate(todo, 1) if self._download(job, n, len(todo)) in REFRESHABLE]
+            refused = []
+            for n, job in enumerate(todo, 1):
+                if n > 1 and hasattr(self.api, "between_files"):
+                    self.api.between_files()
+                status = self._download(job, n, len(todo))
+                if status in REFRESHABLE:
+                    refused.append(job)
             if refused:
                 self.progress.note(f"Refreshing {len(refused)} file URLs the CDN refused")
                 renewed = self._refresh(refused, after_failure=True)
                 for n, job in enumerate(renewed, 1):
+                    if hasattr(self.api, "between_files"):
+                        self.api.between_files()
                     self._download(job, n, len(renewed))
                     if job.status == FAILED:
                         job.reason = f"{job.reason} (also after refreshing the URL)"

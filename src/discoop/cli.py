@@ -75,8 +75,14 @@ that whole day. --last N gives the N newest messages, from the
 whole history unless --from is given.
 
 \b
+Pacing modes:
+  --safe             human-like scrolling with random pauses (default)
+  --fast             fast download with 100 messages per page and fixed delay
+  --delay SEC        pacing delay (default 1.0; scales pauses in safe mode)
+
+\b
 Export with --out DIR (a folder) or --zip FILE (the same in a zip):
-  manifest.json      counts and the status of every file
+  manifest.json      counts, settings and the status of every file
   messages.md        all channels (messages.jsonl: one JSON per line)
   channels/NAME.md   one Markdown file per channel
   files/NAME/        the attachments, as <attachment id>_<file name>
@@ -92,6 +98,7 @@ Examples:
   discoop messages -s "VUT FIT" -c "isc-*" --last 20 --format json
   discoop messages -s "VUT FIT" -c isc-public --from 30d --out exports/isc
   discoop messages -c 1286436864789843999 --from all --zip exports/isc.zip
+  discoop messages -s "VUT FIT" -c isc-public --fast
 
 Without --out/--zip, attachments are only listed with their Discord URL, which expires in 12 to 24 hours."""
 
@@ -281,6 +288,15 @@ def messages(
     max_messages: int = typer.Option(
         DEFAULT_MAX_MESSAGES, "--max-messages", metavar="N", help="Stop after N messages per channel."
     ),
+    safe: bool = typer.Option(False, "--safe", help="Human-like slow download with random pauses (default)."),
+    fast: bool = typer.Option(False, "--fast", help="Fast download with 100 messages per request and fixed delay."),
+    delay: float | None = typer.Option(
+        None,
+        "--delay",
+        metavar="SEC",
+        help="Pacing delay (seconds). Default 1.0; scales pauses in safe mode.",
+        show_default=False,
+    ),
     out_dir: str | None = typer.Option(
         None, "--out", metavar="DIR", help="Export to this folder, with the attachments.", show_default=False
     ),
@@ -301,23 +317,31 @@ def messages(
 ) -> None:
     out: Output = ctx.obj
     output_format = _parse_format(output_format)
+    if safe and fast:
+        raise DiscoopError(ExitCode.BAD_ARGS, "--safe and --fast cannot be used together.", "Choose one of them.")
+    if delay is not None and delay < 0:
+        raise DiscoopError(ExitCode.BAD_ARGS, "--delay cannot be negative.", "Use seconds, e.g. 1 or 0.5.")
     if last is not None and last < 1:
         raise DiscoopError(ExitCode.BAD_ARGS, "--last must be at least 1.")
     if max_messages < 1:
         raise DiscoopError(ExitCode.BAD_ARGS, "--max-messages must be at least 1.")
+    selected_mode = "safe" if safe else ("fast" if fast else (Config.default().get("mode") or "safe"))
+    effective_delay = delay if delay is not None else Config.default().get("delay")
     export_to = _export_target(out_dir, zip_file, print_messages, no_files, max_file_size)
     window = parse_window(from_, to, now=utc_now(), tz=LOCAL_ZONE, whole_history=last is not None)
     limit = max_messages if last is None else min(last, max_messages)
-    query = Query(window, last, max_messages, include_system)
+    query = Query(window, last, max_messages, include_system, mode=selected_mode)
     results: list[ChannelMessages] = []
     skipped: list[DiscoopError] = []
     exported: export.Exported | None = None
-    with _directory() as directory:
+    with _directory(delay=effective_delay, mode=selected_mode) as directory:
         targets = _message_targets(directory, server, channel)
-        for target_server, target in targets:
+        for i, (target_server, target) in enumerate(targets):
+            if i > 0:
+                directory.api().between_channels()
             label = f"#{target.name} ({target.id}) in {target_server.name}"
             try:
-                with _progress(out, label) as on_page:
+                with _progress(out, label, directory.api()) as on_page:
                     fetched = fetch_messages(
                         directory.api(),
                         target.id,
@@ -416,16 +440,19 @@ def display_name(user: dict[str, Any]) -> str:
     return f"{global_name} (@{username})" if global_name else f"@{username}"
 
 
-def _open_api() -> DiscordAPI:
+def _open_api(delay: float | None = None, mode: str | None = None) -> DiscordAPI:
     stored = TokenStore.default().load()
     if stored is None:
         raise auth_required()
-    return DiscordAPI(stored.token, delay=Config.default().get("delay"))
+    config = Config.default()
+    actual_delay = delay if delay is not None else config.get("delay")
+    actual_mode = mode if mode is not None else config.get("mode")
+    return DiscordAPI(stored.token, delay=actual_delay, mode=actual_mode)
 
 
 @contextmanager
-def _directory() -> Iterator[Directory]:
-    with Cache.default() as cache, Directory(cache, _open_api) as directory:
+def _directory(delay: float | None = None, mode: str | None = None) -> Iterator[Directory]:
+    with Cache.default() as cache, Directory(cache, lambda: _open_api(delay=delay, mode=mode)) as directory:
         yield directory
 
 
@@ -668,18 +695,31 @@ def _unreadable(channel: Channel) -> DiscoopError:
 
 
 @contextmanager
-def _progress(out: Output, label: str) -> Iterator[Callable[[int, int], None]]:
+def _progress(out: Output, label: str, api: DiscordAPI | None = None) -> Iterator[Callable[[int, int], None]]:
     """Progress while paging: a spinner for humans, --verbose notes for agents."""
 
     def describe(count: int, oldest_id: int) -> str:
         return f"Fetching {label}: {count} messages, back to {_local_time(to_time(oldest_id))}"
 
+    old_on_pause = getattr(api, "on_pause", None) if api else None
     if out.agent:
+        if api is not None:
+            api.on_pause = lambda s, reason: out.note(f"Pausing {s:.1f}s ({reason})")
         out.note(f"Fetching {label}")
-        yield lambda count, oldest_id: out.note(describe(count, oldest_id))
+        try:
+            yield lambda count, oldest_id: out.note(describe(count, oldest_id))
+        finally:
+            if api is not None:
+                api.on_pause = old_on_pause
         return
     with out.err_console.status(f"Fetching {label}") as status:
-        yield lambda count, oldest_id: status.update(describe(count, oldest_id))
+        if api is not None:
+            api.on_pause = lambda s, reason: status.update(f"Fetching {label}: pausing {s:.1f}s ({reason})")
+        try:
+            yield lambda count, oldest_id: status.update(describe(count, oldest_id))
+        finally:
+            if api is not None:
+                api.on_pause = old_on_pause
 
 
 def _local_time(when: datetime) -> str:

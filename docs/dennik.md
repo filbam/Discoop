@@ -225,11 +225,23 @@ režime je `text`.
   - Detekcia a znovupoužitie existujúcich príloh funguje.
   - Zip archív aj export bez príloh (`--no-files`) fungujú.
 
+**Režimy sťahovania safe a fast (bezpečné imitovanie prehliadača vs rýchle dávkové tempo):**
+- Používateľ si všimol, že nástroj sťahuje príliš rýchlo a navrhol dva režimy sťahovania:
+  1. `safe`: sťahuje pomaly a bezpečne, imituje scrollovanie v prehliadači, obsahuje náhodné intervaly a pauzy. Predvolený režim.
+  2. `fast`: doterajší stav s dávkovým sťahovaním po 100 správach a pevnou pauzou `delay`.
+- **Implementácia a overenie (231 testov, 8 nových/aktualizovaných):**
+  - `config.py`: kľúč `mode` (`safe` / `fast`), funkcia `parse_mode`, konfigurácia `discoop config set mode safe|fast`.
+  - `api.py`: v `safe` režime dávka 25 správ (`limit=25`), náhodný jitter 2.0 až 4.5 s pred každým volaním API, čítacie pauzy 8.0 až 15.0 s každých 5 až 8 requestov (s hlásením cez `on_pause`), pauza 3.0 až 6.0 s pri prepnutí kanála (`between_channels()`), pauza 1.0 až 3.0 s medzi sťahovaním súborov z CDN (`between_files()`), backoff na 429 s automatickým zdvojnásobením intervalu. V `fast` režime dávka 100 správ, pevný `delay` (predvolene 1.0 s), bez čítacích pauz a bez pauz medzi súbormi/kanálmi.
+  - `scrape.py`: podpora voliteľného `page_size`, ktorý sa riadi podľa `api.page_size` (25 pre safe, 100 pre fast).
+  - `attachments.py`: zapojenie `between_files()` do sťahovacej slučky príloh pre ďalšie súbory (2..N).
+  - `cli.py`: nové prepínače `--safe`, `--fast` a `--delay` v `discoop messages`, vzájomná kontrola kolízie `--safe` a `--fast`, prenos režimu do `DiscordAPI` a prepojenie `on_pause` na Rich status / agent stderr notifikáciu.
+  - `export.py` & `manifest.json`: manifest zaznamenáva použitý režim v objekte `query.mode` (`"safe"` / `"fast"`).
+
 **Ďalej:**
 1. Krok 4: vlákna a fóra (`threads`, `--threads/--no-threads`).
 2. Rozhodnutie 9 (výpočet prístupu ku kanálom) ostáva odložené (nízka priorita).
 
-Hotové z predchádzajúceho zoznamu: krok 3 a jeho test používateľom.
+Hotové z predchádzajúceho zoznamu: krok 3, jeho test používateľom a safe/fast režimy sťahovania.
 
 ---
 

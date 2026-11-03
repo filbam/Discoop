@@ -13,3 +13,4 @@ class Query:
     last: int | None = None
     max_messages: int | None = None
     include_system: bool = False
+    mode: str = "safe"

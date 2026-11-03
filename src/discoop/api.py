@@ -1,5 +1,6 @@
 """Minimal Discord REST client: auth header, pacing, retries and error mapping."""
 
+import random
 import time
 from collections.abc import Callable
 from typing import Any
@@ -29,10 +30,13 @@ class DiscordAPI:
         token: str | None = None,
         *,
         delay: float = 0.0,
+        mode: str = "fast",
         max_retries: int = 3,
         transport: httpx.BaseTransport | None = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
+        rand: random.Random | None = None,
+        on_pause: Callable[[float, str], None] | None = None,
     ) -> None:
         headers = {"User-Agent": USER_AGENT}
         if token:
@@ -41,10 +45,16 @@ class DiscordAPI:
             base_url=API_BASE, headers=headers, timeout=20.0, transport=transport
         )
         self.delay = delay
+        self.mode = mode
+        self.page_size = 25 if mode == "safe" else 100
         self.max_retries = max_retries
         self._sleep = sleep
         self._clock = clock
+        self.rand = rand if rand is not None else random.Random()
+        self.on_pause = on_pause
         self._last_request: float | None = None
+        self._requests_since_break = 0
+        self._break_threshold = self.rand.randint(5, 8)
 
     def __enter__(self) -> "DiscordAPI":
         return self
@@ -64,9 +74,9 @@ class DiscordAPI:
         """
         if not path.startswith("/") or path.startswith("//"):
             raise ValueError(f"Not an API path: {path!r}. The token only goes to {API_BASE}.")
+        self._pace()
         attempt = 0
         while True:
-            self._pace()
             try:
                 response = self._client.request(method, path, **kwargs)
             except httpx.TransportError as e:
@@ -87,6 +97,10 @@ class DiscordAPI:
                         "Try again later or increase --delay.",
                     )
                 attempt += 1
+                if self.delay > 0.0:
+                    self.delay *= 2
+                if self.on_pause:
+                    self.on_pause(wait, "rate limited (429)")
                 self._sleep(wait)
                 continue
             if response.status_code >= 500 and attempt < self.max_retries:
@@ -102,9 +116,44 @@ class DiscordAPI:
         raise_for_status(response)
         return response.json()
 
+    def between_channels(self) -> None:
+        """Pause when switching between channels (in safe mode)."""
+        if self.mode != "safe" or self.delay <= 0.0:
+            return
+        pause = self.rand.uniform(3.0, 6.0) * self.delay
+        if self.on_pause:
+            self.on_pause(pause, "switching channels")
+        self._sleep(pause)
+        self._last_request = self._clock()
+
+    def between_files(self) -> None:
+        """Pause between attachment downloads from CDN (in safe mode)."""
+        if self.mode != "safe" or self.delay <= 0.0:
+            return
+        pause = self.rand.uniform(1.0, 3.0) * self.delay
+        if self.on_pause:
+            self.on_pause(pause, "downloading files")
+        self._sleep(pause)
+
     def _pace(self) -> None:
-        if self.delay and self._last_request is not None:
-            wait = self.delay - (self._clock() - self._last_request)
+        if self.delay <= 0.0:
+            self._last_request = self._clock()
+            return
+        if self._last_request is not None:
+            elapsed = self._clock() - self._last_request
+            if self.mode == "safe":
+                self._requests_since_break += 1
+                if self._requests_since_break >= self._break_threshold:
+                    wait_target = self.rand.uniform(8.0, 15.0) * self.delay
+                    self._requests_since_break = 0
+                    self._break_threshold = self.rand.randint(5, 8)
+                    if self.on_pause:
+                        self.on_pause(wait_target, "reading pause")
+                else:
+                    wait_target = self.rand.uniform(2.0, 4.5) * self.delay
+            else:
+                wait_target = self.delay
+            wait = wait_target - elapsed
             if wait > 0:
                 self._sleep(wait)
         self._last_request = self._clock()

@@ -184,6 +184,7 @@ def manifest(
             "last": query.last,
             "max_messages": query.max_messages,
             "include_system": query.include_system,
+            "mode": getattr(query, "mode", "safe"),
             "files": options.files,
             "max_file_size": options.max_file_size,
         },

@@ -53,6 +53,14 @@ def test_empty_channel():
     assert result.messages == [] and result.requests == 1
 
 
+def test_custom_page_size():
+    channel = FakeChannel(series(60, newest=NEWEST, step=STEP))
+    result = fetch(channel, Window(None, NOW), page_size=25)
+    assert len(result.messages) == 60
+    assert result.requests == 3
+    assert [r["limit"] for r in channel.requests] == ["25", "25", "25"]
+
+
 def test_window_end_excludes_newer_messages():
     channel = FakeChannel(series(10, newest=NEWEST, step=STEP))
     end = NEWEST - 3 * STEP  # message 3 sits exactly at the end and is left out

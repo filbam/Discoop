@@ -6,6 +6,24 @@ verzie podľa [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Pridané
+- **Dva režimy sťahovania (`safe` a `fast`):**
+  - **`safe` režim (predvolený):**
+    - Imituje prirodzené ľudské správanie a scrollovanie v prehliadači na zníženie rizika blokovania účtu.
+    - Stránkuje správy po menších dávkach (25 správ na požiadavku namiesto 100).
+    - Náhodný interval (jitter) 2,0 až 4,5 s medzi požiadavkami.
+    - Dlhšia „čítacia“ pauza 8,0 až 15,0 s každých 5 až 8 stránok s notifikáciou v progress bare a vo verbose výstupe.
+    - Náhodná pauza 3,0 až 6,0 s pri prechode na ďalší kanál.
+    - Náhodná pauza 1,0 až 3,0 s medzi sťahovaním jednotlivých príloh z Discord CDN.
+    - Pri `429 Rate Limit` automaticky počká `retry_after` a zdvojnásobí intervaly pre zvyšok behu.
+  - **`fast` režim:**
+    - Pôvodný rýchly režim: 100 správ na požiadavku, pevný interval z `delay` (predvolene 1,0 s), bez čítacích pauz a bez čakania medzi súbormi z CDN.
+  - **Nové CLI prepínače pre `discoop messages`:**
+    - `--safe`: vynúti bezpečný režim s náhodnými intervalmi.
+    - `--fast`: vynúti rýchly režim.
+    - `--delay SEC`: nastavenie základného intervalu požiadaviek (v safe režime škáluje náhodné intervaly).
+  - **Nové konfiguračné nastavenie:**
+    - `discoop config set mode safe|fast`: trvalá zmena predvoleného režimu.
+  - Použitý režim (`safe` / `fast`) sa zaznamenáva do `manifest.json` v exporte (`query.mode`).
 - **Krok 3 implementácie: sťahovanie príloh, export do priečinka a zipu, manifest.**
   - **Export do priečinka a zipu:** `discoop messages --out DIR` a `--zip FILE`.
     - Štruktúra: `manifest.json`, `messages.md`, `messages.jsonl`, `channels/<kanál>.md` a `files/<kanál>/<attachment_id>_<meno>`.

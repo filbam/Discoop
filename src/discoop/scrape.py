@@ -40,6 +40,7 @@ def fetch_messages(
     *,
     label: str,
     limit: int | None = None,
+    page_size: int | None = None,
     include_system: bool = False,
     on_page: Callable[[int, int], None] | None = None,
 ) -> Fetched:
@@ -51,9 +52,10 @@ def fetch_messages(
     cursor = window.before_id
     kept: list[dict[str, Any]] = []
     requests = 0
+    page_limit = page_size or getattr(api, "page_size", PAGE_SIZE)
     while True:
         # One extra message tells whether more exist after the limit is reached.
-        size = PAGE_SIZE if limit is None else min(PAGE_SIZE, limit - len(kept) + 1)
+        size = page_limit if limit is None else min(page_limit, limit - len(kept) + 1)
         page = _get_page(api, channel_id, cursor, size, label)
         requests += 1
         if not page and requests == 1:

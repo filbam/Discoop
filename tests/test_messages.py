@@ -489,3 +489,23 @@ def test_reactions_stay_on_one_line_with_super_reactions():
         {"emoji": "✅", "count": 1, "super": 0},
         {"emoji": ":peepolove:", "count": 2, "super": 1},
     ]
+
+
+def test_messages_mode_flags(capsys, discord):
+    # Conflicting --safe and --fast
+    code, _, err = run(capsys, "messages", "-s", FIT, "-c", "200", "--safe", "--fast")
+    assert code == 8
+    assert "--safe and --fast cannot be used together" in err
+
+    # Negative delay
+    code, _, err = run(capsys, "messages", "-s", FIT, "-c", "200", "--delay", "-1")
+    assert code == 8
+    assert "--delay cannot be negative" in err
+
+    # --safe succeeds
+    code, out, _ = run(capsys, "messages", "-s", FIT, "-c", "200", "--safe")
+    assert code == 0 and "=== VUT FIT / #2bit-general ===" in out
+
+    # --fast succeeds
+    code, out, _ = run(capsys, "messages", "-s", FIT, "-c", "200", "--fast")
+    assert code == 0 and "=== VUT FIT / #2bit-general ===" in out
