@@ -4,18 +4,24 @@
     range: 2026-11-02 12:00 .. 2026-11-03 12:00 (UTC+01:00) | messages: 2 | files: 1
 
     [2026-11-02 14:03] Student A (@student_a) reply-to Student B: "kedy je deadline…"
-    Do piatku 23:59, zadanie je v prílohe.
+    Do piatku 23:59, zadanie je v prílohe. https://www.fit.vut.cz/study/
       [file] zadanie.pdf 412KB https://cdn.discordapp.com/attachments/...
-      [reactions] ✅3 👍1
+      [link] "Studium"
+      [reactions] ✅3 🔥5 (2 super)
+
+An embed does not repeat a URL the message already shows: `[link] "Studium"` above is the preview of the URL
+in the text, and an image posted as a bare URL (an embed without a title) gets no embed line at all.
+The `json` format keeps every embed URL.
 """
 
+import re
 from collections.abc import Sequence
 from datetime import datetime, tzinfo
 
 from rich.style import Style
 from rich.text import Text
 
-from discoop.models import REGULAR_MESSAGE_TYPES, ChannelMessages, Link, Message
+from discoop.models import REGULAR_MESSAGE_TYPES, ChannelMessages, Link, Message, Reaction
 from discoop.render import Query
 from discoop.snowflake import to_local
 
@@ -23,6 +29,8 @@ Segment = tuple[str, str | Style | None]  # text and a Rich style (ignored in pl
 Line = list[Segment]
 
 _LINK_TAGS = {"link": "link", "article": "link", "gifv": "gif", "image": "image", "video": "video", "rich": "embed"}
+_URL = re.compile(r"https?://[^\s<>]+")
+_AFTER_URL = ".,;:!?)]}'\""  # punctuation that may follow a URL in a sentence or a Markdown link
 
 
 def lines(
@@ -54,7 +62,6 @@ def styled(results: Sequence[ChannelMessages], query: Query, tz: tzinfo | None =
         Text.assemble(*((text, style or "") for text, style in line)) for line in lines(results, query, tz, spaced=True)
     ]
     return Text("\n").join(rendered)
-
 
 
 def _summary(result: ChannelMessages, query: Query, tz: tzinfo | None) -> str:
@@ -103,24 +110,48 @@ def _message(message: Message, tz: tzinfo | None) -> list[Line]:
                 (attachment.url, Style(dim=True, link=attachment.url or None)),
             ]
         )
+    shown = _urls(message.text)
     for link in message.links:
-        out += _link(link)
+        out += _link(link, shown)
     for sticker in message.stickers:
         out.append([("  [sticker] ", "green"), (sticker, None)])
     if message.thread:
         count = f" {message.thread.message_count} messages" if message.thread.message_count is not None else ""
         out.append([("  [thread] ", "green"), (f'"{message.thread.name}"{count}', None)])
     if message.reactions:
-        out.append([("  [reactions] ", "green"), (" ".join(f"{r.emoji}{r.count}" for r in message.reactions), None)])
+        out.append([("  [reactions] ", "green"), (" ".join(_reaction(r) for r in message.reactions), None)])
     return out
 
 
-def _link(link: Link) -> list[Line]:
-    parts = [part for part in (link.url, f'"{link.title}"' if link.title else None) if part]
-    out: list[Line] = [[(f"  [{_LINK_TAGS.get(link.kind, link.kind)}] ", "blue"), (" ".join(parts), None)]]
+def _link(link: Link, shown: set[str]) -> list[Line]:
+    """One embed. A URL already in `shown` (the text or an earlier embed) is left out, a new one is added there.
+
+    An embed with nothing left to show (no title, no description) gives no line at all.
+    """
+    url = None if link.url in shown else link.url
+    if link.url:
+        shown.add(link.url)
+    parts = [part for part in (url, f'"{link.title}"' if link.title else None) if part]
+    if not parts and not link.description:
+        return []
+    head: Line = [(f"  [{_LINK_TAGS.get(link.kind, link.kind)}]", "blue")]
+    if parts:
+        head.append((" " + " ".join(parts), None))
+    out = [head]
     if link.description:
         out += [[(f"    {text_line}", None)] for text_line in link.description.split("\n")]
     return out
+
+
+def _urls(text: str) -> set[str]:
+    """URLs written in a message text, each also without the punctuation right after it."""
+    found = _URL.findall(text)
+    return {*found, *(url.rstrip(_AFTER_URL) for url in found)}
+
+
+def _reaction(reaction: Reaction) -> str:
+    """`✅3`, with super reactions `🔥5 (2 super)`: 5 in all, 2 of them super."""
+    return f"{reaction.emoji}{reaction.count}" + (f" ({reaction.burst} super)" if reaction.burst else "")
 
 
 def _time(when: datetime, tz: tzinfo | None) -> str:

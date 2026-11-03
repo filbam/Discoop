@@ -102,7 +102,7 @@ Kedy je deadline na #2bit-terminy? @role:777
 súhlasím
 [2026-11-03 11:50] Student A (@student_a)
 https://www.fit.vut.cz/study/
-  [link] https://www.fit.vut.cz/study/ "Studium"
+  [link] "Studium"
 """
 
 
@@ -185,6 +185,34 @@ def test_system_messages_on_request(capsys, discord):
     assert "messages: 6" in out
 
 
+def test_blank_lines_around_texts_are_trimmed(capsys, discord):
+    """Regression: a text ending with blank lines gave two blank lines between messages in human mode."""
+    embed = {"type": "rich", "description": "Popis\n", "fields": [{"name": "Pole", "value": "hodnota\n"}]}
+    discord.channels["200"] = FakeChannel([
+        message(at(10), "\n \nPrvý riadok\n\nDruhý riadok\n\n"),
+        message(at(10, 1), " \n ", author=USER_B, attachments=[{"id": "1", "filename": "a.png", "size": 10, "url": "u"}]),
+        message(at(10, 2), "Windows\r\nriadky\r\n"),
+        message(at(10, 3), "", author=BOT, embeds=[embed]),
+    ])
+    _, out, _ = run(capsys, "messages", "-s", FIT, "-c", "200")
+    assert out.splitlines()[3:] == [
+        "[2026-11-03 10:00] Student A (@student_a)", "Prvý riadok", "", "Druhý riadok",
+        "[2026-11-03 10:01] @student_b", "  [file] a.png 10B u",
+        "[2026-11-03 10:02] Student A (@student_a)", "Windows", "riadky",
+        "[2026-11-03 10:03] @fit_bot [bot]", "  [embed]", "    Popis", "    Pole: hodnota",
+    ]
+    assert all(line == line.rstrip() for line in out.splitlines())  # also no "  [embed] " with a trailing space
+    with pytest.raises(SystemExit):
+        cli.main(["--human", "messages", "-s", FIT, "-c", "200"])
+    human = capsys.readouterr().out
+    assert "\n\n\n" not in human
+    assert "\nDruhý riadok\n\n[2026-11-03 10:01] @student_b\n" in human  # one blank line between messages
+    _, out, _ = run(capsys, "messages", "-s", FIT, "-c", "200", "--format", "json")
+    assert [m["text"] for m in json.loads(out)["messages"]] == [
+        "Prvý riadok\n\nDruhý riadok", "", "Windows\nriadky", ""
+    ]
+
+
 def test_empty_channel(capsys, discord):
     code, out, _ = run(capsys, "messages", "-s", FIT, "-c", "2bit-info")
     assert code == 0
@@ -228,10 +256,14 @@ def test_json(capsys, discord):
         {"id": "800000000000000001", "filename": "zadanie.pdf", "type": "application/pdf", "size": 421888,
          "url": FILE_URL}
     ]
-    assert answer["reactions"] == [{"emoji": "✅", "count": 3}, {"emoji": ":peepolove:", "count": 1}]
+    assert answer["reactions"] == [{"emoji": "✅", "count": 3, "super": 0}, {"emoji": ":peepolove:", "count": 1, "super": 0}]
     assert announcement["has_thread"] is True and announcement["pinned"] is True
     assert announcement["links"][0]["description"] == "Projekt 1\nOdovzdanie: 2026-11-06 23:59"
     assert orphan["reply_to"] == {"id": "1", "author": None, "text": None}
+    # Unlike `text`, JSON keeps the URL of an embed that the message text already has.
+    assert data["messages"][-1]["links"] == [
+        {"kind": "link", "url": "https://www.fit.vut.cz/study/", "title": "Studium", "description": None}
+    ]
 
 
 def test_human_json_is_valid_and_indented(capsys, discord):
@@ -452,3 +484,53 @@ def test_bot_command_answers_are_not_system_messages():
     m = Normalizer({}, {}, CET).message(message(at(10), "výsledok príkazu", author=BOT, type=20))
     result = ChannelMessages(Server(FIT, "VUT FIT"), Channel("200", FIT, "x", 0), (m,))
     assert "[2026-11-03 10:00] @fit_bot [bot]\nvýsledok príkazu" in text.plain([result], Query(Window(None, NOW)), CET)
+
+
+QUERY = Query(Window(None, NOW))
+
+
+def normalized(*raw: dict) -> ChannelMessages:
+    normalizer = Normalizer({}, known_users(raw), CET)
+    return ChannelMessages(Server(FIT, "VUT FIT"), Channel("200", FIT, "x", 0), tuple(normalizer.message(m) for m in raw))
+
+
+def test_embeds_do_not_repeat_urls_from_the_text():
+    """Regression: a GIF posted as a bare URL showed the URL twice, in the text and as `[image]`."""
+    gif = "https://cdn.discordapp.com/attachments/300/400/cat.gif?ex=1&is=2&hm=3&"
+    video = "https://www.youtube.com/watch?v=abc123"
+    gallery = "https://example.com/post/1"
+    result = normalized(
+        message(at(10), gif, embeds=[{"type": "image", "url": gif}]),
+        message(at(10, 1), f"Záznam ({video}).", embeds=[{"type": "video", "url": video, "title": "Prednáška 1"}]),
+        message(at(10, 2), "pozri", embeds=[{"type": "rich", "url": gallery, "title": "Post"}, {"type": "rich", "url": gallery}]),
+        message(at(10, 3), "", embeds=[{"type": "gifv", "url": "https://tenor.com/view/cat-1", "title": "Cat"}]),
+    )
+    assert text.plain([result], QUERY, CET).splitlines()[3:] == [
+        "[2026-11-03 10:00] Student A (@student_a)", gif,  # the bare GIF: no [image] line
+        "[2026-11-03 10:01] Student A (@student_a)", f"Záznam ({video}).", '  [video] "Prednáška 1"',
+        "[2026-11-03 10:02] Student A (@student_a)", "pozri", f'  [embed] {gallery} "Post"',  # 2nd embed: same URL
+        "[2026-11-03 10:03] Student A (@student_a)", '  [gif] https://tenor.com/view/cat-1 "Cat"',  # URL not in text
+    ]
+    links = [m["links"] for m in jsonout.document([result], QUERY, CET)["messages"]]
+    assert links[0] == [{"kind": "image", "url": gif, "title": None, "description": None}]
+    assert [link["url"] for link in links[2]] == [gallery, gallery]
+
+
+def test_reactions_stay_on_one_line_with_super_reactions():
+    """Super reactions are a part of an emoji's count (count_details.burst), not another reaction."""
+    extra = {"burst_colors": [], "me_burst": False, "burst_me": False, "me": False}
+    reactions = [
+        {"emoji": {"id": None, "name": "🔥"}, "count": 5, "count_details": {"burst": 2, "normal": 3}, "burst_count": 2,
+         **extra},
+        {"emoji": {"id": None, "name": "✅"}, "count": 1, "count_details": {"burst": 0, "normal": 1}, "burst_count": 0,
+         **extra},
+        {"emoji": {"id": "827833315666558996", "name": "peepolove", "animated": True}, "count": 2, "burst_count": 1},
+    ]
+    result = normalized(message(at(10), "super", reactions=reactions))
+    lines = [line for line in text.plain([result], QUERY, CET).splitlines() if "[reactions]" in line]
+    assert lines == ["  [reactions] 🔥5 (2 super) ✅1 :peepolove:2 (1 super)"]
+    assert jsonout.document([result], QUERY, CET)["messages"][0]["reactions"] == [
+        {"emoji": "🔥", "count": 5, "super": 2},
+        {"emoji": "✅", "count": 1, "super": 0},
+        {"emoji": ":peepolove:", "count": 2, "super": 1},
+    ]

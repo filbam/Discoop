@@ -161,7 +161,7 @@ discoop messages -c 1286436864789843999 --from 2026-10-01 --to 2026-10-31 --zip 
 discoop messages -c "isc-*" --since-last --agent
 ```
 
-**Implementované 2026-11-03 (krok 2, čaká na test používateľa):**
+**Implementované 2026-11-03 (krok 2, v ten istý deň otestované používateľom na jeho účte):**
 - **Prepínače:** `-c` (opakovateľný), `-s`, `--from`, `--to`, `--last`, `--format text|json`, `--include-system`,
   `--max-messages`. Prepínače neskorších krokov zatiaľ nie sú (`--threads/--no-threads`, `--out`, `--zip`,
   `--print`, `--no-files`, `--since-last`, `--raw`, `--delay`, formáty `md` a `jsonl`). Tempo je z `config set delay`.
@@ -196,21 +196,34 @@ discoop messages -c "isc-*" --since-last --agent
   - `[thread] "meno" N messages` pri správe, z ktorej vzniklo vlákno.
   - Embedy podľa typu: `[link]`, `[gif]`, `[image]`, `[video]`, `[embed]`. Rich embed (boti) má aj popis a polia,
     odsadené o 4 medzery. Ďalej `[sticker]`.
+  - **Embed nezopakuje URL, ktorú správa už ukazuje** (v texte alebo v predchádzajúcom embede). Ostane len značka
+    s titulkom, napr. `[link] "Studium"` pod URL v texte. Embed bez titulku a popisu sa vynechá celý, napr. GIF
+    poslaný ako holá URL. JSON má embedy celé (pozri nižšie).
+  - **`[reactions]` je jeden riadok** so všetkými reakciami správy. Discord posiela jednu položku na emoji
+    (analýza, sekcia 4), super reakcie sú v nej ako `count_details.burst`. Podľa dokumentácie Discordu ich `count`
+    zahŕňa **[PREDPOKLAD]**, na účte boli pozorované len položky s `burst: 0`. Zápis `🔥5 (2 super)` znamená
+    5 reakcií, z toho 2 super.
+  - **Prázdne riadky na začiatku a na konci textu** správy aj popisu rich embedu sa orežú, `\r\n` sa zmení na `\n`.
+    Platí to aj pre JSON.
   - `<t:unix>` sa prepíše na lokálny čas a `</príkaz:id>` na `/príkaz`. `<@&id>` je vždy `@role:<id>`, mená rolí sa
     nesťahujú. Neznámy používateľ alebo kanál je `@user:<id>`, `#channel:<id>`.
   - Reply bez `referenced_message` je `reply-to (message not available)`. Citát má najviac 80 znakov.
   - Medzi správami nie je prázdny riadok (menej tokenov). Správa začína riadkom `[YYYY-MM-DD HH:MM]`.
 - **Formát `json`:** jeden objekt `{from, to, last, truncated, channels: [...], messages: [...]}`.
   - `channels` má pri každom kanáli server, kanál, počet správ a súborov a `truncated`.
-  - Správy majú schému zo 6.2, doplnené sú polia `type`, `stickers`, `forwarded` a `links[].description`.
+  - Správy majú schému zo 6.2, doplnené sú polia `type`, `stickers`, `forwarded`, `links[].description`
+    a `reactions[].super` (počet super reakcií, podľa dokumentácie zahrnutých aj v `count`).
+  - `links` má každý embed aj s URL, aj keď ju má aj `text`. JSON je úplný štruktúrovaný formát pre skripty
+    a budúci export, každá položka `links` má byť použiteľná sama. Duplicitu rieši len formát `text`, kde stojí tokeny.
   - V prílohách chýba `path` (až pri exporte). `thread` je zatiaľ vždy `null`.
   - `text` má prepísané mentions rovnako ako formát `text`.
   - V agent režime je JSON na jednom riadku, v human režime odsadený.
-- **Human režim** (návrh presný vzhľad neopisoval): rovnaký layout ako `text`, s farbami a s prázdnym riadkom
-  medzi správami. Dlhé riadky zalamuje terminál, nie Rich, aby URL ostali celé. Počas sťahovania beží spinner
+- **Human režim** (návrh presný vzhľad neopisoval): rovnaký layout ako `text`, s farbami a s jedným prázdnym
+  riadkom medzi správami. Dlhé riadky zalamuje terminál, nie Rich, aby URL ostali celé. Počas sťahovania beží spinner
   na stderr. Poznámka na konci pripomenie, že predvolené okno je 24 h.
 - **Forwardy** (`message_snapshots` pri `message_reference.type 1`) sa zobrazia s textom a prílohami pôvodnej
-  správy a značkou `(forwarded)`. Tvar je **[PREDPOKLAD]** (analýza, sekcia 4).
+  správy a značkou `(forwarded)`. Tvar je **[PREDPOKLAD]** (analýza, sekcia 4). Pri teste používateľa 2026-11-03
+  sa jeden forward zobrazil so značkou, textom aj prílohou.
 - **Viac kanálov:** nedostupný (`NO_ACCESS`) alebo neznámy (`NOT_FOUND`) kanál sa preskočí s varovaním. Keď sa
   nedá prečítať žiadny, koniec s kódom prvej chyby. Ostatné chyby ukončia celý beh.
 - **Prázdna prvá strana** (`200 []`): poznámka na stderr, že pred koncom okna nie sú žiadne správy, alebo chýba
@@ -389,7 +402,9 @@ Cesty k prílohám v `.md` a `.jsonl` sú relatívne. AI s prístupom k súborom
   s kódom `1`, hláška obsahuje `message` z odpovede a rada je počkať a zvýšiť `delay`.
 - `404` (`10003` Unknown Channel): kód `4` a rada `discoop channels --refresh`.
 - `200 []` môže znamenať aj chýbajúce `READ_MESSAGE_HISTORY`. Odlíšiť sa to dá až výpočtom prístupu (rozhodnutie 9, odložené).
-- Kódy chýb sú **[PREDPOKLAD]** podľa [analyzy/pristup-ku-kanalom.md](analyzy/pristup-ku-kanalom.md), sekcia 7.
+- `403` pri kanáli bez `VIEW_CHANNEL` je **[OVERENÉ]** 2026-11-03: `discoop messages` na kanáli
+  `1549737445002584094` skončil `NO_ACCESS` (kód `5`). Presný kód (`50001` alebo `50013`) výstup neukazuje.
+- Ostatné kódy chýb sú **[PREDPOKLAD]** podľa [analyzy/pristup-ku-kanalom.md](analyzy/pristup-ku-kanalom.md), sekcia 7.
   Implementované 2026-11-03 v `messages` (krok 2).
 
 **Rozsah volaní:** nástroj nikdy nevolá `ack`, `science`, `metrics` ani nič, čo zapisuje.

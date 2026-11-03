@@ -6,6 +6,7 @@ verzie podľa [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Pridané
+- `discoop messages`: super reakcie sú pri počte reakcie (`🔥5 (2 super)`), v JSON pole `reactions[].super`.
 - **Krok 2 implementácie: `discoop messages`** vypíše správy kanálov do konzoly.
   - **Výber:** `-c` meno, ID alebo vzor (`isc-*`), dá sa opakovať. Server cez `-s` alebo `default-server`,
     holé ID kanála server nepotrebuje.
@@ -57,6 +58,9 @@ verzie podľa [SemVer](https://semver.org/).
 - ADR 0005: QR login v termináli bez prehliadača.
 
 ### Zmenené
+- Analýza prístupu (sekcie 1 a 7) a návrh (sekcia 9): `403` pri kanáli bez `VIEW_CHANNEL` je overený testom
+  používateľa 2026-11-03. Presný kód (`50001` alebo `50013`) výstup neukazuje.
+- Návrh 4.5: správanie `messages` po teste používateľa (embedy bez duplicitnej URL, reakcie, orezané texty).
 - Návrh: rozhodnutia 4 až 6 prijaté (ADR 0011). Sekcia 4.5 opisuje implementovaný `messages` a odchýlky,
   sekcia 9 mapovanie chýb `403`/`404` podľa analýzy prístupu ku kanálom.
 - Chybové hlášky Discord API obsahujú aj JSON kód chyby (`… (code 50035)`).
@@ -73,3 +77,11 @@ verzie podľa [SemVer](https://semver.org/).
   - keyring s fallbackom pre Linux,
   - nové otvorené rozhodnutia 7 a 8.
 - CLAUDE.md a ADR 0003: upozornenie na passkey dialóg pri `discord.com/login`.
+
+### Opravené
+- **Výstup `discoop messages`** po teste používateľa 2026-11-03 (3 nové regresné testy, spolu 164):
+  - Embed nezopakuje URL, ktorú správa už ukazuje. GIF poslaný ako holá URL mal pod textom `[image]` s tou istou
+    URL. Ostane len značka s titulkom, embed bez titulku sa vynechá. JSON má embedy celé.
+  - Prázdne riadky na začiatku a konci textu správy a popisu rich embedu sa orežú, `\r\n` sa zmení na `\n`.
+    V human režime je tak medzi správami vždy jeden prázdny riadok.
+  - Rich embed bez URL a titulku už nemá za `[embed]` medzeru navyše.

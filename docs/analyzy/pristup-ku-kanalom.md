@@ -27,7 +27,7 @@ v zátvorke a v sekcii [Zdroje](#zdroje).
 | 2 | Pole `permissions` v `/users/@me/guilds` | Práva na úrovni servera (@everyone + všetky roly), **bez** overwrites a implicitných pravidiel. Ownera treba riešiť cez `owner`, admina cez bit `ADMINISTRATOR`. `/guilds/{id}/roles` netreba **[PREDPOKLAD]** |
 | 3 | Algoritmus | base → owner/ADMINISTRATOR → @everyone overwrite → zjednotené role overwrites → member overwrite → implicitné pravidlá. Kategórie sa v API nededia, vlákna dedia z rodiča **[PREDPOKLAD]** |
 | 4 | `___hidden___` a `is_hidden` | Obfuskácia kanálov bez `VIEW_CHANNEL`, ktorú robí **iba gateway**. REST flag `1<<17` nikdy nenastaví, takže `is_hidden` v REST ceste nič nefiltruje. S opt-in kanálmi to nesúvisí |
-| 5 | `/messages` bez prístupu | Bez `VIEW_CHANNEL`: `403` s kódom `50001` Missing Access. S `VIEW_CHANNEL`, ale bez `READ_MESSAGE_HISTORY`: `200` a prázdne pole **[PREDPOKLAD]** |
+| 5 | `/messages` bez prístupu | Bez `VIEW_CHANNEL`: `403` **[OVERENÉ]** (sekcia 7), kód `50001` Missing Access **[PREDPOKLAD]**. S `VIEW_CHANNEL`, ale bez `READ_MESSAGE_HISTORY`: `200` a prázdne pole **[PREDPOKLAD]** |
 
 **Dve nové zistenia menia odporúčanie:**
 1. **`GET /guilds/{id}/channels?permissions=true`** podľa Userdoccers vráti pri každom kanáli pole `permissions`.
@@ -239,7 +239,7 @@ prázdny výsledok **[PREDPOKLAD]** (Get Channel Messages; Userdoccers List Mess
 
 | Situácia | Očakávaná odpoveď | Istota |
 |---|---|---|
-| Člen servera, kanál bez `VIEW_CHANNEL` | `403`, `{"message": "Missing Access", "code": 50001}` | **[PREDPOKLAD]** (kód 50001 v oficiálnej tabuľke chýb; hlásenia z `discord.js-selfbot-v13` a `discord-server-copy`) |
+| Člen servera, kanál bez `VIEW_CHANNEL` | `403`, `{"message": "Missing Access", "code": 50001}` | `403` **[OVERENÉ]** 2026-11-03: `discoop messages` na kanáli `1549737445002584094` (klient ho zobrazil ako `___hidden___`) skončil `NO_ACCESS`, exit `5`. Ten nastane len pri `403` s kódom `50001` alebo `50013`, ktorý z nich to bol, výstup neukazuje. Kód `50001` ostáva **[PREDPOKLAD]** (oficiálna tabuľka chýb; hlásenia z `discord.js-selfbot-v13` a `discord-server-copy`) |
 | Hlasový/stage kanál bez `CONNECT` | `403`, pravdepodobne `50001` | **[PREDPOKLAD]** |
 | `VIEW_CHANNEL` bez `READ_MESSAGE_HISTORY` | `200` a `[]` | **[PREDPOKLAD]**. Nedá sa odlíšiť od prázdneho kanála, rozlíši to len výpočet práv |
 | Súkromné vlákno, v ktorom používateľ nie je (a nemá `MANAGE_THREADS`) | `403`, `50001` | **[PREDPOKLAD]** |

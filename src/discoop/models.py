@@ -122,7 +122,8 @@ class Link:
 @dataclass(frozen=True)
 class Reaction:
     emoji: str
-    count: int
+    count: int  # everyone who reacted with this emoji, super reactions included
+    burst: int = 0  # of those, super reactions (`count_details.burst` in the API)
 
 
 @dataclass(frozen=True)

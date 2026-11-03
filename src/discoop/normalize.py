@@ -2,7 +2,8 @@
 
 Rewrites (docs/navrh-nastroja.md, section 6.2): `<@id>` → `@name`, `<#id>` → `#channel`,
 `<@&id>` → `@role:<id>` (role names are not fetched), `<:name:id>` → `:name:`,
-`<t:unix:style>` → local time, `</command:id>` → `/command`.
+`<t:unix:style>` → local time, `</command:id>` → `/command`. Blank lines at the start and the end of a text
+are dropped, so they cannot pile up between messages in the output.
 """
 
 import re
@@ -22,6 +23,7 @@ _MARKUP = re.compile(
     r"|<t:(?P<unix>-?\d+)(?::[tTdDfFsSR])?>"
     r"|</(?P<command>[\w -]+):\d+>"
 )
+_BLANK_EDGES = re.compile(r"\A(?:[^\S\n]*\n)+|\s+\Z")  # blank lines at the start, any whitespace at the end
 
 
 def display_name(user: Mapping[str, Any]) -> str:
@@ -78,7 +80,8 @@ class Normalizer:
         )
 
     def text(self, content: str) -> str:
-        return _MARKUP.sub(self._replace, content)
+        """Readable text: markup rewritten, line ends as \\n, no blank lines at the start or the end."""
+        return _BLANK_EDGES.sub("", _MARKUP.sub(self._replace, content.replace("\r\n", "\n")))
 
     def _replace(self, match: re.Match[str]) -> str:
         kind, item_id = match.group("kind"), match.group("id")
@@ -108,8 +111,8 @@ class Normalizer:
         description = None
         if kind == "rich":
             fields = [f"{f.get('name', '')}: {f.get('value', '')}" for f in embed.get("fields") or []]
-            parts = [embed.get("description") or "", *fields]
-            description = self.text("\n".join(p for p in parts if p)) or None
+            parts = [self.text(part) for part in (embed.get("description") or "", *fields)]
+            description = "\n".join(part for part in parts if part) or None
         return Link(kind, embed.get("url"), embed.get("title"), description)
 
 
@@ -138,9 +141,11 @@ def _attachment(data: Mapping[str, Any]) -> Attachment:
 
 
 def _reaction(data: Mapping[str, Any]) -> Reaction:
+    """One entry per emoji; super reactions are a part of its count (docs/analyzy/discord-analyza.md, section 4)."""
     emoji = data.get("emoji") or {}
     name = emoji.get("name") or "?"
-    return Reaction(f":{name}:" if emoji.get("id") else name, int(data.get("count") or 0))
+    burst = (data.get("count_details") or {}).get("burst", data.get("burst_count"))
+    return Reaction(f":{name}:" if emoji.get("id") else name, int(data.get("count") or 0), int(burst or 0))
 
 
 def _parse_time(raw: str | None) -> datetime | None:

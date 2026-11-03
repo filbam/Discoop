@@ -165,16 +165,42 @@ režime je `text`.
   - z návrhu pribudli aj `--max-messages` a `--include-system`.
 - **Neoverené na účte:** `GET /channels/{id}` (ID kanála, ktoré nie je v cache), kódy chýb `403` a tvar forwardov.
 
+**Test kroku 2 používateľom** (log v `Temp/`, lokálny, gitom ignorovaný):
+- **Všetkých 6 príkazov fungovalo** (VUT FIT, kanál `1282100102743330887`):
+  - human režim s predvoleným oknom 24 h (aj poznámka o 24 h na konci) a s `--last 30`,
+  - `--agent --from 7d`,
+  - `--agent --format json --from 2026-11-01 --to 2026-11-02`: `--to` s holým dátumom berie celý deň,
+    okno končí 2026-11-03 00:00,
+  - `--agent -v --from all --max-messages 300`: stránkovanie po 100 s priebehom na stderr, `WARNING`
+    a `truncated: yes`,
+  - kanál bez prístupu (`1549737445002584094`): `ERROR NO_ACCESS`, exit 5.
+- **Overené na účte:**
+  - Kanál bez `VIEW_CHANNEL` vráti `403` s kódom `50001` alebo `50013`. Ktorý z nich, výstup neukazuje.
+    Zapísané v analýze prístupu (sekcie 1 a 7) a v návrhu (sekcia 9).
+  - Forward sa zobrazil so značkou `(forwarded)`, textom aj prílohou. Značka vyžaduje `message_reference.type 1`
+    aj neprázdne `message_snapshots`.
+- **Opravy výstupu** (agent, 3 nové regresné testy, spolu 164):
+  - **Duplicitná URL:** GIF poslaný ako holá URL mal pod textom `[image]` s tou istou URL. Embed teraz nezopakuje
+    URL, ktorú správa už ukazuje: ostane len značka s titulkom (`[gif] "…"`), embed bez titulku sa vynechá.
+    JSON má embedy celé, lebo je to úplný štruktúrovaný formát pre skripty a budúci export.
+  - **Reakcie:** dva riadky `[reactions]` pri jednej správe sa v logu nenašli. Kód vypisuje jeden riadok na
+    správu a Discord posiela jednu položku na emoji. Super reakcie (`count_details.burst`) sú teraz pri počte,
+    `🔥5 (2 super)`, v JSON pole `reactions[].super`.
+  - **Prázdne riadky:** dvojitý prázdny riadok v human režime sa v logu tiež nenašiel. Preventívne sa orežú
+    prázdne riadky na začiatku a konci textu správy aj popisu rich embedu a `\r\n` sa zmení na `\n`. Text
+    končiaci `\n` predtým dal v human režime dva prázdne riadky za správou.
+  - Rich embed bez URL a titulku mal za `[embed]` medzeru navyše.
+- **Na zváženie, nemenené:** reply na správu, ktorá má len prílohu, nemá citát (`reply-to meno` bez textu).
+  Rich embed, ktorý má len obrázok (bez URL, titulku a popisu), sa vo výstupe nezobrazí vôbec.
+
 **Ďalej:**
-1. **Test kroku 2 používateľom:** `discoop messages` na jeho účte (VUT FIT, kanál `1282100102743330887`
-   z prototypu), v oboch režimoch a formátoch.
-2. Krok 3: prílohy, `--out`/`--zip`, manifest.
-3. **Odložené, nízka priorita: rozhodnutie 9, výpočet prístupu ku kanálom.**
+1. Krok 3: prílohy, `--out`/`--zip`, manifest.
+2. **Odložené, nízka priorita: rozhodnutie 9, výpočet prístupu ku kanálom.**
    - Dôvody: používateľ to nepovažuje za dôležité a Discord podľa changelogu 2026-08-12 plánuje, že REST
      prestane vracať nedostupné kanály aj používateľom.
    - Podklady a možný postup sú v [analyzy/pristup-ku-kanalom.md](analyzy/pristup-ku-kanalom.md), sekcia 9.
 
-Hotové z predchádzajúceho zoznamu: rozhodnutia 4 až 6 (ADR 0011) a krok 2 (čaká na test používateľa).
+Hotové z predchádzajúceho zoznamu: rozhodnutia 4 až 6 (ADR 0011), krok 2 a jeho test používateľom.
 
 ---
 

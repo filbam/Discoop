@@ -2,6 +2,7 @@
 
 Message schema follows docs/navrh-nastroja.md, section 6.2. Attachments have no local `path` yet:
 console output only lists their CDN URL (valid 12 to 24 h); downloading comes with --out/--zip.
+Unlike the `text` format, `links` keep every embed URL, also one the message text already has.
 """
 
 import json
@@ -60,7 +61,8 @@ def message(m: Message, where: ChannelMessages, tz: tzinfo | None = None) -> dic
             {"kind": link.kind, "url": link.url, "title": link.title, "description": link.description}
             for link in m.links
         ],
-        "reactions": [{"emoji": r.emoji, "count": r.count} for r in m.reactions],
+        # `count` includes the super reactions, `super` says how many of them there are.
+        "reactions": [{"emoji": r.emoji, "count": r.count, "super": r.burst} for r in m.reactions],
         "stickers": list(m.stickers),
         "pinned": m.pinned,
         "forwarded": m.forwarded,
