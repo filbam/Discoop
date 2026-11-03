@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import contextlib
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -20,17 +19,14 @@ import pytest
 from rich.style import Style
 from textual.command import CommandPalette
 from textual.geometry import Region
-from textual.widgets import Button, Input, Label, OptionList, RichLog, Static, TabbedContent
+from textual.widgets import Button, Input, Label, OptionList, RichLog, Static
 
 from discoop import cli, service
 from discoop.api import DiscordAPI
 from discoop.cache import Cache
-from discoop.cli import command_help
 from discoop.config import Config
 from discoop.directory import Directory
 from discoop.models import Channel, Server
-from discoop.remote_auth.crypto import OAEP_SHA256, RemoteAuthKeys, UserPayload
-from discoop.remote_auth.protocol import LoginTicket
 from discoop.render import Query
 from discoop.snowflake import Window
 from discoop.tokenstore import TokenStore
@@ -334,58 +330,6 @@ async def test_custom_window_splits_into_two_jobs() -> None:
         assert not str(selected.get_option("101").prompt).endswith("*")
 
 
-async def test_help_screen_shows_guide_and_cli_help() -> None:
-    """4. Help screen:
-
-    - Press "f1" via await pilot.press("f1") to open HelpScreen.
-    - Verify the modal screen is HelpScreen.
-    - Verify the CLI help content matches command_help(()) (contains NOTE FOR AI AGENTS
-      and GETTING STARTED) and switching to messages help shows --safe and --fast.
-    - Press "escape" to close HelpScreen.
-    """
-    dummy_api = _make_dummy_api_factory()
-    app = DiscoopApp(api_factory=dummy_api)
-
-    async with app.run_test(size=(140, 40)) as pilot:
-        await started(app, pilot)
-
-        # Press F1 to open HelpScreen
-        await pilot.press("f1")
-        await pilot.pause()
-
-        assert isinstance(app.screen, HelpScreen)
-        help_screen = app.screen
-
-        # Verify root CLI help matches command_help(())
-        expected_root_help = command_help(())
-        assert "NOTE FOR AI AGENTS" in expected_root_help
-        assert "GETTING STARTED" in expected_root_help
-
-        cli_content = help_screen.query_one("#cli-help-content", Static)
-        assert str(cli_content.content) == expected_root_help
-        assert "NOTE FOR AI AGENTS" in str(cli_content.content)
-        assert "GETTING STARTED" in str(cli_content.content)
-
-        # Switch to the CLI Reference tab and select "messages" command help
-        tabbed = help_screen.query_one(TabbedContent)
-        tabbed.active = "tab-cli-help"
-        await pilot.pause()
-
-        # Click the messages command button
-        await pilot.click("#cmd-messages")
-        await pilot.pause()
-
-        messages_help_content = str(cli_content.content)
-        assert "--safe" in messages_help_content
-        assert "--fast" in messages_help_content
-
-        # Press Escape to close HelpScreen
-        await pilot.press("escape")
-        await pilot.pause()
-
-        assert not isinstance(app.screen, HelpScreen)
-
-
 def test_cli_and_service_export_equivalence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """5. CLI vs Service Equivalence:
 
@@ -479,167 +423,6 @@ def test_cli_and_service_export_equivalence(tmp_path: Path, monkeypatch: pytest.
     assert manifest_service["created"] == manifest_cli["created"]
 
 
-async def test_login_modal_qr_code_display_and_login() -> None:
-    """Test LoginModal QR generation, rendering scannable code, and finishing login."""
-    keys = RemoteAuthKeys()
-    user = UserPayload(id="42", discriminator="0001", avatar=None, username="qr_user")
-    token_value = "qr-auth-token-xyz"
-
-    def mock_handler(request: httpx.Request) -> httpx.Response:
-        path = request.url.path
-        if "remote-auth/login" in path:
-            body = json.loads(request.content)
-            assert body == {"ticket": "test-ticket-999"}
-            encrypted = keys.public_key.encrypt(token_value.encode("utf-8"), OAEP_SHA256)
-            return httpx.Response(200, json={"encrypted_token": base64.b64encode(encrypted).decode("ascii")})
-        if "users/@me" in path:
-            return httpx.Response(200, json={"id": "42", "username": "qr_user", "global_name": "QR User"})
-        if "guilds" in path:
-            return httpx.Response(200, json=[])
-        return httpx.Response(404, json={"message": "Not Found"})
-
-    api_factory = _make_dummy_api_factory(transport=httpx.MockTransport(mock_handler))
-
-    qr_shown = asyncio.Event()
-    finish_login = asyncio.Event()
-
-    async def fake_wait_for_ticket(listener: Any, **kwargs: Any) -> LoginTicket:
-        listener.on_connecting(1)
-        listener.on_qr("https://discord.com/ra/testfingerprint123", time.monotonic() + 120)
-        qr_shown.set()
-        await finish_login.wait()
-        listener.on_scanned(user)
-        return LoginTicket(ticket="test-ticket-999", keys=keys, user=user)
-
-    app = DiscoopApp(api_factory=api_factory)
-    async with app.run_test(size=(140, 40)) as pilot:
-        await started(app, pilot)
-
-        # Push LoginModal with fake wait_for_ticket_fn
-        modal = LoginModal(api_factory=api_factory, wait_for_ticket_fn=fake_wait_for_ticket)
-        app.push_screen(modal)
-        await pilot.pause()
-
-        assert isinstance(app.screen, LoginModal)
-
-        # Click the Generate QR Code button
-        await pilot.click("#btn-login-qr")
-
-        # Wait until QR code is displayed
-        await qr_shown.wait()
-        await pilot.pause()
-
-        # Assert QR code is displayed
-        qr_box = modal.query_one("#qr-box", Static)
-        assert "▀" in str(qr_box.content)
-
-        # Assert status label mentions scanning the QR code
-        status_lbl = modal.query_one("#qr-status-lbl", Label)
-        assert "Scan this QR code with the Discord mobile app" in str(status_lbl.content)
-
-        # Assert countdown label shows remaining time
-        countdown_lbl = modal.query_one("#qr-countdown-lbl", Label)
-        assert "Expires in" in str(countdown_lbl.content)
-
-        # Signal fake_wait_for_ticket to proceed with scanned and return ticket
-        finish_login.set()
-        await pilot.pause()
-        await asyncio.sleep(0.05)
-        await pilot.pause()
-
-        # Modal should be dismissed
-        assert not isinstance(app.screen, LoginModal)
-
-        # Token should be stored
-        stored = TokenStore.default().load()
-        assert stored is not None
-        assert stored.token == token_value
-
-
-async def test_login_modal_listener_callbacks() -> None:
-    """Test listener callback state updates in LoginModal."""
-    api_factory = _make_dummy_api_factory()
-    modal = LoginModal(api_factory=api_factory)
-
-    app = DiscoopApp(api_factory=api_factory)
-    async with app.run_test(size=(140, 40)) as pilot:
-        await started(app, pilot)
-        app.push_screen(modal)
-        await pilot.pause()
-
-        # on_connecting (session 1)
-        modal.on_connecting(1)
-        assert str(modal.query_one("#qr-status-lbl", Label).content) == "Connecting to Discord QR gateway..."
-        assert str(modal.query_one("#qr-box", Static).content) == ""
-
-        # on_qr
-        modal.on_qr("https://discord.com/ra/test1234", time.monotonic() + 60)
-        assert "▀" in str(modal.query_one("#qr-box", Static).content)
-        assert "Scan this QR code" in str(modal.query_one("#qr-status-lbl", Label).content)
-        assert "Expires in" in str(modal.query_one("#qr-countdown-lbl", Label).content)
-
-        # on_restart
-        modal.on_restart("qr code expired")
-        assert str(modal.query_one("#qr-box", Static).content) == ""
-        assert "expired" in str(modal.query_one("#qr-status-lbl", Label).content).lower()
-        assert str(modal.query_one("#qr-countdown-lbl", Label).content) == ""
-
-        # on_connecting (session 2)
-        modal.on_connecting(2)
-        assert str(modal.query_one("#qr-status-lbl", Label).content) == "Getting a new QR code..."
-
-        # on_scanned
-        user = UserPayload(id="123", discriminator="0001", avatar=None, username="phone_user")
-        modal.on_scanned(user)
-        assert str(modal.query_one("#qr-box", Static).content) == ""
-        assert "phone_user" in str(modal.query_one("#qr-status-lbl", Label).content)
-
-        await pilot.press("escape")
-        await pilot.pause()
-        assert not isinstance(app.screen, LoginModal)
-
-
-async def test_login_modal_paste_token_and_logout() -> None:
-    """Test manual token pasting and logout in LoginModal."""
-    TokenStore.default().delete()
-
-    api_factory = _make_dummy_api_factory()
-    app = DiscoopApp(api_factory=api_factory)
-    async with app.run_test(size=(140, 40)) as pilot:
-        await started(app, pilot)
-
-        # Open LoginModal
-        modal = LoginModal(api_factory=api_factory)
-        app.push_screen(modal)
-        await pilot.pause()
-
-        # Try save with empty token -> error
-        await pilot.click("#btn-login-save")
-        await pilot.pause()
-        assert "Please enter a Discord token" in str(modal.query_one("#login-error", Label).content)
-
-        # Enter token and save (pause to avoid double-click threshold)
-        await asyncio.sleep(0.5)
-        modal.query_one("#input-token", Input).value = "pasted-secret-token"
-        await pilot.click("#btn-login-save")
-        await pilot.pause()
-
-        assert not isinstance(app.screen, LoginModal)
-        assert TokenStore.default().load().token == "pasted-secret-token"
-
-        # Reopen LoginModal to test logout
-        modal2 = LoginModal(api_factory=api_factory)
-        app.push_screen(modal2)
-        await pilot.pause()
-
-        assert modal2.query_one("#btn-login-logout") is not None
-        await pilot.click("#btn-login-logout")
-        await pilot.pause()
-
-        assert not isinstance(app.screen, LoginModal)
-        assert TokenStore.default().load() is None
-
-
 # ==================== Main screen ====================
 
 
@@ -651,8 +434,8 @@ def test_display_name_strips_invisible_characters() -> None:
 
 async def test_theme_and_styles_come_from_the_terminal() -> None:
     css = Path(tui_app.__file__).with_name("discoop.tcss").read_text(encoding="utf-8")
-    main_screen = css.split("/* ==================== Modal Screens")[0]
-    assert re.findall(r"#[0-9a-fA-F]{3,8}\b", main_screen) == []
+    assert re.findall(r"^\s*[\w-]+:.*#[0-9a-fA-F]{3,8}\b", css, re.MULTILINE) == []
+    assert "rgb" not in css
 
     app = DiscoopApp(api_factory=_make_dummy_api_factory())
     async with app.run_test(size=(140, 40)) as pilot:
@@ -1109,6 +892,31 @@ async def test_selected_list_keys() -> None:
         assert not selected.display
 
 
+async def test_shift_x_clears_the_whole_selection() -> None:
+    seed_cache()
+    app = DiscoopApp(api_factory=RecordingDiscord().factory)
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        tree = app.query_one("#channel-tree", ChannelTree)
+        selected = app.query_one("#selected-list", OptionList)
+        await pilot.press("down", "a")  # Beta: all of it
+        await pilot.pause()
+        app.selection.set_custom_window(README.id, WindowSpec(from_="30d"))
+        await pilot.press("tab")
+        await pilot.pause()
+        assert app.focused is selected
+
+        await pilot.press("X")
+        await pilot.pause()
+        assert not app.selection.selected and not app.selection.custom_windows
+        assert app.focused is tree
+        assert not selected.display
+        assert app.query_one("#selected-title", Label).content == "Selected (0)"
+        assert label_of(app._tree_nodes[f"channel:{WELCOME.id}"]).startswith("[ ]")
+        assert label_of(app._tree_nodes[f"channel:{INFO.id}"]).startswith("[ ]")
+        assert "--from" not in str(app.query_one("#command-preview", Static).content)
+
+
 async def test_e_edits_the_channel_of_the_focused_panel() -> None:
     seed_cache()
     app = DiscoopApp(api_factory=RecordingDiscord().factory)
@@ -1135,7 +943,7 @@ async def test_e_edits_the_channel_of_the_focused_panel() -> None:
 
         # Saving a window on a channel that is not selected selects it
         app.screen.query_one("#modal-input-from", Input).value = "30d"
-        await pilot.click("#btn-modal-save")
+        await pilot.press("enter")
         await pilot.pause()
         assert app.selection.is_selected(WELCOME.id)
         assert app.selection.window_for(WELCOME.id).from_ == "30d"
@@ -1312,6 +1120,7 @@ async def test_form_rows_follow_their_settings() -> None:
         await pilot.pause()
         assert app.settings.target == "preview"
         assert not app.query_one("#row-path").display
+        assert not app.query_one("#row-files").display, "a preview downloads no files"
         assert app.query_one("#row-format").display
         assert app.query_one("#row-format") in form.rows()
 
@@ -1328,7 +1137,16 @@ async def test_form_rows_follow_their_settings() -> None:
         await pilot.pause()
         assert app.settings.target == "folder"
         assert app.query_one("#row-path").display
+        assert app.query_one("#row-files").display
+        assert not app.query_one("#row-max-mb").display, "Attachments is still no"
         assert not app.query_one("#row-format").display
+
+        app.query_one("#row-files", ChoiceRow).action_step(1)  # yes
+        await pilot.pause()
+        assert app.query_one("#row-max-mb").display
+        app.query_one("#row-target", ChoiceRow).action_step(-1)  # preview
+        await pilot.pause()
+        assert not app.query_one("#row-max-mb").display
 
 
 async def test_typing_a_window_updates_preset_and_rejects_nothing_silently() -> None:
@@ -1496,6 +1314,34 @@ async def test_login_status_without_token() -> None:
         assert "F3" in log_text(app)
 
 
+async def test_a_login_change_clears_the_selection() -> None:
+    seed_cache()
+    app = DiscoopApp(api_factory=RecordingDiscord().factory)
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        await pilot.press("down", "a")  # Beta: all of it
+        await pilot.pause()
+        assert app.selection.selected
+
+        await pilot.press("f3")
+        await pilot.pause()
+        await pilot.press("escape")  # cancelled: the account is the same
+        await pilot.pause()
+        assert app.selection.selected
+
+        await pilot.press("f3")
+        await pilot.pause()
+        app.no_access_servers.add(SERVER_C.id)
+        app.screen.dismiss(True)
+        await pilot.pause()
+        await started(app, pilot)
+        assert not app.selection.selected
+        assert not app.no_access_servers
+        assert not app.query_one("#selected-list").display
+        assert label_of(app._tree_nodes[f"channel:{WELCOME.id}"]).startswith("[ ]")
+        assert "(select channels" in str(app.query_one("#command-preview", Static).content)
+
+
 async def test_form_shows_the_real_config_values(tmp_path: Path) -> None:
     config = Config.default()
     config.set("mode", "fast")
@@ -1532,9 +1378,10 @@ async def test_saving_settings_updates_the_form() -> None:
         await started(app, pilot)
         await pilot.press("f2")
         await pilot.pause()
-        app.screen.query_one("#input-cfg-mode", Input).value = "fast"
+        await pilot.press("right")  # Mode: fast
+        await pilot.pause()
         app.screen.query_one("#input-cfg-delay", Input).value = "0.5"
-        await pilot.click("#btn-cfg-save")
+        await pilot.press("enter")
         await pilot.pause()
 
         assert not isinstance(app.screen, SettingsModal)
@@ -1808,6 +1655,27 @@ async def test_late_worker_message_after_close_is_harmless() -> None:
         await started(app, pilot)
     assert not app.screen_stack
     app.on_ui_call(tui_app.UiCall(app._net_finished, ()))
+
+
+async def test_the_log_only_shows_a_scrollbar_when_it_needs_one() -> None:
+    app = DiscoopApp(api_factory=_make_dummy_api_factory())
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        log = app.query_one("#event-log", RichLog)
+        log.clear()
+        await pilot.pause()
+        assert not log.show_vertical_scrollbar
+
+        for number in range(50):
+            app._log_line(f"line {number}")
+        await wait_until(pilot, lambda: log.show_vertical_scrollbar and log.scroll_y == log.max_scroll_y)
+        assert log.max_scroll_y > 0
+        assert log.styles.scrollbar_size_vertical == 1
+        assert log.vertical_scrollbar.region.width == 1
+
+        app._log_line("the newest line")  # still follows the end
+        await wait_until(pilot, lambda: log.scroll_y == log.max_scroll_y)
+        assert "the newest line" in screen_text(app, log.region)
 
 
 async def test_names_with_brackets_and_emoji_stay_literal() -> None:

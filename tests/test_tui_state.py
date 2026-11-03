@@ -425,9 +425,10 @@ def test_filter_channels() -> None:
     filtered = filter_channels(all_channels, "pripravne")
     assert filtered == [cat1, c1]
 
-    # ID match: '22' matches 'gaming' and keeps parent 'Community Hub'
+    # ID match: the whole '22' matches 'gaming' and keeps parent 'Community Hub', a part of an ID matches nothing
     filtered_id = filter_channels(all_channels, "22")
     assert filtered_id == [cat2, c4]
+    assert filter_channels(all_channels, "2") == []
 
     # Category name match: 'community' matches category and includes ALL child channels
     filtered_cat = filter_channels(all_channels, "community")

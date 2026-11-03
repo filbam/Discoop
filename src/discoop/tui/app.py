@@ -57,12 +57,14 @@ from discoop.tui.modals import (
     TimeWindowModal,
 )
 from discoop.tui.state import (
+    WINDOW_PRESETS,
     ExportSettings,
     PlannedJob,
     SelectionState,
     WindowSpec,
     filter_channels,
     plan_jobs,
+    window_preset,
 )
 from discoop.tui.widgets import (
     ActionRow,
@@ -75,8 +77,6 @@ from discoop.tui.widgets import (
     display_name,
 )
 
-WINDOW_PRESETS = ("24h", "7d", "30d", "all")
-CUSTOM_WINDOW = "custom"
 TARGETS = ("folder", "zip", "preview")
 DEFAULT_PATH = ExportSettings().path
 EXPORT_FOLDER = "discoop-export"
@@ -278,7 +278,8 @@ class DiscoopApp(App[None]):
         settings = self.settings
         preview = settings.target == "preview"
         self.query_one("#row-delay").display = settings.mode == "fast"
-        self.query_one("#row-max-mb").display = settings.files
+        self.query_one("#row-files").display = not preview
+        self.query_one("#row-max-mb").display = settings.files and not preview
         self.query_one("#row-path").display = not preview
         self.query_one("#row-format").display = preview
 
@@ -354,8 +355,7 @@ class DiscoopApp(App[None]):
         self.selection.global_window = WindowSpec(
             from_=from_, to=to, last=last, max_messages=DEFAULT_MAX_MESSAGES if limit is None else limit
         )
-        is_preset = from_ in WINDOW_PRESETS and to is None and last is None
-        self.query_one("#row-window", ChoiceRow).set_value(from_ if is_preset else CUSTOM_WINDOW)
+        self.query_one("#row-window", ChoiceRow).set_value(window_preset(from_, to, last))
         self._update_selected_ui()
         self._update_command_preview()
 
@@ -444,7 +444,9 @@ class DiscoopApp(App[None]):
 
     def action_login(self) -> None:
         def on_changed(changed: bool | None) -> None:
-            if changed:
+            if changed:  # what was selected or refused belongs to the previous account
+                self.no_access_servers.clear()
+                self._clear_selection()
                 self._start_directory(refresh=True)
 
         self.push_screen(LoginModal(self.api_factory), on_changed)
@@ -661,6 +663,15 @@ class DiscoopApp(App[None]):
         self._selection_changed([option.id])
         if not self.selection.selected:
             self._focus_region("tree")
+
+    def action_clear_selected(self) -> None:
+        self._clear_selection()
+        self._focus_region("tree")
+
+    def _clear_selection(self) -> None:
+        channel_ids = list(self.selection.selected)
+        self.selection.clear_all()
+        self._selection_changed(channel_ids)
 
     def action_edit_tree_window(self) -> None:
         node = self._tree.cursor_node

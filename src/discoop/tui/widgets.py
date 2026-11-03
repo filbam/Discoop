@@ -4,7 +4,9 @@ Every control here is exactly one line high and has no border. The dialogs in mo
 - `ChoiceRow`: a value picked with ←/→ (`Mode       < safe >`),
 - `InputRow`: a label and a compact `Input`,
 - `ActionRow`: a focusable one-line button,
+- `ConfirmRow`: an `ActionRow` that asks before it acts,
 - `FormPanel`: a scrolling column of rows; ↑/↓ move between them, also out of an `Input`,
+- `TextView`: read-only text of any length,
 - `ChannelTree`: the server tree, with a right-aligned badge on a node,
 - `SelectedList`: the list of selected channels,
 - `FilterInput`: the tree filter,
@@ -16,21 +18,24 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, Self
 
-from rich.cells import cell_len
+from rich.cells import cell_len, chop_cells
 from rich.style import Style
 from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, VerticalScroll
+from textual.geometry import Size
 from textual.message import Message
 from textual.reactive import reactive
+from textual.scroll_view import ScrollView
+from textual.strip import Strip
 from textual.widget import Widget
 from textual.widgets import Input, Label, OptionList, Static, Tree
 from textual.widgets.tree import TreeNode
 
 LABEL_WIDTH = 13
-_INVISIBLE = str.maketrans("", "", "︎️‍")
+_INVISIBLE = str.maketrans("", "", "\ufe0e\ufe0f\u200d")
 _BADGE_STYLE = Style(dim=True)
 
 
@@ -160,6 +165,7 @@ class InputRow(Horizontal):
         value: str = "",
         placeholder: str = "",
         input_type: str = "text",
+        password: bool = False,
         label_width: int = LABEL_WIDTH,
         id: str | None = None,
         classes: str | None = None,
@@ -170,6 +176,7 @@ class InputRow(Horizontal):
         self.value = value
         self.placeholder = placeholder
         self.input_type = input_type
+        self.password = password
         self.label_width = label_width
 
     def compose(self) -> ComposeResult:
@@ -178,6 +185,7 @@ class InputRow(Horizontal):
             value=self.value,
             placeholder=self.placeholder,
             type=self.input_type,  # type: ignore[arg-type]
+            password=self.password,
             valid_empty=True,
             compact=True,
             id=self.input_id,
@@ -224,10 +232,33 @@ class ActionRow(Static, can_focus=True):
         self.action_press()
 
 
+class ConfirmRow(ActionRow):
+    """An `ActionRow` that asks first: one press shows `question`, the next posts `Pressed`. Moving away takes it back."""
+
+    def __init__(self, text: str, question: str, *, id: str | None = None, classes: str | None = None) -> None:
+        super().__init__(text, id=id, classes=classes)
+        self.idle_text = text
+        self.question = question
+        self.asking = False
+
+    def action_press(self) -> None:
+        if self.asking:
+            super().action_press()
+        self._ask(not self.asking)
+
+    def on_blur(self) -> None:
+        self._ask(False)
+
+    def _ask(self, asking: bool) -> None:
+        self.asking = asking
+        self.update(self.question if asking else self.idle_text)
+
+
 class FormPanel(VerticalScroll, can_focus=False):
     """A scrolling column of rows. ↑/↓ move the focus between them, also from an `Input` (which leaves them alone).
 
-    Enter in an `Input` confirms it and goes to the next row. Rows hidden with `display` are skipped.
+    Enter in an `Input` confirms it and goes to the next row. With `enter_moves=False` the panel leaves
+    `Input.Submitted` to its parent, for a dialog that saves on Enter. Rows hidden with `display` are skipped.
     """
 
     BINDINGS = [
@@ -235,8 +266,9 @@ class FormPanel(VerticalScroll, can_focus=False):
         Binding("down", "move(1)", show=False),
     ]
 
-    def __init__(self, *, id: str | None = None, classes: str | None = None) -> None:
+    def __init__(self, *, enter_moves: bool = True, id: str | None = None, classes: str | None = None) -> None:
         super().__init__(id=id, classes=classes)
+        self.enter_moves = enter_moves
         self._last_focused: Widget | None = None
 
     def rows(self) -> list[Widget]:
@@ -263,8 +295,91 @@ class FormPanel(VerticalScroll, can_focus=False):
         self._last_focused = event.widget
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        event.stop()
-        self.action_move(1)
+        if self.enter_moves:
+            event.stop()
+            self.action_move(1)
+
+
+def wrapped(line: str, width: int) -> list[tuple[int, int]]:
+    """The (start, end) of each row `line` takes in `width` cells, broken after a space where it can be."""
+    cells = cell_len(line)
+    if cells <= width:
+        return [(0, len(line))]
+    rows = []
+    start = 0
+    if cells != len(line):  # wide characters: a row is not `width` characters here
+        for chunk in chop_cells(line, width):
+            rows.append((start, start + len(chunk)))
+            start += len(chunk)
+        return rows
+    while len(line) - start > width:
+        space = line.rfind(" ", start + 1, start + width + 1)
+        end = space + 1 if space != -1 else start + width
+        rows.append((start, end))
+        start = end
+    rows.append((start, len(line)))
+    return rows
+
+
+class TextView(ScrollView, can_focus=False):
+    """Read-only text of any length, a string (never read as markup) or a `Text`.
+
+    Only the rows in view get rendered. A `Static` wraps and styles the whole text on every change, which freezes the
+    UI for seconds with thousands of messages. The dialog owns the scroll keys, so this widget takes no focus.
+    """
+
+    DEFAULT_CSS = """
+    TextView {
+        overflow-x: hidden;
+        scrollbar-gutter: stable;
+    }
+    """
+
+    def __init__(self, *, id: str | None = None, classes: str | None = None) -> None:
+        super().__init__(id=id, classes=classes)
+        self.content: str | Text = ""
+        self._lines: list[str] | list[Text] = []
+        self._rows: list[tuple[int, int, int]] = []  # line number, and where the row starts and ends in that line
+        self._wrap_width = 0
+
+    def update(self, content: str | Text) -> None:
+        """Show `content` from its start."""
+        self.content = content
+        if isinstance(content, Text):
+            text = content.copy()
+            text.expand_tabs(4)
+            self._lines = list(text.split("\n", allow_blank=True))
+        else:
+            self._lines = content.expandtabs(4).split("\n")
+        self._wrap()
+        self.scroll_home(animate=False)
+
+    def _wrap(self) -> None:
+        width = self.scrollable_content_region.width
+        if width <= 0:  # not laid out yet: `on_resize` brings us back
+            return
+        self._wrap_width = width
+        rows = []
+        for number, line in enumerate(self._lines):
+            plain = line.plain if isinstance(line, Text) else line
+            rows.extend((number, start, end) for start, end in wrapped(plain, width))
+        self._rows = rows
+        self.virtual_size = Size(width, len(rows))
+        self.refresh()
+
+    def on_resize(self) -> None:
+        if self.scrollable_content_region.width != self._wrap_width:
+            self._wrap()
+
+    def render_line(self, y: int) -> Strip:
+        width = self.scrollable_content_region.width
+        row = self.scroll_offset.y + y
+        if row >= len(self._rows):
+            return Strip.blank(width, self.rich_style)
+        number, start, end = self._rows[row]
+        line = self._lines[number]
+        text = line[start:end] if isinstance(line, Text) else Text(line[start:end])
+        return Strip(text.render(self.app.console)).apply_style(self.rich_style).crop_extend(0, width, self.rich_style)
 
 
 class FilterInput(Input):
@@ -281,6 +396,7 @@ class SelectedList(OptionList):
 
     BINDINGS = [
         Binding("x,delete", "app.remove_selected", "Remove"),
+        Binding("X", "app.clear_selected", "Clear all"),
         Binding("e", "app.edit_selected_window", "Window"),
     ]
 

@@ -11,6 +11,14 @@ from discoop.models import CATEGORY, MESSAGE_TYPES, Channel, Server
 from discoop.resolve import normalize
 from discoop.service import MessagesRequest
 
+WINDOW_PRESETS = ("24h", "7d", "30d", "all")
+CUSTOM_WINDOW = "custom"
+
+
+def window_preset(from_: str | None, to: str | None, last: object) -> str:
+    """What a Window row shows for these field values: their preset, or "custom"."""
+    return from_ if from_ in WINDOW_PRESETS and not to and not last else CUSTOM_WINDOW
+
 
 @dataclass(frozen=True)
 class WindowSpec:
@@ -232,7 +240,7 @@ def plan_jobs(selection: SelectionState, settings: ExportSettings) -> list[Plann
 def filter_channels(channels: Sequence[Channel], query: str) -> list[Channel]:
     """Filter channels by search query, supporting fuzzy/diacritic matching and category expansion.
 
-    Matches non-category channels by normalized name, lowercase substring, or ID.
+    Matches non-category channels by normalized name, lowercase substring, or their whole ID.
     Includes parent categories of matched channels, and if a category itself matches,
     includes all channels belonging to that category.
     """
@@ -244,7 +252,7 @@ def filter_channels(channels: Sequence[Channel], query: str) -> list[Channel]:
     q_lower = raw_query.lower()
 
     def _matches(name: str, item_id: str) -> bool:
-        if raw_query in item_id:
+        if raw_query == item_id:
             return True
         if q_lower in name.lower():
             return True
