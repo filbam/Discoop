@@ -98,9 +98,19 @@ skončí chybou s radou na `--token`.
   - nesúlad `total_results` 15 a 13 vrátených vlákien vo fóre,
   - `refresh-urls` pri exspirovanej URL.
 
+**Krok 1 implementácie (servers, channels, config, cache, vyhľadávanie mien):**
+- Hotové, 71 testov, commity `1d31ba4` a `ce466c7`.
+- Proti reálnemu Discordu to zatiaľ spustil len používateľ, podľa CLAUDE.md volá API iba on.
+- **Odchýlky od návrhu:**
+  - `--include-hidden` vypadol, lebo REST skryté kanály nevracia.
+  - `default-server` sa ukladá ako ID.
+  - `export-dir` sa odložil na export.
+- **Cache** sa maže pri login aj logout, aby po prihlásení iným účtom neostali staré servery.
+
 **Ďalej:**
-1. Potvrdiť zvyšné rozhodnutia z návrhu (sekcia 15, body 4 až 6).
-2. Krok 1 implementácie: config, cache, `servers`, `channels`, vyhľadávanie podľa mena.
+1. Používateľ vyskúša `uv run discoop servers` a `uv run discoop channels -s "VUT FIT"` (aj `--flat`).
+2. Potvrdiť zvyšné rozhodnutia z návrhu (sekcia 15, body 4 až 6). Týkajú sa `messages`.
+3. Krok 2: `messages` do konzoly (`text`/`json`), časové okno, `--last`.
 
 ---
 

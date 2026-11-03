@@ -6,6 +6,16 @@ verzie podľa [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Pridané
+- **Krok 1 implementácie:** `discoop servers`, `discoop channels`, `discoop config`.
+  - Zoznamy sa ukladajú do lokálnej SQLite cache a obnovujú cez `--refresh`, pri prvom použití,
+    alebo raz automaticky, keď sa meno nenájde.
+  - **Vyhľadávanie podľa mena:** najprv ID, potom presné meno, potom meno bez rozdielu veľkosti písmen,
+    diakritiky a emoji. Glob vzory sú pripravené pre `messages`. Nejednoznačné meno skončí kódom 3 so zoznamom kandidátov.
+  - **`channels`:** strom podľa kategórií v poradí ako v Discorde, `--flat`, `--type`. V agent režime riadky
+    oddelené tabulátorom.
+  - **`config`:** kľúče `default-server` (uloží sa ID servera) a `delay`.
+  - **Login a logout** mažú cache.
+  - 71 testov.
 - **Prvý prototyp:** Python balík `discoop` (uv, Typer, Rich).
   - `discoop login`: QR kód v termináli cez remote auth gateway, alebo `--token` zo skrytého promptu/stdin.
     Voliteľný anonymizovaný `--trace`. V agent režime login odmietne.

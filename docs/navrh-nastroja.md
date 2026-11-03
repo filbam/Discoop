@@ -92,16 +92,27 @@ discoop servers [--refresh]
 Číta z cache. Obnoví ju `--refresh` alebo automaticky, ak je cache prázdna.
 Zdroj: `GET /users/@me/guilds?with_counts=true` **[OVERENÉ]**. Stĺpce: meno, ID, počet členov (`approximate_member_count`).
 
+**Implementované 2026-11-03:**
+- Human režim vypíše tabuľku. Agent režim vypíše hlavičku `id members name` a riadky, kde sú stĺpce oddelené tabulátorom,
+  zoradené podľa mena.
+- Ak sa použila cache, na stderr pribudne poznámka s jej vekom (agent ju vidí len s `--verbose`).
+
 ### 4.3 `channels`
 
 ```
-discoop channels [-s SERVER] [--refresh] [--type text,announcement,forum,voice] [--flat]
+discoop channels [-s SERVER] [--refresh] [--type text,forum,...] [--flat]
 ```
-- V human režime je výstup **strom podľa kategórií** zoradený podľa `position`, rovnako ako v Discorde.
-  `--flat` dá plochý zoznam.
-- **Skryté kanály** (`___hidden___`, flag `1<<17`) sa nevypisujú. `--include-hidden` ich zobrazí ako počet.
-- Zdroj: `GET /guilds/{id}/channels` **[OVERENÉ]**. Obfuskované skryté kanály v REST odpovedi nie sú.
-  Filter na `___hidden___` ostáva ako poistka.
+- **Poradie** je ako v sidebare Discordu: najprv kanály bez kategórie, potom kategórie podľa `position`.
+  V kategórii sú textové kanály nad hlasovými, potom podľa `position` a nakoniec podľa ID.
+- **Human režim:** strom podľa kategórií. `--flat` dá tabuľku.
+- **Agent režim:** vždy riadky so stĺpcami `id type category name` oddelenými tabulátorom.
+- **Filter `--type`** (čiarkami): `text, voice, announcement, stage, directory, forum, media`.
+- **Skryté kanály** (`___hidden___`, flag `1<<17`) sa nevypisujú. REST ich aj tak nevracia, filter je len poistka.
+  Prepínač `--include-hidden` z pôvodného návrhu preto vypadol.
+- **Zdroj:** `GET /guilds/{id}/channels` **[OVERENÉ]**.
+- **Bez prístupu:** `403`/`404` na server skončí kódom `5`.
+- **Server** sa zadáva cez `-s` (meno alebo ID), inak sa použije `default-server`. Keď nie je ani jedno,
+  nástroj skončí kódom `8` s radou.
 
 ### 4.4 `threads`
 
@@ -151,10 +162,18 @@ discoop messages -c "isc-*" --since-last --agent
 ```
 discoop config set default-server "VUT FIT"
 discoop config set delay 1.0
-discoop config set export-dir D:\exporty
+discoop config get delay
+discoop config unset delay
 discoop config list
 ```
 Uložené v `config.toml` v konfiguračnom adresári (sekcia 10).
+
+**Implementované 2026-11-03:**
+- **Kľúče:** `default-server` a `delay` (predvolene 1.0 s).
+- **`default-server`** sa pri `set` vyhľadá ako server (meno alebo ID) a uloží sa jeho **ID**, takže
+  premenovanie servera nastavenie nerozbije.
+- **`export-dir`** pribudne spolu s exportom (`messages --out/--zip`).
+- **Neznámy kľúč** alebo zlá hodnota skončí kódom `8`.
 
 ### 4.7 `agent-guide`
 
@@ -321,10 +340,12 @@ Adresáre určí `platformdirs` podľa OS:
 Obsah:
 - `config.toml`: nastavenia.
 - `cache.db`: SQLite s tabuľkami:
-  - `servers`, `channels` (vrátane typu, kategórie, normalizovaného mena),
-  - `threads`,
-  - `users` (z `author` a `mentions`, na preklad `<@id>`),
-  - `sync_state` (`channel_id`, `last_message_id`, `last_run`).
+  - **teraz** (2026-11-03): `servers`, `channels` (typ, kategória, pozícia, téma) a `fetched` (kedy sa čo obnovilo).
+    Normalizované mená sa počítajú v Pythone, kanálov je pár stoviek.
+  - **neskôr**, so `messages`: `threads`, `users` (z `author` a `mentions`, na preklad `<@id>`) a
+    `sync_state` (`channel_id`, `last_message_id`, `last_run`).
+  - **Cache je jednorazová.** `login` aj `logout` ju zmažú a pri zmene schémy (`PRAGMA user_version`)
+    sa postaví znova.
 - **Token nie je v súbore.** Je v systémovom úložisku hesiel cez keyring (služba `discoop`):
   Windows Credential Manager, macOS Keychain alebo Linux Secret Service.
 - **Linux bez Secret Service** (napr. server bez GUI): token ide do súboru `token` s právami `0600`
