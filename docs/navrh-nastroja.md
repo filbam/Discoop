@@ -54,7 +54,7 @@ discoop config                predvolené nastavenia (napr. default server)
 discoop agent-guide           kompaktná referencia pre AI agentov
 ```
 
-**Globálne prepínače:** `--agent`, `--human`, `--quiet`, `--verbose`.
+**Globálne prepínače:** `--plain` (alias `--agent`), `--human`, `--quiet`, `--verbose`.
 
 Server a kanál sa zadávajú cez **pomenované parametre** `-s/--server` a `-c/--channel`, nie pozične.
 Pre agentov je to jednoznačnejšie. Hodnota môže byť ID alebo meno (pozri sekciu 5).
@@ -266,15 +266,15 @@ kandidátov (meno, ID, server). Nástroj nikdy nehádá.
 
 ### 6.1 Režimy
 
-| | `--human` | `--agent` |
+| | `--human` | `--plain` (Plain mode) |
 |---|---|---|
-| Kedy | predvolený v termináli | `--agent`, `DISCOOP_AGENT=1`, alebo keď stdout nie je terminál |
-| Farby, tabuľky, stromy | áno (Rich) | nie |
+| Kedy | predvolený v termináli | `--plain`, `--agent`, `DISCOOP_PLAIN=1`, `DISCOOP_AGENT=1`, alebo keď stdout nie je terminál |
+| Farby, tabuľky, stromy | áno (Rich) | nie (čistý text bez farieb a grafiky) |
 | Progress | progress bary | nič; s `--verbose` jednoduché riadky na stderr |
 | Chyby | farebný panel s radou | `ERROR <KÓD>: <správa>` + `HINT: <čo robiť>` na stderr |
 | Interaktívne otázky | len pri `login` | nikdy |
 
-**Dáta idú vždy na stdout, všetko ostatné na stderr.** Agent si teda môže výstup bezpečne presmerovať.
+**Dáta idú vždy na stdout, všetko ostatné na stderr.** Skript alebo agent si teda môže výstup bezpečne presmerovať.
 
 ### 6.2 Formáty dát
 
@@ -447,7 +447,7 @@ Samotné správy ostávajú v pôvodnom jazyku.
 discoop - download messages and files from Discord servers you are a member of
 
 USAGE
-  discoop [--agent] <command> [options]
+  discoop [--plain] <command> [options]
 
 GETTING STARTED
   discoop login                                   log in once in a browser window (2FA supported)

@@ -34,7 +34,7 @@ uv run discoop messages -c 1286436864789843999 --from 2026-10-01 --to 2026-10-31
 uv run discoop messages -s "VUT FIT" -c "isc-*" --last 20       # 20 najnovších z každého kanála
 uv run discoop messages -s "VUT FIT" -c isc-public --format json
 uv run discoop messages -s "VUT FIT" -c isc-public --format md   # Markdown
-uv run discoop --agent messages -s "VUT FIT" -c isc-public      # úsporný text pre AI
+uv run discoop --plain messages -s "VUT FIT" -c isc-public      # úsporný čistý text (pre AI agentov a skripty)
 ```
 
 Export správ a stiahnutie príloh:
@@ -49,6 +49,7 @@ uv run discoop messages -s "VUT FIT" -c isc-public --out exports/isc --max-file-
 
 - `--safe` (predvolené): imituje ľudské scrollovanie – menšie dávky (25 správ), náhodné pauzy 2–4,5 s medzi požiadavkami, pauzy na čítanie 8–15 s každých 5–8 strán, rozostupy medzi prepnutím kanálov (3–6 s) a medzi sťahovaním súborov z CDN (1–3 s).
 - `--fast`: rýchle dávkové sťahovanie (100 správ na požiadavku, pevný interval).
+- `--plain`: čistý textový výstup bez farieb, Rich tabuliek a efektov (menej tokenov, strojovo čitateľný; ideálny pre AI agentov a skripty; `--agent` funguje ako spätný alias).
 - `--delay SEC`: nastavenie intervalu požiadaviek (predvolene 1,0 s; v safe režime škáluje náhodné intervaly).
 - `--from`/`--to`: dátum (`2026-10-01`), dátum a čas (`2026-10-01T14:00`), relatívny čas (`48h`, `7d`, `2w`),
   `now`, pri `--from` aj `all` (celá história). Čas je lokálny, holý dátum v `--to` zahŕňa celý deň.

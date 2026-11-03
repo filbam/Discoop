@@ -28,3 +28,4 @@ porušuje podmienky Discordu.
 | P12 | 2026-11-03 | **Zaznamenávať všetko** (analýzy, changelog, rozhodnutia atď.) a všetko **verzovať v gite**. |
 | P13 | 2026-11-03 | Nástroj beží na **Windows, Linuxe aj macOS**. |
 | P14 | 2026-11-03 | Prihlásenie cez **QR kód zobrazený v termináli**, ktorý používateľ naskenuje mobilnou aplikáciou Discordu. |
+| P15 | 2026-11-03 | Premenovať „agent mode“ na **plain mode** (`--plain`), ktorý jasne hovorí, že výstup je čistý text bez farieb a vykresľovania. V helpe ostáva poznámka, že je vhodný pre AI agentov a skripty. Ponechať `--agent` ako skrytý alias pre spätnú kompatibilitu. |

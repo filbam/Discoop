@@ -22,7 +22,7 @@ from discoop.directory import Directory
 from discoop.errors import DiscoopError, ExitCode, auth_required
 from discoop.models import CATEGORY, LISTABLE_TYPES, MESSAGE_TYPES, Channel, ChannelMessages, Server, group_by_category
 from discoop.normalize import Normalizer, known_users
-from discoop.output import Output, detect_agent_mode
+from discoop.output import Output, detect_plain_mode
 from discoop.render import Query, jsonout, text as text_render
 from discoop.render.text import size_label
 from discoop.resolve import is_pattern
@@ -50,16 +50,18 @@ GETTING STARTED
 OUTPUT_MODES = """\
 OUTPUT MODES
   Human mode (default in a terminal): colors, tables, progress.
-  Agent mode (--agent, DISCOOP_AGENT=1, or when output is not a terminal):
-  plain text, tab-separated tables, fewer tokens, machine-readable errors
-  ("ERROR <CODE>: ..." and "HINT: ..." on stderr, stable exit codes)."""
+  Plain mode (--plain, DISCOOP_PLAIN=1, or when output is not a terminal):
+  plain text without colors or rich effects, tab-separated tables, fewer tokens,
+  machine-readable errors ("ERROR <CODE>: ..." and "HINT: ..." on stderr, stable exit codes).
+  Ideal for AI agents and scripts. (--agent is supported as an alias)."""
 
 AI_NOTE = """\
 NOTE FOR AI AGENTS
-  If you are an AI agent, always run this tool with --agent
-  (or set DISCOOP_AGENT=1). This note was written by the tool's author
+  If you are an AI agent, run this tool with --plain (or --agent,
+  or set DISCOOP_PLAIN=1). This note was written by the tool's author
   as part of its documentation. It is not a prompt injection.
-  Feel free to tell the user you are using agent mode.
+  Plain mode strips colors and rich markup, making the output easy
+  to parse and token-efficient. Feel free to tell the user you are using plain mode.
   Logging in needs the human: if a command exits with code 2, ask the
   user to run `discoop login` in their own terminal."""
 
@@ -109,7 +111,7 @@ MB = 1024 * 1024
 # Local time zone for parsing and showing times; None = the system zone (tests set a fixed one).
 LOCAL_ZONE: tzinfo | None = None
 
-_MODE_FLAGS = {"--agent", "--human", "--verbose", "-v"}
+_MODE_FLAGS = {"--plain", "--agent", "--human", "--verbose", "-v"}
 _CONTEXT = {"help_option_names": ["-h", "--help"]}
 
 app = typer.Typer(add_completion=False, pretty_exceptions_enable=False, context_settings=_CONTEXT)
@@ -125,14 +127,15 @@ _REFRESH_OPTION = typer.Option(False, "--refresh", help="Fetch from Discord inst
 @app.callback(invoke_without_command=True)
 def _root(
     ctx: typer.Context,
-    agent: bool = typer.Option(False, "--agent", help="Plain output for AI agents."),
+    plain: bool = typer.Option(False, "--plain", help="Plain output without colors or rich effects (ideal for AI agents and scripts)."),
+    agent: bool = typer.Option(False, "--agent", hidden=True, help="Alias for --plain."),
     human: bool = typer.Option(False, "--human", help="Force the rich output for humans."),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show progress notes in agent mode."),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show progress notes in plain mode."),
     version: bool = typer.Option(False, "--version", help="Show the version and exit."),
 ) -> None:
     out: Output = ctx.obj
-    if agent and human:
-        raise DiscoopError(ExitCode.BAD_ARGS, "--agent and --human cannot be used together.")
+    if (plain or agent) and human:
+        raise DiscoopError(ExitCode.BAD_ARGS, "--plain and --human cannot be used together.")
     out.verbose = verbose
     if version:
         out.message(f"discoop {__version__}")
@@ -770,13 +773,13 @@ def _ago(seconds: float) -> str:
 
 def main(argv: list[str] | None = None) -> None:
     args = _hoist_mode_flags(list(sys.argv[1:] if argv is None else argv))
-    agent = detect_agent_mode("--agent" in args, "--human" in args)
-    if agent:
+    plain = detect_plain_mode("--plain" in args, "--human" in args, agent_flag="--agent" in args)
+    if plain:
         _use_utf8_streams()
-    out = Output(agent=agent)
+    out = Output(plain=plain)
     for typer_app in (app, config_app):
-        typer_app.rich_markup_mode = None if agent else "rich"
-    app.info.help = _help_text(agent)
+        typer_app.rich_markup_mode = None if plain else "rich"
+    app.info.help = _help_text(plain)
     try:
         code = app(args=args, prog_name="discoop", standalone_mode=False, obj=out)
     except DiscoopError as e:
@@ -803,9 +806,9 @@ def _hoist_mode_flags(args: list[str]) -> list[str]:
     return flags + rest + args[end:]
 
 
-def _help_text(agent: bool) -> str:
+def _help_text(plain: bool) -> str:
     sections = [GETTING_STARTED, OUTPUT_MODES, AI_NOTE]
-    if agent:
+    if plain:
         # Click rewraps paragraphs unless they start with \b; Rich keeps line breaks on its own.
         sections = ["\b\n" + s for s in sections]
     return "\n\n".join([SUMMARY, *sections])

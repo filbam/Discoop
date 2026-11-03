@@ -1,4 +1,4 @@
-"""Output modes: rich output for humans, plain text for AI agents.
+"""Output modes: rich output for humans, plain text for AI agents and scripts.
 
 Data goes to stdout, everything else (notes, errors) to stderr, in both modes.
 """
@@ -15,21 +15,25 @@ from rich.text import Text
 
 from discoop.errors import DiscoopError
 
+PLAIN_ENV = "DISCOOP_PLAIN"
 AGENT_ENV = "DISCOOP_AGENT"
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
-def detect_agent_mode(
-    agent_flag: bool,
-    human_flag: bool,
+def detect_plain_mode(
+    plain_flag: bool = False,
+    human_flag: bool = False,
     *,
+    agent_flag: bool = False,
     env: Mapping[str, str] = os.environ,
     stdout: TextIO | None = None,
 ) -> bool:
-    """--human wins, then --agent, then DISCOOP_AGENT, then "stdout is not a terminal"."""
+    """--human wins, then --plain / --agent, then DISCOOP_PLAIN / DISCOOP_AGENT, then "stdout is not a terminal"."""
     if human_flag:
         return False
-    if agent_flag:
+    if plain_flag or agent_flag:
+        return True
+    if env.get(PLAIN_ENV, "").strip().lower() in _TRUTHY:
         return True
     if env.get(AGENT_ENV, "").strip().lower() in _TRUTHY:
         return True
@@ -37,16 +41,42 @@ def detect_agent_mode(
     return not stream.isatty()
 
 
+# Alias for backward compatibility
+detect_agent_mode = detect_plain_mode
+
+
 class Output:
-    def __init__(self, agent: bool, verbose: bool = False) -> None:
-        self.agent = agent
+    def __init__(self, plain: bool | None = None, agent: bool | None = None, verbose: bool = False) -> None:
+        if plain is not None:
+            self._plain = bool(plain)
+        elif agent is not None:
+            self._plain = bool(agent)
+        else:
+            self._plain = False
         self.verbose = verbose
         self.console = Console(highlight=False)
         self.err_console = Console(stderr=True, highlight=False)
 
+    @property
+    def plain(self) -> bool:
+        return self._plain
+
+    @plain.setter
+    def plain(self, value: bool) -> None:
+        self._plain = bool(value)
+
+    @property
+    def agent(self) -> bool:
+        """Alias for backward compatibility."""
+        return self._plain
+
+    @agent.setter
+    def agent(self, value: bool) -> None:
+        self._plain = bool(value)
+
     def fields(self, values: Mapping[str, object], title: str | None = None) -> None:
-        """Key/value result: `key: value` lines for agents, a small table for humans."""
-        if self.agent:
+        """Key/value result: `key: value` lines for plain mode, a small table for humans."""
+        if self._plain:
             for key, value in values.items():
                 print(f"{key}: {value}")
             return
@@ -58,8 +88,8 @@ class Output:
         self.console.print(Panel(table, title=title, expand=False) if title else table)
 
     def rows(self, columns: Sequence[str], rows: Iterable[Sequence[object]], title: str | None = None) -> None:
-        """Tabular result: a header plus tab-separated lines for agents, a table for humans."""
-        if self.agent:
+        """Tabular result: a header plus tab-separated lines for plain mode, a table for humans."""
+        if self._plain:
             print("\t".join(columns))
             for row in rows:
                 print("\t".join("" if value is None else str(value).replace("\t", " ") for value in row))
@@ -73,14 +103,14 @@ class Output:
 
     def message(self, text: str, style: str | None = None) -> None:
         """A one-line result (stdout)."""
-        if self.agent:
+        if self._plain:
             print(text)
         else:
             self.console.print(Text(text, style=style or ""))
 
     def note(self, text: str) -> None:
-        """Progress or advice (stderr). Agents only see it with --verbose."""
-        if self.agent:
+        """Progress or advice (stderr). Plain mode only sees it with --verbose."""
+        if self._plain:
             if self.verbose:
                 print(text, file=sys.stderr)
         else:
@@ -88,13 +118,13 @@ class Output:
 
     def warning(self, text: str) -> None:
         """Something about the result that must not go unnoticed (stderr, also without --verbose)."""
-        if self.agent:
+        if self._plain:
             print(f"WARNING: {text}", file=sys.stderr)
         else:
             self.err_console.print(Text("Warning: ", style="bold yellow") + Text(text))
 
     def error(self, err: DiscoopError) -> None:
-        if self.agent:
+        if self._plain:
             print(f"ERROR {err.name}: {err.message}", file=sys.stderr)
             if err.hint:
                 print(f"HINT: {err.hint}", file=sys.stderr)

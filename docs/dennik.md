@@ -237,6 +237,14 @@ režime je `text`.
   - `cli.py`: nové prepínače `--safe`, `--fast` a `--delay` v `discoop messages`, vzájomná kontrola kolízie `--safe` a `--fast`, prenos režimu do `DiscordAPI` a prepojenie `on_pause` na Rich status / agent stderr notifikáciu.
   - `export.py` & `manifest.json`: manifest zaznamenáva použitý režim v objekte `query.mode` (`"safe"` / `"fast"`).
 
+**Premenovanie „agent mode“ na „plain mode“ (`--plain`, P15, [ADR 0012](rozhodnutia/0012-premenovanie-agent-mode-na-plain.md)):**
+- Používateľ navrhol premenovať režim, aby jasne vyjadroval absenciu vykresľovania farieb a grafických prvkov, pričom v helpe ostáva informácia, že je vhodný pre AI agentov a skripty.
+- Schválené riešenie:
+  - Primárny prepínač je `--plain` (Plain mode), premenná prostredia `DISCOOP_PLAIN=1`.
+  - Pôvodný `--agent` a `DISCOOP_AGENT=1` zostávajú plne funkčné ako skrytý alias pre spätnú kompatibilitu.
+  - V helpe a sekcii `NOTE FOR AI AGENTS` je vysvetlené, že plain mode odstraňuje farby a rich formátovanie, čím šetrí tokeny a je ľahko parsovateľný.
+- Overené automatickými testami (232 testov).
+
 **Ďalej:**
 1. Krok 4: vlákna a fóra (`threads`, `--threads/--no-threads`).
 2. Rozhodnutie 9 (výpočet prístupu ku kanálom) ostáva odložené (nízka priorita).

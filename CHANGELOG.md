@@ -95,6 +95,10 @@ verzie podľa [SemVer](https://semver.org/).
 - ADR 0005: QR login v termináli bez prehliadača.
 
 ### Zmenené
+- **Premenovanie „agent mode“ na „plain mode“ (`--plain`, [ADR 0012](docs/rozhodnutia/0012-premenovanie-agent-mode-na-plain.md)):**
+  - Globálny prepínač `--plain` poskytuje čistý textový výstup bez farieb, Rich tabuliek a efektov, s chybami a notifikáciami na stderr a stabilnými exit kódmi.
+  - V helpe a dokumentácii je explicitne uvedené, že plain mode je ideálny pre AI agentov a automatizované skripty (menej tokenov, jednoduchý parsing).
+  - Prepínač `--agent` a premenná prostredia `DISCOOP_AGENT` zostávajú zachované ako spätná kompatibilita (nová premenná je `DISCOOP_PLAIN`).
 - Analýza prístupu (sekcie 1 a 7) a návrh (sekcia 9): `403` pri kanáli bez `VIEW_CHANNEL` je overený testom
   používateľa 2026-11-03. Presný kód (`50001` alebo `50013`) výstup neukazuje.
 - Návrh 4.5: správanie `messages` po teste používateľa (embedy bez duplicitnej URL, reakcie, orezané texty).
