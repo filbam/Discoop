@@ -1,50 +1,44 @@
-"""Main Textual Application for discoop.
+"""The discoop terminal UI: one tree of servers, categories and channels, an export form and a log.
 
-Responsive Discord-inspired TUI for server & channel browsing,
-export job planning, live progress reporting, and embedded preview.
+The keyboard comes first and bindings live on the widget they belong to (widgets.py); the mouse still works.
+
+Only these reach Discord: →/Enter on a server that is not loaded, r, R, L and F5, plus the token check and a missing
+server list at startup. Moving the cursor never does. One network operation runs at a time (`_begin_net`), and its
+workers talk back to the UI only through `_ui`, which keeps their messages in order and never blocks them.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
+import time
 from typing import Any
 
 import httpx
 from rich.text import Text
-from textual import events, work
+from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, Vertical, VerticalScroll
-from textual.widgets import (
-    Button,
-    Checkbox,
-    Input,
-    Label,
-    OptionList,
-    ProgressBar,
-    RichLog,
-    Static,
-    Tree,
-)
+from textual.containers import Container, Horizontal, Vertical
+from textual.message import Message
+from textual.timer import Timer
+from textual.widgets import Footer, Input, Label, ProgressBar, RichLog, Static
 from textual.widgets.option_list import Option
 from textual.widgets.tree import TreeNode
 
 from discoop.api import DiscordAPI
-from discoop.attachments import cdn_client
+from discoop.attachments import DOWNLOADED, FAILED, NO_FILES, PRESENT, SKIPPED, cdn_client
 from discoop.cache import Cache
 from discoop.cli import LOCAL_ZONE
+from discoop.config import MODES, Config
 from discoop.directory import Directory
-from discoop.errors import DiscoopError, ExitCode
-from discoop.models import (
-    CATEGORY,
-    Channel,
-    ChannelMessages,
-    Server,
-    group_by_category,
-)
+from discoop.errors import DiscoopError, ExitCode, auth_required
+from discoop.models import CATEGORY, Channel, Server, group_by_category
 from discoop.service import (
+    DEFAULT_MAX_MESSAGES,
+    FORMATS,
     Cancelled,
     MessagesOutcome,
     list_channels,
@@ -70,6 +64,44 @@ from discoop.tui.state import (
     filter_channels,
     plan_jobs,
 )
+from discoop.tui.widgets import (
+    ActionRow,
+    ChannelTree,
+    ChoiceRow,
+    FilterInput,
+    FormPanel,
+    InputRow,
+    SelectedList,
+    display_name,
+)
+
+WINDOW_PRESETS = ("24h", "7d", "30d", "all")
+CUSTOM_WINDOW = "custom"
+TARGETS = ("folder", "zip", "preview")
+DEFAULT_PATH = ExportSettings().path
+EXPORT_FOLDER = "discoop-export"
+START_LABEL = "[ Start (F5) ]"
+STOP_LABEL = "[ Stop (Esc) ]"
+NO_COMMAND = "(select channels to preview CLI command)"
+FILTER_DELAY = 0.08  # seconds of no typing before the tree follows the filter
+DOWNLOAD_REPORT_INTERVAL = 0.1  # seconds between progress updates during a download
+
+
+class UiCall(Message):
+    """A call a worker thread wants done on the UI thread."""
+
+    def __init__(self, function: Callable[..., None], args: tuple[Any, ...]) -> None:
+        super().__init__()
+        self.function = function
+        self.args = args
+
+
+def plural(count: int, noun: str) -> str:
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+def short_window(window: WindowSpec) -> str:
+    return window.label().removesuffix(" → now")
 
 
 class DiscoopApp(App[None]):
@@ -79,22 +111,22 @@ class DiscoopApp(App[None]):
     CSS_PATH = "discoop.tcss"
     HORIZONTAL_BREAKPOINTS = [(0, "-narrow"), (95, "-wide")]
 
-    BINDINGS = [
-        Binding("f1", "help", "Help"),
-        Binding("question_mark", "help", "Help"),
-        Binding("f5", "start_export", "Start Export"),
-        Binding("r", "refresh_channels", "Load Server Channels"),
-        Binding("R", "load_all", "Load All Servers & Channels"),
-        Binding("s", "refresh_servers", "Refresh Servers"),
-        Binding("e", "edit_channel_window", "Custom Time"),
-        Binding("slash", "focus_search", "Search"),
-        Binding("c", "copy_command", "Copy CLI Cmd"),
-        Binding("1", "tab_or_pane(1)", "Servers"),
-        Binding("2", "tab_or_pane(2)", "Channels"),
-        Binding("3", "tab_or_pane(3)", "Export"),
-        Binding("space", "toggle_channel", "Toggle Channel"),
-        Binding("escape", "stop_or_back", "Stop"),
+    BINDINGS = [  # in Footer order: what matters most stays visible in a narrow window
+        Binding("tab", "cycle_pane(1)", "Panel", key_display="Tab", priority=True),
+        Binding("shift+tab", "cycle_pane(-1)", "Panel", show=False, priority=True),
+        Binding("f5", "start_export", "Start", key_display="F5"),
+        Binding("slash", "focus_filter", "Filter", key_display="/"),
+        Binding("escape", "stop_or_back", "Stop", key_display="Esc"),
+        Binding("f1,question_mark", "help", "Help", key_display="F1"),
+        Binding("f2", "settings", "Settings", key_display="F2"),
+        Binding("f3", "login", "Login", key_display="F3"),
+        Binding("R", "reload_servers", "Servers"),
+        Binding("L", "load_all", "Load all"),
+        Binding("c", "copy_command", "Copy"),
         Binding("q", "quit", "Quit"),
+        Binding("1", "pane(1)", "Tree", show=False),
+        Binding("2", "pane(2)", "Export", show=False),
+        Binding("3", "pane(3)", "Log", show=False),
     ]
 
     def __init__(
@@ -103,831 +135,938 @@ class DiscoopApp(App[None]):
         cdn_factory: Callable[[], httpx.Client] | None = None,
     ) -> None:
         super().__init__()
+        self.theme = "ansi-dark"
         self.api_factory = api_factory or DiscordAPI
         self.cdn_factory = cdn_factory or cdn_client
         self.selection = SelectionState()
         self.settings = ExportSettings()
         self.servers: list[Server] = []
-        self.current_server: Server | None = None
-        self.server_channels: list[Channel] = []
-        self.active_jobs: list[PlannedJob] = []
-        self.cancel_token: CancelToken | None = None
-        self.is_running_job: bool = False
-        self.current_narrow_tab: int = 1
+        self.channels_by_server: dict[str, list[Channel]] = {}  # only servers with loaded channels
+        self.no_access_servers: set[str] = set()
+        self.cancel_token: CancelToken | None = None  # set while a network operation runs
+        self.is_running_job = False  # that operation is an export
+        self.current_narrow_tab = 1
+        self._tree_nodes: dict[str, TreeNode[Any]] = {}  # node of each server and channel in the tree
+        self._expanded: set[str] = set()  # nodes the user opened; a filter opens its own and leaves this alone
+        self._loading: set[str] = set()  # servers whose channels are on their way
+        self._delay = 1.0  # from the config, for when the Delay field is empty
+        self._default_path = DEFAULT_PATH
+        self._filter_timer: Timer | None = None
+        self._channels_done = 0
+        self._channels_total = 0
+        self._current_channel = ""
 
     def compose(self) -> ComposeResult:
-        # Top Bar
+        # Kept as attributes here, not in on_mount: the Footer asks check_action() before on_mount runs.
+        self._status = Label("Ready.", id="run-status", markup=False)
+        self._progress = ProgressBar(id="job-progress", show_eta=False)
+        self._event_log = RichLog(id="event-log", wrap=True, min_width=20, max_lines=1000)
+        self._filter = FilterInput(id="tree-filter")
+        self._tree = ChannelTree("Servers", id="channel-tree")
+        self._selected_list = SelectedList(id="selected-list")
+        self._form = FormPanel(id="export-form")
+        self._start_row = ActionRow(START_LABEL, id="row-start")
+
         with Horizontal(id="top-bar"):
-            yield Label("🔴 Checking...", id="status-indicator")
-            yield Label("🛡️ SAFE", id="mode-indicator")
-            yield Label("80x24", id="size-indicator")
-            yield Static("", classes="top-bar-spacer")
-            yield Button("? Help (F1)", classes="top-bar-btn", id="btn-help")
-            yield Button("⚙ Settings", classes="top-bar-btn", id="btn-settings")
-            yield Button("🔑 Login", classes="top-bar-btn", id="btn-login")
+            yield Label("discoop", id="app-title")
+            yield Label("checking...", id="status-indicator", markup=False)
+            yield Label("safe", id="mode-indicator")
+            yield Label("F1 help", id="help-hint")
 
-        # Narrow Tabs Bar (visible only in -narrow mode)
-        with Horizontal(id="narrow-tabs"):
-            yield Button("[1] Servers & Channels", classes="narrow-tab-btn -active", id="narrow-tab-1")
-            yield Button("[2] Export & Settings", classes="narrow-tab-btn", id="narrow-tab-2")
-            yield Button("[3] Run & Output", classes="narrow-tab-btn", id="narrow-tab-3")
-
-        # Main 3 Columns / Panes
         with Container(id="main-columns"):
-            # 1. Servers Pane
-            with Vertical(classes="pane", id="servers-pane"):
-                with Horizontal(classes="pane-header"):
-                    yield Label("SERVERS", classes="pane-title")
-                with Horizontal(classes="button-bar"):
-                    yield Button("↻ Refresh", id="btn-refresh-servers")
-                    yield Button("⇊ Load All", id="btn-load-all")
-                yield OptionList(id="server-list")
+            with Vertical(classes="pane", id="tree-pane"):
+                yield self._filter
+                yield self._tree
 
-            # 2. Channels Pane
-            with Vertical(classes="pane", id="channels-pane"):
-                with Horizontal(classes="pane-header"):
-                    yield Label("CHANNELS", id="channel-pane-title", classes="pane-title")
-                yield Input(
-                    placeholder="Filter channels (ignores diacritics & emoji)...",
-                    id="channel-search",
-                )
-                with Horizontal(classes="button-bar"):
-                    yield Button("↻ Load Server Channels", id="btn-refresh-channels")
-                    yield Button("☑ Select Shown", id="btn-select-shown")
-                    yield Button("☐ Clear Server", id="btn-clear-server")
-                yield Tree("Channels", id="channel-tree")
-
-            # 3. Export & Progress Pane
             with Vertical(classes="pane", id="export-pane"):
-                with Vertical(id="export-settings-box"):
-                    with Horizontal(classes="pane-header"):
-                        yield Label("EXPORT SELECTION", classes="pane-title")
-                    with Horizontal(classes="button-bar"):
-                        yield Button("✎ Custom Time (E)", id="btn-custom-time")
-                        yield Button("✕ Clear All", id="btn-clear-all")
-                    yield OptionList(id="selected-list")
+                yield Label("Selected (0)", id="selected-title")
+                yield self._selected_list
+                with self._form:
+                    yield ChoiceRow("Window", WINDOW_PRESETS, "7d", id="row-window")
+                    yield InputRow("From", "input-from", value="7d", placeholder="7d, 2026-10-01, all", id="row-from")
+                    yield InputRow("To", "input-to", placeholder="now", id="row-to")
+                    yield InputRow(
+                        "Last N", "input-last", placeholder="all in window", input_type="integer", id="row-last"
+                    )
+                    yield InputRow(
+                        "Max messages",
+                        "input-max-messages",
+                        value=str(DEFAULT_MAX_MESSAGES),
+                        input_type="integer",
+                        id="row-max-messages",
+                    )
+                    yield ChoiceRow("Mode", MODES, "safe", id="row-mode")
+                    yield InputRow("Delay", "input-delay", input_type="number", id="row-delay")
+                    yield ChoiceRow("Attachments", ("yes", "no"), id="row-files")
+                    yield InputRow(
+                        "Max MB",
+                        "input-max-file-size",
+                        value=f"{self.settings.max_file_size:g}",
+                        input_type="number",
+                        id="row-max-mb",
+                    )
+                    yield ChoiceRow("System msgs", ("no", "yes"), id="row-system")
+                    yield ChoiceRow("Target", TARGETS, id="row-target")
+                    yield InputRow("Path", "input-path", value=self.settings.path, id="row-path")
+                    yield ChoiceRow("Format", FORMATS, id="row-format")
+                    yield self._start_row
 
-                    yield Label("GLOBAL TIME WINDOW", classes="section-label")
-                    with Horizontal(classes="button-bar"):
-                        yield Button("24h", id="preset-24h")
-                        yield Button("7d", classes="-active", id="preset-7d")
-                        yield Button("30d", id="preset-30d")
-                        yield Button("All", id="preset-all")
-                    with Horizontal(classes="input-row"):
-                        yield Label("From:")
-                        yield Input(value="7d", placeholder="e.g. 7d, 2026-10-01", id="input-from")
-                    with Horizontal(classes="input-row"):
-                        yield Label("To:")
-                        yield Input(value="", placeholder="e.g. now, 2026-10-15", id="input-to")
-                    with Horizontal(classes="input-row"):
-                        yield Label("Last N:")
-                        yield Input(value="", placeholder="N most recent messages", id="input-last")
-                    with Horizontal(classes="input-row"):
-                        yield Label("Max:")
-                        yield Input(value="5000", placeholder="Max messages safety limit", id="input-max-messages")
+        with Vertical(classes="pane", id="log-pane"):
+            with Horizontal(id="run-bar"):
+                yield self._status
+                yield self._progress
+            yield self._event_log
 
-                    yield Label("PACING & ATTACHMENTS", classes="section-label")
-                    with Horizontal(classes="radio-row"):
-                        yield Button("🛡️ Safe", classes="-active", id="mode-safe")
-                        yield Button("⚡ Fast", id="mode-fast")
-                    with Horizontal(classes="input-row"):
-                        yield Label("Delay (s):")
-                        yield Input(value="1.0", placeholder="Pacing delay (seconds)", id="input-delay")
-                    with Horizontal(classes="checkbox-row"):
-                        yield Checkbox("Download attachments", value=True, id="chk-files")
-                    with Horizontal(classes="input-row"):
-                        yield Label("Max MB:")
-                        yield Input(value="50.0", placeholder="Max file size in MB", id="input-max-file-size")
-                    with Horizontal(classes="checkbox-row"):
-                        yield Checkbox("Include system messages", value=False, id="chk-system")
-
-                    yield Label("EXPORT TARGET", classes="section-label")
-                    with Horizontal(classes="radio-row"):
-                        yield Button("Folder (--out)", classes="-active", id="target-folder")
-                        yield Button("ZIP (--zip)", id="target-zip")
-                        yield Button("Preview", id="target-preview")
-                    with Horizontal(classes="input-row"):
-                        yield Label("Path:")
-                        yield Input(
-                            value="exports/discoop-export",
-                            placeholder="Destination path",
-                            id="input-path",
-                        )
-                    with Horizontal(classes="radio-row"):
-                        yield Button("text", classes="-active", id="fmt-text")
-                        yield Button("md", id="fmt-md")
-                        yield Button("json", id="fmt-json")
-                        yield Button("jsonl", id="fmt-jsonl")
-
-                    with Horizontal(classes="action-row"):
-                        yield Button("▶ START EXPORT (F5)", variant="success", id="btn-start")
-                        yield Button("⏹ STOP (Esc)", variant="error", id="btn-stop")
-
-                with Vertical(id="progress-box"):
-                    yield Label("Ready.", id="run-status")
-                    yield ProgressBar(id="job-progress", show_eta=False)
-                    yield RichLog(id="event-log", highlight=True, markup=True)
-
-        # Bottom Command Bar
         with Horizontal(id="command-bar"):
             yield Label("$", id="command-prefix")
-            yield Static("(select channels to preview CLI command)", id="command-preview")
-            yield Button("Copy (C)", id="btn-copy-command")
+            yield Static(NO_COMMAND, id="command-preview", markup=False)
+            yield Label("(c copy)", id="command-hint")
+
+        # No palette hint: docked over the keys it lets one of them show through. Ctrl+P works all the same.
+        yield Footer(compact=True, show_command_palette=False)
 
     def on_mount(self) -> None:
-        self.screen.add_class("show-tab-1")
-        self._update_login_status()
+        self.query_one("#tree-pane").border_title = "Servers & channels"
+        self.query_one("#export-pane").border_title = "Export"
+        self.query_one("#log-pane").border_title = "Log"
+        self.screen.add_class(f"show-tab-{self.current_narrow_tab}")
+        self._progress.display = False
+        self._selected_list.display = False
+
+        self._load_config()
+        self._sync_form()
+        self._tree.focus()
+        self._start_directory(refresh=False)
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action == "cycle_pane":  # a priority binding: dialogs must keep their own Tab
+            return len(self.screen_stack) == 1
+        if action == "stop_or_back":
+            return self.cancel_token is not None or self._filter.has_focus or bool(self._filter.value)
+        return True
+
+    # ==================== Config and form ====================
+
+    def _load_config(self) -> None:
+        """Take mode, delay and export-dir from the config, so the form shows what an export would really use."""
+        try:
+            config = Config.default()
+            mode = config.get("mode")
+            self._delay = float(config.get("delay"))
+            export_dir = config.get("export-dir")
+        except (DiscoopError, TypeError, ValueError) as e:
+            self._log_line(f"Config: {e}", "red")
+            return
+        self.settings.mode = mode if mode in MODES else "safe"
+        self.settings.delay = self._delay
+        # A path of the user's stays as it is. Absolute, so the path shown is the one the export writes to.
+        path = str(Path(export_dir) / EXPORT_FOLDER) if export_dir else DEFAULT_PATH
+        if self.settings.path == self._default_path:
+            self.settings.path = path
+        self._default_path = path
+
+    def _sync_form(self) -> None:
+        self.query_one("#row-mode", ChoiceRow).set_value(self.settings.mode)
+        if self.settings.delay is not None:
+            self.query_one("#input-delay", Input).value = f"{self.settings.delay:g}"
+        self.query_one("#input-path", Input).value = self.settings.path
+        self._sync_form_rows()
         self._sync_mode_indicator()
-        self.action_refresh_servers(refresh=False)
+        self._update_command_preview()
 
-    def on_resize(self, event: events.Resize) -> None:
-        size_lbl = self.query_one("#size-indicator", Label)
-        size_lbl.update(f"{event.size.width}x{event.size.height}")
-
-    # ==================== Worker Thread Helpers ====================
-
-    def _make_directory(self) -> Directory:
-        cache = Cache.default()
-        token_item = TokenStore.default().load()
-        token = token_item.token if token_item else None
-        api_fac = self.api_factory
-        delay = self.settings.delay
-        mode = self.settings.mode
-
-        def open_api() -> DiscordAPI:
-            try:
-                return api_fac(token, delay=delay, mode=mode)
-            except TypeError:
-                return api_fac(token)
-
-        return Directory(cache, open_api)
-
-    # ==================== Status & Navigation ====================
-
-    def _update_login_status(self) -> None:
-        store = TokenStore.default()
-        stored = store.load()
-        indicator = self.query_one("#status-indicator", Label)
-        login_btn = self.query_one("#btn-login", Button)
-
-        if stored is None:
-            indicator.update("🔴 Not logged in")
-            indicator.add_class("not-logged-in")
-            login_btn.label = "🔑 Login"
-        else:
-            indicator.remove_class("not-logged-in")
-            login_btn.label = "🔑 Logged in"
-            # Asynchronously verify user identity
-            self._verify_user_worker(stored.token)
-
-    @work(thread=True)
-    def _verify_user_worker(self, token: str) -> None:
-        try:
-            api = self.api_factory(token)
-            with api:
-                me = api.get_me()
-            name = me.get("global_name") or me.get("username") or "user"
-            self.call_from_thread(self._set_logged_in_user, name)
-        except Exception:
-            self.call_from_thread(self._set_logged_in_user, "user")
-
-    def _set_logged_in_user(self, name: str) -> None:
-        try:
-            indicator = self.query_one("#status-indicator", Label)
-            indicator.update(f"🟢 @{name}")
-        except Exception:
-            pass
+    def _sync_form_rows(self) -> None:
+        settings = self.settings
+        preview = settings.target == "preview"
+        self.query_one("#row-delay").display = settings.mode == "fast"
+        self.query_one("#row-max-mb").display = settings.files
+        self.query_one("#row-path").display = not preview
+        self.query_one("#row-format").display = preview
 
     def _sync_mode_indicator(self) -> None:
-        mode_lbl = self.query_one("#mode-indicator", Label)
-        if self.settings.mode == "fast":
-            mode_lbl.update("⚡ FAST")
-            mode_lbl.styles.color = "#5865F2"
-        else:
-            mode_lbl.update("🛡️ SAFE")
-            mode_lbl.styles.color = "#fee75c"
+        indicator = self.query_one("#mode-indicator", Label)
+        indicator.update(self.settings.mode)
+        indicator.set_class(self.settings.mode == "fast", "-fast")
 
-    def _switch_narrow_tab(self, tab: int) -> None:
-        self.current_narrow_tab = tab
-        for t in (1, 2, 3):
-            self.screen.remove_class(f"show-tab-{t}")
-            btn = self.query_one(f"#narrow-tab-{t}", Button)
-            if t == tab:
-                btn.add_class("-active")
-            else:
-                btn.remove_class("-active")
-        self.screen.add_class(f"show-tab-{tab}")
+    def on_choice_row_changed(self, event: ChoiceRow.Changed) -> None:
+        settings = self.settings
+        row_id = event.row.id
+        if row_id == "row-window":
+            self._apply_preset(event.value)
+        elif row_id == "row-mode":
+            settings.mode = event.value
+            self._sync_mode_indicator()
+        elif row_id == "row-files":
+            settings.files = event.value == "yes"
+        elif row_id == "row-system":
+            settings.include_system = event.value == "yes"
+        elif row_id == "row-target":
+            settings.target = event.value
+        elif row_id == "row-format":
+            settings.preview_format = event.value
+        self._sync_form_rows()
+        self._update_command_preview()
 
-    def action_tab_or_pane(self, num: int) -> None:
-        if self.screen.has_class("-narrow"):
-            self._switch_narrow_tab(num)
-        else:
-            if num == 1:
-                self.action_focus_pane("servers")
-            elif num == 2:
-                self.action_focus_pane("channels")
-            elif num == 3:
-                self.action_focus_pane("export")
-
-    def action_focus_pane(self, pane: str) -> None:
-        if pane == "servers":
-            self._switch_narrow_tab(1)
-            self.query_one("#server-list").focus()
-        elif pane == "channels":
-            self._switch_narrow_tab(1)
-            self.query_one("#channel-tree").focus()
-        elif pane == "export":
-            self._switch_narrow_tab(2)
-            self.query_one("#selected-list").focus()
-
-    # ==================== Servers & Channels Logic ====================
-
-    @work(thread=True)
-    def action_refresh_servers(self, refresh: bool = True) -> None:
-        try:
-            with self._make_directory() as directory:
-                srvs = list_servers(directory, refresh=refresh)
-                # Compute cached channel count badges
-                server_data: list[tuple[Server, int | None]] = []
-                for srv in srvs:
-                    if directory.cache.fetched_at(f"channels:{srv.id}") is not None:
-                        count = len(directory.cache.channels(srv.id))
-                        server_data.append((srv, count))
-                    else:
-                        server_data.append((srv, None))
-            self.call_from_thread(self._update_servers_ui, server_data)
-        except Exception as e:
-            self.call_from_thread(self._handle_network_error, f"Servers: {e}")
-
-    def _update_servers_ui(self, server_data: list[tuple[Server, int | None]]) -> None:
-        self.servers = [s for s, _ in server_data]
-        server_list = self.query_one("#server-list", OptionList)
-        server_list.clear_options()
-
-        for srv, count in server_data:
-            badge = f"✓ {count}" if count is not None else "◌"
-            server_list.add_option(Option(f"{srv.name}  [{badge}]", id=srv.id))
-
-        if self.servers:
-            # Select first server if none currently active
-            if self.current_server is None:
-                self.current_server = self.servers[0]
-                server_list.highlighted = 0
-                self.action_refresh_channels(refresh=False)
-
-    def on_option_list_option_highlighted(self, event: OptionList.OptionHighlighted) -> None:
-        if event.option_list.id == "server-list" and event.option_id is not None:
-            srv = next((s for s in self.servers if s.id == event.option_id), None)
-            if srv and srv != self.current_server:
-                self.current_server = srv
-                self.action_refresh_channels(refresh=False)
-
-    @work(thread=True)
-    def action_refresh_channels(self, refresh: bool = True) -> None:
-        if self.current_server is None:
-            return
-        srv = self.current_server
-        try:
-            with self._make_directory() as directory:
-                chans = list_channels(directory, srv, refresh=refresh)
-            self.call_from_thread(self._update_channels_ui, srv, chans)
-        except DiscoopError as e:
-            if e.code == ExitCode.NO_ACCESS:
-                self.selection.no_access_channels.add(srv.id)
-                self.call_from_thread(self._update_channels_ui, srv, [])
-            else:
-                self.call_from_thread(self._handle_network_error, f"Channels: {e}")
-        except Exception as e:
-            self.call_from_thread(self._handle_network_error, f"Channels: {e}")
-
-    def _update_channels_ui(self, server: Server, channels: list[Channel]) -> None:
-        if self.current_server and self.current_server.id == server.id:
-            self.server_channels = channels
-            title = self.query_one("#channel-pane-title", Label)
-            title.update(f"CHANNELS: {server.name}")
-            self._rebuild_channel_tree()
-
-    def _rebuild_channel_tree(self) -> None:
-        search_query = self.query_one("#channel-search", Input).value.strip()
-        filtered = filter_channels(self.server_channels, search_query)
-        tree = self.query_one("#channel-tree", Tree)
-        tree.clear()
-        tree.root.expand()
-
-        groups = group_by_category(filtered)
-        for category, members in groups:
-            if category is None:
-                parent_node = tree.root
-            else:
-                all_selected = (
-                    all(self.selection.is_selected(c.id) for c in members if self.selection.is_selectable(c))
-                    if members
-                    else False
-                )
-                check = "[✓]" if (members and all_selected) else "[ ]"
-                parent_node = tree.root.add(f"{check} 📁 {category.name}", data=category)
-                parent_node.expand()
-
-            for channel in members:
-                if self.selection.is_selectable(channel):
-                    selected = self.selection.is_selected(channel.id)
-                    lock = " 🔒" if channel.id in self.selection.no_access_channels else ""
-                    check = "[✓]" if selected else "[ ]"
-                    parent_node.add_leaf(f"{check} #{channel.name}{lock}", data=channel)
-                else:
-                    parent_node.add_leaf(f"    #{channel.name} ({channel.type_name})", data=channel)
+    def _apply_preset(self, preset: str) -> None:
+        self.query_one("#input-from", Input).value = preset
+        self.query_one("#input-to", Input).value = ""
+        self.query_one("#input-last", Input).value = ""
+        self._sync_global_window_from_inputs()
 
     def on_input_changed(self, event: Input.Changed) -> None:
-        if event.input.id == "channel-search":
-            self._rebuild_channel_tree()
-        elif event.input.id in ("input-from", "input-to", "input-last", "input-max-messages"):
+        input_id = event.input.id
+        raw = event.value.strip()
+        if input_id == "tree-filter":
+            if self._filter_timer is not None:
+                self._filter_timer.stop()
+            self._filter_timer = self.set_timer(FILTER_DELAY, self._rebuild_tree)
+            self.refresh_bindings()
+        elif input_id in ("input-from", "input-to", "input-last", "input-max-messages"):
             self._sync_global_window_from_inputs()
-        elif event.input.id == "input-delay":
-            try:
-                self.settings.delay = float(event.value.strip())
-            except ValueError:
-                pass
+        elif input_id == "input-delay":
+            self.settings.delay = self._parse(float, raw, self.settings.delay)
             self._update_command_preview()
-        elif event.input.id == "input-max-file-size":
-            try:
-                self.settings.max_file_size = float(event.value.strip())
-            except ValueError:
-                pass
+        elif input_id == "input-max-file-size":
+            self.settings.max_file_size = self._parse(float, raw, self.settings.max_file_size)
             self._update_command_preview()
-        elif event.input.id == "input-path":
-            self.settings.path = event.value.strip()
+        elif input_id == "input-path":
+            self.settings.path = raw
             self._update_command_preview()
 
-    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
-        if event.checkbox.id == "chk-files":
-            self.settings.files = event.value
-            self._update_command_preview()
-        elif event.checkbox.id == "chk-system":
-            self.settings.include_system = event.value
-            self._update_command_preview()
+    @staticmethod
+    def _parse(kind: type, raw: str, previous: Any) -> Any:
+        """`raw` as a number, None when empty, `previous` while it is half typed (e.g. "-")."""
+        if not raw:
+            return None
+        try:
+            return kind(raw)
+        except ValueError:
+            return previous
 
-    def action_focus_search(self) -> None:
-        self.action_focus_pane("channels")
-        self.query_one("#channel-search", Input).focus()
-
-    def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
-        self._toggle_tree_node(event.node)
-
-    def action_toggle_channel(self) -> None:
-        tree = self.query_one("#channel-tree", Tree)
-        if tree.cursor_node:
-            self._toggle_tree_node(tree.cursor_node)
-
-    def _toggle_tree_node(self, node: TreeNode[Any]) -> None:
-        data = node.data
-        if data is None or self.current_server is None:
-            return
-
-        if isinstance(data, Channel):
-            if data.type == CATEGORY:
-                # Toggle all selectable children under this category
-                children = [
-                    c
-                    for c in self.server_channels
-                    if c.parent_id == data.id and self.selection.is_selectable(c)
-                ]
-                if children:
-                    all_selected = all(self.selection.is_selected(c.id) for c in children)
-                    if all_selected:
-                        self.selection.deselect_many(c.id for c in children)
-                    else:
-                        self.selection.select_many(self.current_server, children)
-            elif self.selection.is_selectable(data):
-                self.selection.toggle(self.current_server, data)
-
-            self._rebuild_channel_tree()
-            self._update_selected_ui()
-            self._update_command_preview()
-
-    def _update_selected_ui(self) -> None:
-        selected_list = self.query_one("#selected-list", OptionList)
-        selected_list.clear_options()
-
-        for ch_id, (srv, ch) in self.selection.selected.items():
-            win = self.selection.window_for(ch_id)
-            win_label = win.label()
-            custom_marker = "★ " if self.selection.has_custom_window(ch_id) else ""
-            label = f"{srv.name} / #{ch.name} [{custom_marker}{win_label}]"
-            selected_list.add_option(Option(label, id=ch_id))
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input is self._filter:
+            self._focus_region("tree")
 
     def _sync_global_window_from_inputs(self) -> None:
-        from_val = self.query_one("#input-from", Input).value.strip() or None
-        to_val = self.query_one("#input-to", Input).value.strip() or None
-        last_raw = self.query_one("#input-last", Input).value.strip()
-        max_raw = self.query_one("#input-max-messages", Input).value.strip()
-
-        last_val: int | None = None
-        if last_raw:
-            try:
-                last_val = int(last_raw)
-            except ValueError:
-                pass
-
-        max_val = 5000
-        if max_raw:
-            try:
-                max_val = int(max_raw)
-            except ValueError:
-                pass
-
+        from_ = self.query_one("#input-from", Input).value.strip() or None
+        to = self.query_one("#input-to", Input).value.strip() or None
+        last = self._parse(int, self.query_one("#input-last", Input).value.strip(), None)
+        limit = self._parse(int, self.query_one("#input-max-messages", Input).value.strip(), None)
         self.selection.global_window = WindowSpec(
-            from_=from_val,
-            to=to_val,
-            last=last_val,
-            max_messages=max_val,
+            from_=from_, to=to, last=last, max_messages=DEFAULT_MAX_MESSAGES if limit is None else limit
         )
+        is_preset = from_ in WINDOW_PRESETS and to is None and last is None
+        self.query_one("#row-window", ChoiceRow).set_value(from_ if is_preset else CUSTOM_WINDOW)
         self._update_selected_ui()
         self._update_command_preview()
 
     def _update_command_preview(self) -> None:
-        jobs = plan_jobs(self.selection, self.settings)
-        preview = self.query_one("#command-preview", Static)
-        if not jobs:
-            preview.update("(select channels to preview CLI command)")
-        else:
-            commands = [j.request.to_command_str() for j in jobs]
-            preview.update(" && ".join(commands))
+        commands = [job.request.to_command_str() for job in plan_jobs(self.selection, self.settings)]
+        self.query_one("#command-preview", Static).update(" && ".join(commands) or NO_COMMAND)
 
     def action_copy_command(self) -> None:
         jobs = plan_jobs(self.selection, self.settings)
         if not jobs:
             self.notify("No channels selected.", severity="warning")
             return
-        cmd_str = " && ".join(j.request.to_command_str() for j in jobs)
-        self.copy_to_clipboard(cmd_str)
-        self.notify("Copied CLI command to clipboard!", title="Copied")
+        self.copy_to_clipboard(" && ".join(job.request.to_command_str() for job in jobs))
+        self.notify("Copied the CLI command.")
 
-    # ==================== Load All Operation ====================
+    # ==================== Panels ====================
 
-    @work(thread=True)
-    def action_load_all(self) -> None:
-        self.call_from_thread(self._start_progress, "Loading all servers & channels...")
-        try:
-            with self._make_directory() as directory:
-                def on_server(idx: int, total: int, srv: Server) -> None:
-                    self.call_from_thread(
-                        self._log_progress,
-                        f"[{idx}/{total}] Cached channels for [bold]{srv.name}[/bold]",
-                    )
+    def _switch_narrow_tab(self, tab: int) -> None:
+        self.current_narrow_tab = tab
+        for number in (1, 2, 3):
+            self.screen.set_class(number == tab, f"show-tab-{number}")
 
-                results = load_all(directory, on_server=on_server)
-                self.call_from_thread(
-                    self._finish_progress,
-                    f"Successfully loaded all {len(results)} servers and channels.",
-                )
-                self.call_from_thread(self.action_refresh_servers, False)
-        except Exception as e:
-            self.call_from_thread(self._handle_network_error, f"Load all failed: {e}")
+    def _focus_region(self, region: str) -> None:
+        self._switch_narrow_tab({"tree": 1, "list": 2, "form": 2, "log": 3}[region])
+        if region == "tree":
+            self._tree.focus()
+        elif region == "list":
+            self._selected_list.focus()
+        elif region == "form":
+            self._form.focus_row()
+        else:
+            self._event_log.focus()
 
-    # ==================== Custom Time Window Modal ====================
+    def _current_region(self) -> str | None:
+        focused = self.screen.focused
+        if focused is None:
+            return None
+        if focused is self._tree or focused is self._filter:
+            return "tree"
+        if focused is self._selected_list:
+            return "list"
+        return "log" if focused is self._event_log else "form"
 
-    def action_edit_channel_window(self) -> None:
-        selected_list = self.query_one("#selected-list", OptionList)
-        target_ch_id: str | None = None
-        target_ch_name = ""
+    def action_cycle_pane(self, delta: int) -> None:
+        regions = ["tree", "list", "form"] if self.selection.selected else ["tree", "form"]
+        current = self._current_region()
+        index = regions.index(current) if current in regions else -1
+        self._focus_region(regions[(index + delta) % len(regions)])
 
-        if selected_list.highlighted is not None and selected_list.highlighted < len(selected_list._options):
-            opt = selected_list.get_option_at_index(selected_list.highlighted)
-            target_ch_id = opt.id
-            if target_ch_id and target_ch_id in self.selection.selected:
-                target_ch_name = self.selection.selected[target_ch_id][1].name
-        elif self.current_server:
-            tree = self.query_one("#channel-tree", Tree)
-            if tree.cursor_node and isinstance(tree.cursor_node.data, Channel):
-                ch = tree.cursor_node.data
-                if self.selection.is_selectable(ch):
-                    target_ch_id = ch.id
-                    target_ch_name = ch.name
+    def action_pane(self, number: int) -> None:
+        if number == 1:
+            self._focus_region("tree")
+        elif number == 2:
+            self._focus_region("list" if self.selection.selected else "form")
+        else:
+            self._focus_region("log")
 
-        if not target_ch_id:
-            self.notify("Select a channel first to edit its time window.", severity="warning")
-            return
-
-        current_win = self.selection.custom_windows.get(target_ch_id)
-
-        def on_dismiss(result: Any) -> None:
-            if result is WINDOW_CANCELLED:
-                return
-            assert target_ch_id is not None
-            self.selection.set_custom_window(target_ch_id, result)
-            self._update_selected_ui()
-            self._update_command_preview()
-
-        modal = TimeWindowModal(
-            channel_name=target_ch_name,
-            current_spec=current_win,
-            global_spec=self.selection.global_window,
-        )
-        self.push_screen(modal, on_dismiss)
-
-    # ==================== Export Execution ====================
-
-    def action_start_export(self) -> None:
-        if self.is_running_job:
-            self.notify("An export job is already running. Press Esc to stop.", severity="warning")
-            return
-
-        jobs = plan_jobs(self.selection, self.settings)
-        if not jobs:
-            self.notify("No channels selected for export.", severity="warning")
-            return
-
-        self.is_running_job = True
-        self.cancel_token = CancelToken()
-        self._switch_narrow_tab(3)
-
-        run_status = self.query_one("#run-status", Label)
-        run_status.update("Starting export...")
-        event_log = self.query_one("#event-log", RichLog)
-        event_log.clear()
-        event_log.write("[bold green]=== Export started ===[/bold green]")
-
-        progress_bar = self.query_one("#job-progress", ProgressBar)
-        progress_bar.update(total=len(jobs), progress=0)
-
-        self._run_export_worker(jobs, self.cancel_token)
-
-    @work(thread=True)
-    def _run_export_worker(self, jobs: list[PlannedJob], cancel_token: CancelToken) -> None:
-        all_outcomes: list[MessagesOutcome] = []
-        try:
-            with self._make_directory() as directory:
-                def emit_event(name: str, payload: dict[str, Any]) -> None:
-                    self.call_from_thread(self._handle_bridge_event, name, payload)
-
-                events_bridge = TuiEvents(cancel_token, emit_event)
-                total_jobs = len(jobs)
-
-                for idx, job in enumerate(jobs, start=1):
-                    cancel_token.check()
-                    self.call_from_thread(
-                        self._update_job_status,
-                        f"Job {idx}/{total_jobs}: {job.window.label()}",
-                    )
-                    outcome = run_messages(
-                        job.request,
-                        directory=directory,
-                        cdn=self.cdn_factory,
-                        events=events_bridge,
-                    )
-                    all_outcomes.append(outcome)
-                    self.call_from_thread(self._advance_job_progress, idx)
-        except Cancelled:
-            self.call_from_thread(self._handle_job_cancelled)
-            return
-        except Exception as e:
-            self.call_from_thread(self._handle_job_error, str(e))
-            return
-        finally:
-            self.call_from_thread(self._cleanup_job_state)
-
-        self.call_from_thread(self._handle_jobs_completed, all_outcomes)
-
-    def _handle_bridge_event(self, name: str, payload: dict[str, Any]) -> None:
-        event_log = self.query_one("#event-log", RichLog)
-        status_lbl = self.query_one("#run-status", Label)
-
-        if name == "channel_start":
-            ch = payload.get("channel")
-            ch_name = getattr(ch, "name", str(ch))
-            status_lbl.update(f"Scraping #{ch_name}...")
-            event_log.write(f"[cyan]▶ Fetching #{ch_name}[/cyan]")
-        elif name == "page":
-            count = payload.get("count", 0)
-            event_log.write(f"  [dim]• Page fetched: {count} messages[/dim]")
-        elif name == "pause":
-            secs = payload.get("seconds", 0)
-            reason = payload.get("reason", "safe mode")
-            status_lbl.update(f"🛡️ Pausing {secs:.1f}s ({reason})...")
-            event_log.write(f"[dim yellow]⏸ Safe pause {secs:.1f}s ({reason})[/dim yellow]")
-        elif name == "channel_done":
-            event_log.write("[green]✓ Channel completed[/green]")
-        elif name == "skipped":
-            reason = payload.get("reason", "")
-            event_log.write(f"[yellow]⚠ Skipped: {reason}[/yellow]")
-        elif name == "warning":
-            msg = payload.get("message", "")
-            event_log.write(f"[yellow]⚠ Warning: {msg}[/yellow]")
-        elif name == "note":
-            text = payload.get("text", "")
-            event_log.write(f"[dim]ℹ {text}[/dim]")
-        elif name == "dl_start":
-            files = payload.get("files", 0)
-            event_log.write(f"[cyan]Downloading {files} attachments...[/cyan]")
-        elif name == "dl_file":
-            num = payload.get("number", 0)
-            total = payload.get("total", 0)
-            job = payload.get("job")
-            fn = getattr(job, "filename", str(job)) if job else ""
-            status_lbl.update(f"Downloading file {num}/{total}: {fn}")
-        elif name == "dl_finish":
-            event_log.write("[green]✓ Attachments downloaded[/green]")
-
-    def _update_job_status(self, text: str) -> None:
-        self.query_one("#run-status", Label).update(text)
-
-    def _advance_job_progress(self, progress: int) -> None:
-        self.query_one("#job-progress", ProgressBar).update(progress=progress)
-
-    def _cleanup_job_state(self) -> None:
-        self.is_running_job = False
-        self.cancel_token = None
-
-    def _handle_job_cancelled(self) -> None:
-        self.query_one("#run-status", Label).update("⏹ Operation cancelled.")
-        self.query_one("#event-log", RichLog).write("[bold red]⏹ Stopped by user.[/bold red]")
-        self.notify("Export stopped by user.", severity="warning")
-
-    def _handle_job_error(self, message: str) -> None:
-        self.query_one("#run-status", Label).update("❌ Error occurred.")
-        self.query_one("#event-log", RichLog).write(f"[bold red]ERROR: {message}[/bold red]")
-        self.notify(f"Export failed: {message}", severity="error")
-
-    def _handle_jobs_completed(self, outcomes: list[MessagesOutcome]) -> None:
-        self.query_one("#run-status", Label).update("✓ All jobs completed.")
-        event_log = self.query_one("#event-log", RichLog)
-        event_log.write("[bold green]✓ All export jobs finished successfully![/bold green]")
-        self.notify("Export completed!", title="Discoop")
-
-        if self.settings.target == "preview":
-            results = [r for o in outcomes for r in o.results]
-            query = outcomes[0].query if outcomes else None
-            self.push_screen(PreviewScreen(results, query=query, initial_format=self.settings.preview_format))
+    def action_focus_filter(self) -> None:
+        self._switch_narrow_tab(1)
+        self._filter.focus()
 
     def action_stop_or_back(self) -> None:
-        if self.is_running_job and self.cancel_token:
+        if self.cancel_token is not None:
             self.cancel_token.cancel()
-            self.notify("Stopping active job...", severity="information")
-        elif self.current_narrow_tab != 1:
-            self._switch_narrow_tab(1)
+            self._set_status("Stopping...")
+        elif self._filter.has_focus:
+            self._focus_region("tree")
+        elif self._filter.value:
+            self._filter.value = ""
 
-    # ==================== Button & UI Event Handling ====================
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        btn_id = event.button.id
-        if not btn_id:
-            return
-
-        if btn_id == "btn-help":
-            self.action_help()
-        elif btn_id == "btn-settings":
-            self._open_settings()
-        elif btn_id == "btn-login":
-            self._open_login()
-        elif btn_id == "narrow-tab-1":
-            self._switch_narrow_tab(1)
-        elif btn_id == "narrow-tab-2":
-            self._switch_narrow_tab(2)
-        elif btn_id == "narrow-tab-3":
-            self._switch_narrow_tab(3)
-        elif btn_id == "btn-refresh-servers":
-            self.action_refresh_servers(refresh=True)
-        elif btn_id == "btn-load-all":
-            self.action_load_all()
-        elif btn_id == "btn-refresh-channels":
-            self.action_refresh_channels(refresh=True)
-        elif btn_id == "btn-select-shown":
-            self._select_shown_channels()
-        elif btn_id == "btn-clear-server":
-            if self.current_server:
-                self.selection.clear_server(self.current_server.id)
-                self._rebuild_channel_tree()
-                self._update_selected_ui()
-                self._update_command_preview()
-        elif btn_id == "btn-custom-time":
-            self.action_edit_channel_window()
-        elif btn_id == "btn-clear-all":
-            self.selection.clear_all()
-            self._rebuild_channel_tree()
-            self._update_selected_ui()
-            self._update_command_preview()
-        elif btn_id == "preset-24h":
-            self._set_preset_window("24h")
-        elif btn_id == "preset-7d":
-            self._set_preset_window("7d")
-        elif btn_id == "preset-30d":
-            self._set_preset_window("30d")
-        elif btn_id == "preset-all":
-            self._set_preset_window("all")
-        elif btn_id == "mode-safe":
-            self._set_mode("safe")
-        elif btn_id == "mode-fast":
-            self._set_mode("fast")
-        elif btn_id == "target-folder":
-            self._set_target("folder")
-        elif btn_id == "target-zip":
-            self._set_target("zip")
-        elif btn_id == "target-preview":
-            self._set_target("preview")
-        elif btn_id == "fmt-text":
-            self._set_preview_format("text")
-        elif btn_id == "fmt-md":
-            self._set_preview_format("md")
-        elif btn_id == "fmt-json":
-            self._set_preview_format("json")
-        elif btn_id == "fmt-jsonl":
-            self._set_preview_format("jsonl")
-        elif btn_id == "btn-start":
-            self.action_start_export()
-        elif btn_id == "btn-stop":
-            self.action_stop_or_back()
-        elif btn_id == "btn-copy-command":
-            self.action_copy_command()
-
-    def _select_shown_channels(self) -> None:
-        if self.current_server is None:
-            return
-        query = self.query_one("#channel-search", Input).value.strip()
-        filtered = filter_channels(self.server_channels, query)
-        selectable = [c for c in filtered if self.selection.is_selectable(c)]
-        self.selection.select_many(self.current_server, selectable)
-        self._rebuild_channel_tree()
-        self._update_selected_ui()
-        self._update_command_preview()
-
-    def _set_preset_window(self, preset: str) -> None:
-        self.query_one("#input-from", Input).value = preset
-        self.query_one("#input-to", Input).value = ""
-        self.query_one("#input-last", Input).value = ""
-        for p in ("24h", "7d", "30d", "all"):
-            btn = self.query_one(f"#preset-{p}", Button)
-            if p == preset:
-                btn.add_class("-active")
-            else:
-                btn.remove_class("-active")
-        self._sync_global_window_from_inputs()
-
-    def _set_mode(self, mode: str) -> None:
-        self.settings.mode = mode
-        self._sync_mode_indicator()
-        btn_safe = self.query_one("#mode-safe", Button)
-        btn_fast = self.query_one("#mode-fast", Button)
-        if mode == "safe":
-            btn_safe.add_class("-active")
-            btn_fast.remove_class("-active")
-        else:
-            btn_fast.add_class("-active")
-            btn_safe.remove_class("-active")
-        self._update_command_preview()
-
-    def _set_target(self, target: str) -> None:
-        self.settings.target = target
-        for t in ("folder", "zip", "preview"):
-            btn = self.query_one(f"#target-{t}", Button)
-            if t == target:
-                btn.add_class("-active")
-            else:
-                btn.remove_class("-active")
-        self._update_command_preview()
-
-    def _set_preview_format(self, fmt: str) -> None:
-        self.settings.preview_format = fmt
-        for f in ("text", "md", "json", "jsonl"):
-            btn = self.query_one(f"#fmt-{f}", Button)
-            if f == fmt:
-                btn.add_class("-active")
-            else:
-                btn.remove_class("-active")
-        self._update_command_preview()
+    async def action_quit(self) -> None:
+        if self.cancel_token is not None:
+            self.cancel_token.cancel()
+        self.exit()
 
     def action_help(self) -> None:
         self.push_screen(HelpScreen())
 
-    def _open_settings(self) -> None:
-        def on_saved(saved: bool) -> None:
+    def action_settings(self) -> None:
+        def on_saved(saved: bool | None) -> None:
             if saved:
-                self._update_login_status()
-                self._sync_mode_indicator()
+                self._load_config()
+                self._sync_form()
+
         self.push_screen(SettingsModal(), on_saved)
 
-    def _open_login(self) -> None:
-        def on_logged_in(changed: bool) -> None:
+    def action_login(self) -> None:
+        def on_changed(changed: bool | None) -> None:
             if changed:
-                self._update_login_status()
-                self.action_refresh_servers(refresh=True)
-        self.push_screen(LoginModal(self.api_factory), on_logged_in)
+                self._start_directory(refresh=True)
 
-    def _start_progress(self, msg: str) -> None:
-        self.query_one("#run-status", Label).update(msg)
-        self.query_one("#event-log", RichLog).write(f"[bold cyan]{msg}[/bold cyan]")
+        self.push_screen(LoginModal(self.api_factory), on_changed)
 
-    def _log_progress(self, msg: str) -> None:
-        self.query_one("#event-log", RichLog).write(msg)
+    # ==================== Tree ====================
 
-    def _finish_progress(self, msg: str) -> None:
-        self.query_one("#run-status", Label).update("✓ Done.")
-        self.query_one("#event-log", RichLog).write(f"[bold green]{msg}[/bold green]")
-        self.notify(msg, title="Discoop")
+    @staticmethod
+    def _key(data: Any) -> str:
+        return f"server:{data.id}" if isinstance(data, Server) else f"channel:{data.id}"
 
-    def _handle_network_error(self, message: str) -> None:
-        self.query_one("#run-status", Label).update("⚠ Network error.")
-        self.query_one("#event-log", RichLog).write(f"[bold red]{message}[/bold red]")
-        self.notify(message, severity="error")
+    def _filter_query(self) -> str:
+        return self._filter.value.strip()
+
+    def _selectable(self, category: Channel) -> list[Channel]:
+        channels = self.channels_by_server.get(category.server_id, [])
+        return [c for c in channels if c.parent_id == category.id and self.selection.is_selectable(c)]
+
+    def _channel_label(self, channel: Channel) -> Text:
+        name = display_name(channel.name)
+        if not self.selection.is_selectable(channel):
+            return Text(f"    #{name} ({channel.type_name})", style="dim")
+        if self.selection.is_selected(channel.id):
+            return Text.assemble(("[x]", "bold"), f" #{name}")
+        return Text(f"[ ] #{name}")
+
+    def _category_label(self, category: Channel) -> Text:
+        name = display_name(category.name)
+        members = self._selectable(category)
+        if not members:
+            return Text(name, style="dim")
+        picked = sum(self.selection.is_selected(c.id) for c in members)
+        if picked == len(members):
+            return Text.assemble(("[x]", "bold"), f" {name}")
+        return Text.assemble(("[~]", "bold"), f" {name}") if picked else Text(f"[ ] {name}")
+
+    def _server_badge(self, server: Server) -> str:
+        if server.id in self._loading:
+            return "loading..."
+        if server.id in self.no_access_servers:
+            return "no access"
+        channels = self.channels_by_server.get(server.id)
+        if channels is None:
+            return "not loaded"
+        return str(sum(c.type != CATEGORY for c in channels))
+
+    def _rebuild_tree(self) -> None:
+        """Lay the tree out again, for new data or a new filter. The cursor stays on its server or channel.
+
+        A filter opens every node that holds a match and hides the rest. `_expanded` stays untouched meanwhile, so
+        clearing the filter brings back what the user had open. Selecting never comes here: see `_relabel`.
+        """
+        tree = self._tree
+        cursor = tree.cursor_node
+        cursor_key = None if cursor is None or cursor.data is None else self._key(cursor.data)
+        query = self._filter_query()
+        tree.clear()
+        self._tree_nodes = {}
+        for server in self.servers:
+            channels = self.channels_by_server.get(server.id)
+            shown = filter_channels(channels, query) if channels and query else channels
+            if query and not shown:
+                continue
+            key = self._key(server)
+            node = tree.add_top(
+                Text(display_name(server.name)),
+                data=server,
+                badge=self._server_badge(server),
+                expand=bool(query) or key in self._expanded,
+            )
+            self._tree_nodes[key] = node
+            self._add_channels(node, shown or [], bool(query))
+        self._restore_cursor(cursor_key)
+
+    def _add_channels(self, server_node: TreeNode[Any], channels: Iterable[Channel], open_all: bool) -> None:
+        for category, members in group_by_category(channels):
+            parent = server_node
+            if category is not None:
+                key = self._key(category)
+                expand = open_all or key in self._expanded
+                parent = server_node.add(self._category_label(category), data=category, expand=expand)
+                self._tree_nodes[key] = parent
+            for channel in members:
+                self._tree_nodes[self._key(channel)] = parent.add_leaf(self._channel_label(channel), data=channel)
+
+    def _restore_cursor(self, key: str | None) -> None:
+        tree = self._tree
+        if tree.last_line < 0:  # also builds the lines `move_cursor` needs
+            tree.move_cursor(None)
+            return
+        node = self._tree_nodes.get(key) if key is not None else None
+        if node is None:
+            tree.move_cursor(tree.get_node_at_line(0))
+            return
+        ancestors: list[TreeNode[Any]] = []
+        parent = node.parent
+        while parent is not None and not parent.is_root:
+            ancestors.append(parent)
+            parent = parent.parent
+        closed = next((a for a in reversed(ancestors) if not a.is_expanded), None)
+        tree.move_cursor(closed or node)
+
+    def _relabel(self, channel_ids: Iterable[str]) -> None:
+        """Update just the rows of these channels and of their categories: cursor and open nodes stay."""
+        categories: dict[str, Channel] = {}
+        for channel_id in channel_ids:
+            node = self._tree_nodes.get(f"channel:{channel_id}")
+            if node is None:
+                continue
+            node.set_label(self._channel_label(node.data))
+            parent = node.parent
+            if parent is not None and isinstance(parent.data, Channel):
+                categories[parent.data.id] = parent.data
+        for category in categories.values():
+            self._tree_nodes[self._key(category)].set_label(self._category_label(category))
+
+    def _selection_changed(self, channel_ids: Iterable[str]) -> None:
+        self._relabel(channel_ids)
+        self._update_selected_ui()
+        self._update_command_preview()
+
+    def on_tree_node_expanded(self, event: ChannelTree.NodeExpanded[Any]) -> None:
+        data = event.node.data
+        if data is None:
+            return
+        if not self._filter_query():
+            self._expanded.add(self._key(data))
+        known = data.id in self.channels_by_server or data.id in self.no_access_servers
+        if isinstance(data, Server) and not known and not self._start_channels(data, refresh=False):
+            event.node.collapse()
+
+    def on_tree_node_collapsed(self, event: ChannelTree.NodeCollapsed[Any]) -> None:
+        if event.node.data is not None and not self._filter_query():
+            self._expanded.discard(self._key(event.node.data))
+
+    def on_tree_node_selected(self, event: ChannelTree.NodeSelected[Any]) -> None:
+        """Enter or a click: a channel changes its selection, anything else opens or closes."""
+        data = event.node.data
+        if isinstance(data, Channel) and data.type != CATEGORY:
+            self._toggle(data)
+        elif data is not None:
+            event.node.toggle()
+
+    def action_toggle_cursor(self) -> None:
+        node = self._tree.cursor_node
+        if node is None:
+            return
+        if isinstance(node.data, Server):
+            self.notify("Space selects a channel or a category. On a server, a selects all shown channels.")
+        else:
+            self._toggle(node.data)
+
+    def _toggle(self, channel: Channel) -> None:
+        server = next(s for s in self.servers if s.id == channel.server_id)
+        if channel.type != CATEGORY:
+            if self.selection.is_selectable(channel):
+                self.selection.toggle(server, channel)
+                self._selection_changed([channel.id])
+            return
+        members = self._selectable(channel)
+        if members and all(self.selection.is_selected(c.id) for c in members):
+            self.selection.deselect_many(c.id for c in members)
+        else:
+            self.selection.select_many(server, members)
+        self._selection_changed(c.id for c in members)
+
+    def _server_at_cursor(self) -> Server | None:
+        node = self._tree.cursor_node
+        while node is not None and not isinstance(node.data, Server):
+            node = node.parent
+        return node.data if node is not None else None
+
+    def action_select_shown(self) -> None:
+        server = self._server_at_cursor()
+        if server is None:
+            return
+        channels = self.channels_by_server.get(server.id)
+        if channels is None:
+            self.notify("Load the server first with the right arrow.", severity="warning")
+            return
+        shown = [c for c in filter_channels(channels, self._filter_query()) if self.selection.is_selectable(c)]
+        self.selection.select_many(server, shown)
+        self._selection_changed(c.id for c in shown)
+
+    # ==================== Selected channels ====================
+
+    def _update_selected_ui(self) -> None:
+        selected = self._selected_list
+        option = selected.highlighted_option
+        highlighted_id = None if option is None else option.id
+        highlighted_index = selected.highlighted or 0
+
+        options = []
+        for channel_id, (server, channel) in self.selection.selected.items():
+            mark = "*" if self.selection.has_custom_window(channel_id) else ""
+            window = short_window(self.selection.window_for(channel_id))
+            label = f"{display_name(server.name)}/#{display_name(channel.name)}  {window}{mark}"
+            options.append(Option(Text(label), id=channel_id))
+
+        selected.clear_options()
+        selected.add_options(options)
+        selected.display = bool(options)
+        if options:
+            ids = [o.id for o in options]
+            selected.highlighted = (
+                ids.index(highlighted_id) if highlighted_id in ids else min(highlighted_index, len(ids) - 1)
+            )
+        self.query_one("#selected-title", Label).update(f"Selected ({len(options)})")
+
+    def action_remove_selected(self) -> None:
+        option = self._selected_list.highlighted_option
+        if option is None or option.id is None:
+            return
+        self.selection.deselect_many([option.id])
+        self._selection_changed([option.id])
+        if not self.selection.selected:
+            self._focus_region("tree")
+
+    def action_edit_tree_window(self) -> None:
+        node = self._tree.cursor_node
+        channel = None if node is None else node.data
+        if not isinstance(channel, Channel) or not self.selection.is_selectable(channel):
+            self.notify("Move to a channel first.", severity="warning")
+            return
+        self._edit_window(channel)
+
+    def action_edit_selected_window(self) -> None:
+        option = self._selected_list.highlighted_option
+        if option is not None and option.id in self.selection.selected:
+            self._edit_window(self.selection.selected[option.id][1])
+
+    def _edit_window(self, channel: Channel) -> None:
+        def on_dismiss(result: Any) -> None:
+            if result is WINDOW_CANCELLED:
+                return
+            self.selection.set_custom_window(channel.id, result)
+            if result is not None and not self.selection.is_selected(channel.id):
+                self._toggle(channel)  # a window only means something on a channel that gets exported
+            else:
+                self._selection_changed([channel.id])
+
+        modal = TimeWindowModal(
+            channel_name=display_name(channel.name),
+            current_spec=self.selection.custom_windows.get(channel.id),
+            global_spec=self.selection.global_window,
+        )
+        self.push_screen(modal, on_dismiss)
+
+    # ==================== Network operations ====================
+
+    def _begin_net(self, status: str) -> CancelToken | None:
+        """Claim the one network slot, or say busy and return None.
+
+        A flag, not `@work(exclusive=True)`: that would only mark a running thread as cancelled, and its API call would
+        go on next to the new one.
+        """
+        if self.cancel_token is not None:
+            self.notify("Busy — wait or press Esc", severity="warning")
+            return None
+        self.cancel_token = CancelToken()
+        self._set_status(status)
+        self.refresh_bindings()
+        return self.cancel_token
+
+    def _ui(self, function: Callable[..., None], *args: Any) -> None:
+        """From a worker thread: run `function` on the UI thread, after everything sent earlier.
+
+        Never blocks the worker, unlike `call_from_thread`, and goes nowhere once the app has closed.
+        """
+        self.post_message(UiCall(function, args))
+
+    def on_ui_call(self, message: UiCall) -> None:
+        if self.screen_stack:  # gone while the app closes, and a late worker has nothing left to update
+            message.function(*message.args)
+
+    @contextmanager
+    def _net_guard(self, what: str) -> Iterator[None]:
+        """Around a worker's body: report how it ended and give the network slot back."""
+        try:
+            yield
+        except Cancelled:
+            self._ui(self._net_stopped)
+        except DiscoopError as e:
+            self._ui(self._net_failed, f"{what}: {e.message}")
+        except Exception as e:  # an unexpected error must not take the whole UI down
+            self._ui(self._net_failed, f"{what}: {e}")
+        finally:
+            self._ui(self._net_finished)
+
+    def _net_stopped(self) -> None:
+        self._set_status("Stopped.")
+        self._log_line("Stopped by user.", "yellow")
+        self.notify("Stopped.", severity="warning")
+
+    def _net_failed(self, message: str) -> None:
+        self._set_status("Error, see the log.")
+        self._log_line(message, "bold red")
+        self.notify(message, severity="error", markup=False)
+
+    def _net_finished(self) -> None:
+        self.cancel_token = None
+        self.is_running_job = False
+        self._start_row.update(START_LABEL)
+        self._progress.display = False
+        servers = [s for s in self.servers if s.id in self._loading]
+        self._loading.clear()
+        for server in servers:  # a load that failed: back to the state before it
+            node = self._tree_nodes.get(self._key(server))
+            if node is not None:
+                self._tree.set_badge(node, self._server_badge(server))
+                if server.id not in self.channels_by_server:
+                    node.collapse()
+        self.refresh_bindings()
+
+    @contextmanager
+    def _open_directory(self, cancel: CancelToken, *, mode: str, delay: float) -> Iterator[Directory]:
+        """A Directory for a worker thread. Its pauses end at once when `cancel` fires."""
+        stored = TokenStore.default().load()
+        api_factory = self.api_factory
+
+        def on_pause(seconds: float, reason: str) -> None:
+            self._ui(self._handle_pause, seconds, reason)
+
+        def open_api() -> DiscordAPI:
+            if stored is None:
+                raise auth_required()
+            return api_factory(stored.token, delay=delay, mode=mode, sleep=cancel.sleep, on_pause=on_pause)
+
+        with Cache.default() as cache, Directory(cache, open_api) as directory:
+            yield directory
+
+    def _api_options(self) -> dict[str, Any]:
+        delay = self.settings.delay
+        return {"mode": self.settings.mode, "delay": self._delay if delay is None else delay}
+
+    @staticmethod
+    def _read_cached() -> tuple[list[Server], dict[str, list[Channel]]]:
+        with Cache.default() as cache:
+            servers = cache.servers()
+            channels = {s.id: cache.channels(s.id) for s in servers if cache.fetched_at(f"channels:{s.id}") is not None}
+        return servers, channels
+
+    def _apply_directory(self, servers: list[Server], channels: dict[str, list[Channel]]) -> None:
+        self.servers = servers
+        self.channels_by_server = channels
+        self._rebuild_tree()
+
+    def _set_login_status(self, text: str, state: str) -> None:
+        indicator = self.query_one("#status-indicator", Label)
+        indicator.update(text)
+        for name in ("-ok", "-bad", "-warn"):
+            indicator.set_class(name == state, name)
+
+    # Startup and R: who am I, and which servers do I have.
+
+    def _start_directory(self, refresh: bool) -> None:
+        cancel = self._begin_net("Reloading servers..." if refresh else "Starting...")
+        if cancel is not None:
+            self._directory_worker(refresh, cancel, self._api_options())
+
+    def action_reload_servers(self) -> None:
+        self._start_directory(refresh=True)
+
+    @work(thread=True, group="net", exit_on_error=False)
+    def _directory_worker(self, refresh: bool, cancel: CancelToken, options: dict[str, Any]) -> None:
+        with self._net_guard("Servers"):
+            usable = self._check_login(cancel)
+            if usable:
+                with self._open_directory(cancel, **options) as directory:
+                    list_servers(directory, refresh=refresh)
+            servers, channels = self._read_cached()
+            self._ui(self._apply_directory, servers, channels)
+            self._ui(self._set_status, f"Ready. {plural(len(servers), 'server')}.")
+            if not servers and not usable:
+                self._ui(self._log_line, "Not logged in or Discord is out of reach: press F3 to log in.", "yellow")
+
+    def _check_login(self, cancel: CancelToken) -> bool:
+        """Show who is logged in. True if Discord can be asked for more."""
+        stored = TokenStore.default().load()
+        if stored is None:
+            self._ui(self._set_login_status, "not logged in", "-bad")
+            return False
+        try:
+            with self.api_factory(stored.token, sleep=cancel.sleep) as api:
+                me = api.get_me()
+        except Cancelled:
+            raise
+        except Exception as e:
+            if isinstance(e, DiscoopError) and e.code == ExitCode.AUTH_REQUIRED:
+                self._ui(self._set_login_status, "token invalid", "-bad")
+            else:
+                self._ui(self._set_login_status, "offline?", "-warn")
+            return False
+        self._ui(self._set_login_status, f"@{me.get('username') or me.get('global_name') or 'user'}", "-ok")
+        return True
+
+    # → or Enter on a server that is not loaded, and r.
+
+    def action_reload_channels(self) -> None:
+        server = self._server_at_cursor()
+        if server is not None:
+            self._start_channels(server, refresh=True)
+
+    def _start_channels(self, server: Server, refresh: bool) -> bool:
+        cancel = self._begin_net(f"Loading channels of {display_name(server.name)}...")
+        if cancel is None:
+            return False
+        self._loading.add(server.id)
+        node = self._tree_nodes.get(self._key(server))
+        if node is not None:
+            self._tree.set_badge(node, self._server_badge(server))
+        self._channels_worker(server, refresh, cancel, self._api_options())
+        return True
+
+    @work(thread=True, group="net", exit_on_error=False)
+    def _channels_worker(
+        self, server: Server, refresh: bool, cancel: CancelToken, options: dict[str, Any]
+    ) -> None:
+        with self._net_guard("Channels"):
+            try:
+                with self._open_directory(cancel, **options) as directory:
+                    channels = list_channels(directory, server, refresh=refresh)
+            except DiscoopError as e:
+                if e.code != ExitCode.NO_ACCESS:
+                    raise
+                self._ui(self._server_no_access, server)
+                return
+            self._ui(self._apply_channels, server, channels)
+
+    def _apply_channels(self, server: Server, channels: list[Channel]) -> None:
+        self.no_access_servers.discard(server.id)
+        self.channels_by_server[server.id] = channels
+        self._loading.discard(server.id)
+        self._rebuild_tree()
+        count = sum(c.type != CATEGORY for c in channels)
+        self._set_status(f"Ready. {display_name(server.name)}: {plural(count, 'channel')}.")
+
+    def _server_no_access(self, server: Server) -> None:
+        self.no_access_servers.add(server.id)
+        self.channels_by_server.pop(server.id, None)
+        self._loading.discard(server.id)
+        self._expanded.discard(self._key(server))
+        self._rebuild_tree()
+        self._set_status(f"No access to {display_name(server.name)}.")
+
+    # L: everything, at the safe pace.
+
+    def action_load_all(self) -> None:
+        cancel = self._begin_net("Loading all servers...")
+        if cancel is not None:
+            self._load_all_worker(cancel, self._api_options()["delay"])
+
+    @work(thread=True, group="net", exit_on_error=False)
+    def _load_all_worker(self, cancel: CancelToken, delay: float) -> None:
+        def on_server(index: int, total: int, server: Server) -> None:
+            cancel.check()
+            self._ui(self._set_status, f"Loading {index}/{total}: {display_name(server.name)}")
+
+        with self._net_guard("Load all"):
+            results: list[tuple[Server, list[Channel]]] = []
+            try:
+                with self._open_directory(cancel, mode="safe", delay=delay) as directory:
+                    results = load_all(directory, on_server=on_server)
+            finally:  # also after Esc: what did load stays in the cache and in the tree
+                servers, channels = self._read_cached()
+                self._ui(self._apply_directory, servers, channels)
+            no_access = {s.id for s, found in results if not found and s.id not in channels}
+            self._ui(self._load_all_done, no_access, len(results))
+
+    def _load_all_done(self, no_access: set[str], total: int) -> None:
+        self.no_access_servers = no_access
+        self._rebuild_tree()
+        self._set_status(f"Ready. Channels of {plural(total, 'server')} loaded.")
+        self._log_line(f"Loaded the channels of {plural(total, 'server')}.", "green")
+
+    # F5: export.
+
+    def action_start_export(self) -> None:
+        jobs = plan_jobs(self.selection, self.settings)
+        if not jobs:
+            self.notify("No channels selected.", severity="warning")
+            return
+        cancel = self._begin_net("Starting export...")
+        if cancel is None:
+            return
+        self.is_running_job = True
+        self._start_row.update(STOP_LABEL)
+        self._channels_done = 0
+        self._channels_total = sum(len(job.targets) for job in jobs)
+        self._progress.update(total=self._channels_total, progress=0)
+        self._progress.display = True
+        self._log_line(f"Export of {plural(self._channels_total, 'channel')} started.", "bold")
+        preview_format = self.settings.preview_format if self.settings.target == "preview" else None
+        self._export_worker(jobs, cancel, self._api_options(), preview_format)
+
+    def on_action_row_pressed(self, event: ActionRow.Pressed) -> None:
+        if self.is_running_job:
+            self.action_stop_or_back()
+        else:
+            self.action_start_export()
+
+    @work(thread=True, group="net", exit_on_error=False)
+    def _export_worker(
+        self, jobs: list[PlannedJob], cancel: CancelToken, options: dict[str, Any], preview_format: str | None
+    ) -> None:
+        with self._net_guard("Export"):
+            outcomes: list[MessagesOutcome] = []
+            with self._open_directory(cancel, **options) as directory:
+                events = TuiEvents(cancel, self._bridge_emit())
+                for job in jobs:
+                    cancel.check()
+                    outcomes.append(
+                        run_messages(
+                            job.request, directory=directory, cdn=self.cdn_factory, tz=LOCAL_ZONE, events=events
+                        )
+                    )
+            self._ui(self._export_finished, outcomes, preview_format)
+
+    def _bridge_emit(self) -> Callable[[str, dict[str, Any]], None]:
+        """The event sink for `TuiEvents`. A download reports each chunk, so those go out in batches."""
+        pending = 0
+        reported = 0.0
+
+        def emit(name: str, payload: dict[str, Any]) -> None:
+            nonlocal pending, reported
+            if name == "dl_advance":
+                pending += payload["size"]
+                now = time.monotonic()
+                if now - reported < DOWNLOAD_REPORT_INTERVAL:
+                    return
+                payload = {"size": pending}
+                pending, reported = 0, now
+            self._ui(self._handle_bridge_event, name, payload)
+
+        return emit
+
+    def _handle_bridge_event(self, name: str, payload: dict[str, Any]) -> None:
+        if name == "channel_start":
+            channel = payload["channel"]
+            self._current_channel = display_name(channel.name)
+            self._set_status(f"#{self._current_channel} ({self._channels_done + 1}/{self._channels_total})")
+            self._log_line(f"Reading #{self._current_channel}")
+        elif name == "page":
+            self._set_status(f"#{self._current_channel}: {payload['count']} messages")
+        elif name == "pause":
+            self._handle_pause(payload["seconds"], payload["reason"])
+        elif name == "channel_done":
+            self._channel_finished()
+            result = payload["result"]
+            self._log_line(f"#{display_name(result.channel.name)}: {plural(len(result.messages), 'message')}", "green")
+        elif name == "skipped":
+            self._channel_finished()
+            self._log_line(f"Skipped: {payload['reason']}", "yellow")
+        elif name == "warning":
+            self._log_line(payload["message"], "yellow")
+        elif name == "note":
+            self._log_line(payload["text"], "dim")
+        elif name == "dl_start":
+            self._log_line(f"Downloading {plural(payload['files'], 'file')}")
+            self._progress.update(total=max(payload["total_bytes"], 1), progress=0)
+        elif name == "dl_file":
+            filename = payload["job"].attachment.filename
+            self._set_status(f"File {payload['number']}/{payload['total']}: {filename}")
+        elif name == "dl_advance":
+            self._progress.advance(payload["size"])
+        elif name == "dl_finish":
+            self._progress.update(total=self._channels_total, progress=self._channels_done)
+
+    def _handle_pause(self, seconds: float, reason: str) -> None:
+        self._set_status(f"Pause {seconds:.1f} s ({reason})")
+
+    def _channel_finished(self) -> None:
+        self._channels_done += 1
+        self._progress.update(progress=self._channels_done)
+
+    def _export_finished(self, outcomes: list[MessagesOutcome], preview_format: str | None) -> None:
+        results = [result for outcome in outcomes for result in outcome.results]
+        skipped = sum(len(outcome.skipped) for outcome in outcomes)
+        truncated = sum(result.truncated for result in results)
+        messages = sum(len(result.messages) for result in results)
+
+        summary = f"{plural(len(results), 'channel')}, {plural(messages, 'message')}"
+        if skipped:
+            summary += f", {skipped} skipped"
+        if truncated:
+            summary += f", {truncated} cut at Max messages"
+        problems = bool(skipped or truncated)
+        for outcome in outcomes:
+            if outcome.exported is not None:
+                problems |= self._log_exported(outcome)
+
+        self._set_status(f"Done: {summary}.")
+        self._log_line(f"Export done: {summary}.", "yellow" if problems else "green")
+        self.notify(f"Export done: {summary}.", severity="warning" if problems else "information", markup=False)
+        if preview_format is not None and results:
+            self.push_screen(PreviewScreen(results, query=outcomes[0].query, initial_format=preview_format))
+
+    def _log_exported(self, outcome: MessagesOutcome) -> bool:
+        """Say where an export went and how its files fared. True if some are missing."""
+        exported = outcome.exported
+        assert exported is not None
+        jobs = exported.jobs
+        wanted = [job for job in jobs if job.reason != NO_FILES]
+        too_large = sum(job.status == SKIPPED for job in wanted)
+        failed = exported.count(FAILED)
+        if wanted:
+            files = (
+                f"{plural(len(wanted), 'file')}: {exported.count(DOWNLOADED)} downloaded,"
+                f" {exported.count(PRESENT)} already present, {failed} failed, {too_large} too large"
+            )
+        else:
+            files = "no files"
+        self._log_line(f"{exported.path} ({files})", "yellow" if failed or too_large else "")
+        return bool(failed or too_large)
+
+    # ==================== Log panel ====================
+
+    def _set_status(self, text: str) -> None:
+        self._status.update(text)
+
+    def _log_line(self, message: str, style: str = "") -> None:
+        stamp = datetime.now().strftime("%H:%M:%S")
+        self._event_log.write(Text.assemble((f"{stamp} ", "dim"), (message, style)))
 
 
 def run_app() -> None:

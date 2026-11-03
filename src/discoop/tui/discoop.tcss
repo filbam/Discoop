@@ -1,228 +1,197 @@
-/* Discoop Textual Styling - Discord-inspired theme */
+/* Discoop styling. The main screen takes every colour from the theme (ansi-dark = the terminal's own palette). */
 
 Screen {
-    background: #1e1f22;
-    color: #dbdee1;
-}
-
-/* ==================== Top Status Bar ==================== */
-
-#top-bar {
-    dock: top;
-    height: 3;
-    background: #232428;
-    border-bottom: solid #383a40;
-    layout: horizontal;
-    padding: 0 1;
-}
-
-#status-indicator {
-    width: auto;
-    content-align: left middle;
-    text-style: bold;
-    color: #57f287;
-    padding: 0 1;
-}
-
-#status-indicator.not-logged-in {
-    color: #ed4245;
-}
-
-#mode-indicator {
-    width: auto;
-    content-align: left middle;
-    text-style: bold;
-    padding: 0 1;
-    color: #fee75c;
-}
-
-#size-indicator {
-    width: auto;
-    content-align: left middle;
-    color: #949ba4;
-    padding: 0 1;
-}
-
-.top-bar-spacer {
-    width: 1fr;
-}
-
-.top-bar-btn {
-    margin: 0 1;
-    min-width: 10;
-    height: 1;
-    border: none;
-    background: #313338;
-    color: #f2f3f5;
-}
-
-.top-bar-btn:hover {
-    background: #5865F2;
-    color: #ffffff;
-}
-
-/* ==================== Narrow Tabs Bar ==================== */
-
-#narrow-tabs {
-    height: 3;
-    background: #2b2d31;
-    border-bottom: solid #383a40;
-    layout: horizontal;
-    align: center middle;
-    padding: 0 1;
-}
-
-.narrow-tab-btn {
-    margin: 0 1;
-    min-width: 16;
-    height: 1;
-    border: none;
-    background: #383a40;
-    color: #dbdee1;
-}
-
-.narrow-tab-btn.-active {
-    background: #5865F2;
-    color: #ffffff;
-    text-style: bold;
-}
-
-/* ==================== Main Columns Responsive Layout ==================== */
-
-#main-columns {
-    height: 1fr;
-    margin: 0;
-    padding: 0;
-}
-
-Screen.-wide #narrow-tabs {
-    display: none;
-}
-
-Screen.-wide #main-columns {
-    layout: horizontal;
-}
-
-Screen.-wide #servers-pane {
-    display: block;
-    width: 25%;
-    height: 100%;
-}
-
-Screen.-wide #channels-pane {
-    display: block;
-    width: 35%;
-    height: 100%;
-}
-
-Screen.-wide #export-pane {
-    display: block;
-    width: 40%;
-    height: 100%;
-}
-
-Screen.-wide #export-settings-box {
-    display: block;
-}
-
-Screen.-wide #progress-box {
-    display: block;
-}
-
-/* Narrow mode breakpoints */
-
-Screen.-narrow #narrow-tabs {
-    display: block;
-}
-
-Screen.-narrow #main-columns {
     layout: vertical;
 }
 
-Screen.-narrow.show-tab-1 #servers-pane {
-    display: block;
-    width: 100%;
-    height: 40%;
+/* ==================== Top Bar ==================== */
+
+#top-bar {
+    height: 1;
+    padding: 0 1;
 }
 
-Screen.-narrow.show-tab-1 #channels-pane {
-    display: block;
-    width: 100%;
-    height: 60%;
+#app-title {
+    text-style: bold;
+    margin-right: 2;
 }
+
+#status-indicator {
+    margin-right: 2;
+}
+
+#status-indicator.-ok {
+    color: $success;
+}
+
+#status-indicator.-bad {
+    color: $error;
+}
+
+#status-indicator.-warn {
+    color: $warning;
+}
+
+#mode-indicator {
+    color: $success;
+}
+
+#mode-indicator.-fast {
+    color: $warning;
+}
+
+#help-hint {
+    width: 1fr;
+    text-align: right;
+    color: $text-muted;
+    text-style: dim;
+}
+
+/* ==================== Panels ==================== */
+
+#main-columns {
+    layout: horizontal;
+    height: 1fr;
+}
+
+.pane {
+    border: round $text-muted;
+    border-title-color: $text-muted;
+    padding: 0 1;
+}
+
+.pane:focus-within {
+    border: round $accent;
+    border-title-color: $accent;
+    border-title-style: bold;
+}
+
+#tree-pane,
+#export-pane {
+    width: 1fr;
+    height: 100%;
+}
+
+#log-pane {
+    height: 8;
+}
+
+/* One panel at a time in a narrow window. The log stays at the bottom and fills the window on its own tab. */
 
 Screen.-narrow.show-tab-1 #export-pane {
     display: none;
 }
 
-Screen.-narrow.show-tab-2 #servers-pane {
+Screen.-narrow.show-tab-2 #tree-pane {
     display: none;
 }
 
-Screen.-narrow.show-tab-2 #channels-pane {
+Screen.-narrow.show-tab-3 #main-columns {
     display: none;
 }
 
-Screen.-narrow.show-tab-2 #export-pane {
-    display: block;
-    width: 100%;
-    height: 100%;
+Screen.-narrow.show-tab-3 #log-pane {
+    height: 1fr;
 }
 
-Screen.-narrow.show-tab-2 #export-settings-box {
-    display: block;
-    height: 100%;
+/* ==================== Tree ==================== */
+
+#channel-tree {
+    height: 1fr;
+    overflow-x: hidden;
 }
 
-Screen.-narrow.show-tab-2 #progress-box {
-    display: none;
+#channel-tree > .tree--cursor {
+    text-style: underline;
 }
 
-Screen.-narrow.show-tab-3 #servers-pane {
-    display: none;
+#channel-tree:focus > .tree--cursor {
+    text-style: bold;
 }
 
-Screen.-narrow.show-tab-3 #channels-pane {
-    display: none;
+/* ==================== Export Panel ==================== */
+
+#selected-title {
+    color: $text-muted;
+    text-style: bold;
 }
 
-Screen.-narrow.show-tab-3 #export-pane {
-    display: block;
-    width: 100%;
-    height: 100%;
+#selected-list {
+    height: auto;
+    max-height: 5;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
 }
 
-Screen.-narrow.show-tab-3 #export-settings-box {
-    display: none;
+#export-form {
+    height: 1fr;
+    margin-top: 1;
 }
 
-Screen.-narrow.show-tab-3 #progress-box {
-    display: block;
-    height: 100%;
+#row-start {
+    margin-top: 1;
 }
 
-/* ==================== Panes Styling ==================== */
+/* ==================== Log Panel ==================== */
 
-.pane {
-    background: #2b2d31;
-    border: round #5865F2;
+#run-bar {
+    height: 1;
+}
+
+#run-status {
+    width: 1fr;
+    text-style: bold;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+}
+
+#job-progress {
+    width: auto;
+    height: 1;
+}
+
+#job-progress Bar {
+    width: 20;
+}
+
+#event-log {
+    height: 1fr;
+}
+
+/* ==================== Command Line ==================== */
+
+#command-bar {
+    height: 1;
     padding: 0 1;
 }
 
-.pane:focus-within {
-    border: round #ffffff;
-}
-
-.pane-header {
-    height: auto;
-    padding: 0 0 1 0;
-    border-bottom: solid #383a40;
-}
-
-.pane-title {
+#command-prefix {
+    width: auto;
+    color: $accent;
     text-style: bold;
-    color: #f2f3f5;
-    padding: 0 0 0 0;
+    margin-right: 1;
+}
+
+#command-preview {
+    width: 1fr;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+}
+
+#command-hint {
+    width: auto;
+    color: $text-muted;
+    text-style: dim;
+    margin-left: 1;
+}
+
+/* ==================== Shared With The Dialogs ==================== */
+
+.section-label {
+    text-style: bold;
+    color: $text-muted;
+    margin-top: 1;
+    margin-bottom: 0;
 }
 
 .button-bar {
@@ -234,64 +203,6 @@ Screen.-narrow.show-tab-3 #progress-box {
 .button-bar Button {
     margin-right: 1;
     min-width: 8;
-    height: 1;
-}
-
-/* ==================== Servers Pane ==================== */
-
-#server-list {
-    height: 1fr;
-    background: #1e1f22;
-    border: none;
-}
-
-#server-list > .option-list--option-highlighted {
-    background: #5865F2;
-    color: #ffffff;
-}
-
-/* ==================== Channels Pane ==================== */
-
-#channel-search {
-    margin: 0 0 1 0;
-    background: #1e1f22;
-    border: none;
-    color: #f2f3f5;
-}
-
-#channel-tree {
-    height: 1fr;
-    background: #1e1f22;
-    border: none;
-}
-
-#channel-tree:focus {
-    border: none;
-}
-
-/* ==================== Export Pane ==================== */
-
-#export-pane {
-    overflow-y: auto;
-}
-
-#export-settings-box {
-    height: auto;
-}
-
-#selected-list {
-    height: 8;
-    min-height: 5;
-    background: #1e1f22;
-    margin: 0 0 1 0;
-    border: none;
-}
-
-.section-label {
-    text-style: bold;
-    color: #949ba4;
-    margin-top: 1;
-    margin-bottom: 0;
 }
 
 .input-row {
@@ -307,133 +218,7 @@ Screen.-narrow.show-tab-3 #progress-box {
 
 .input-row Input {
     width: 1fr;
-    background: #1e1f22;
     border: none;
-    color: #f2f3f5;
-}
-
-.checkbox-row {
-    layout: horizontal;
-    height: auto;
-    margin-bottom: 1;
-}
-
-.checkbox-row Checkbox {
-    margin-right: 2;
-}
-
-.radio-row {
-    layout: horizontal;
-    height: auto;
-    margin-bottom: 1;
-}
-
-.radio-row Button {
-    margin-right: 1;
-    min-width: 8;
-    height: 1;
-}
-
-.radio-row Button.-active {
-    background: #5865F2;
-    color: #ffffff;
-    text-style: bold;
-}
-
-.action-row {
-    layout: horizontal;
-    height: 3;
-    margin: 1 0;
-}
-
-#btn-start {
-    width: 1fr;
-    background: #57f287;
-    color: #1e1f22;
-    text-style: bold;
-    margin-right: 1;
-}
-
-#btn-start:hover {
-    background: #3ba55d;
-}
-
-#btn-stop {
-    width: auto;
-    min-width: 12;
-    background: #ed4245;
-    color: #ffffff;
-    text-style: bold;
-}
-
-#btn-stop:hover {
-    background: #da373c;
-}
-
-/* ==================== Progress Box ==================== */
-
-#progress-box {
-    margin-top: 1;
-    border-top: solid #383a40;
-    padding-top: 1;
-    height: auto;
-}
-
-#run-status {
-    text-style: bold;
-    color: #fee75c;
-    margin-bottom: 0;
-}
-
-#job-progress {
-    margin: 1 0;
-}
-
-#event-log {
-    height: 10;
-    min-height: 6;
-    background: #1e1f22;
-    border: solid #383a40;
-    padding: 0 1;
-}
-
-/* ==================== Bottom Command Bar ==================== */
-
-#command-bar {
-    dock: bottom;
-    height: 3;
-    background: #1e1f22;
-    border-top: solid #5865F2;
-    layout: horizontal;
-    padding: 0 1;
-    align: left middle;
-}
-
-#command-prefix {
-    width: auto;
-    text-style: bold;
-    color: #5865F2;
-    padding-right: 1;
-}
-
-#command-preview {
-    width: 1fr;
-    color: #57f287;
-    text-style: bold;
-}
-
-#btn-copy-command {
-    width: auto;
-    min-width: 8;
-    height: 1;
-    margin-left: 1;
-    background: #383a40;
-    color: #dbdee1;
-}
-
-#btn-copy-command:hover {
-    background: #5865F2;
-    color: #ffffff;
 }
 
 /* ==================== Modal Screens ==================== */
