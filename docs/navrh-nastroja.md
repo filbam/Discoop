@@ -3,6 +3,7 @@
 Stav: **návrh na diskusiu** (3. 11. 2026). Vychádza z [analyzy/discord-analyza.md](analyzy/discord-analyza.md).
 Prijaté rozhodnutia sú v [rozhodnutia/](rozhodnutia/README.md).
 Body označené **[PROTOTYP]** závisia od vecí, ktoré treba ešte overiť vlastnými API volaniami (analýza, sekcia 14).
+Prototyp 2026-11-03 väčšinu z nich overil (analýza, sekcia 15). Overené body sú označené **[OVERENÉ]**.
 
 ---
 
@@ -13,7 +14,7 @@ Body označené **[PROTOTYP]** závisia od vecí, ktoré treba ešte overiť vla
 - pre programy ako JSON,
 - pre človeka ako farebný výstup v termináli.
 
-**Nástroj iba číta.** Volá len `GET` endpointy. Jediná výnimka je read-only `POST /attachments/refresh-urls` **[PROTOTYP]**.
+**Nástroj iba číta.** Volá len `GET` endpointy. Jediná výnimka je read-only `POST /attachments/refresh-urls` **[OVERENÉ]**.
 Nikdy neposiela správy, neoznačuje kanály ako prečítané (`ack`), nereaguje a nesleduje vlákna.
 
 **Mimo v1:** DM, sledovanie v reálnom čase (gateway), lokálny archív všetkých správ s vyhľadávaním (kandidát na v2).
@@ -68,7 +69,7 @@ Protokol popisuje [analyzy/discord-login.md](analyzy/discord-login.md).
 
 1. `login` sa pripojí na `wss://remote-auth-gateway.discord.gg/?v=2` (s `Origin: https://discord.com`),
    vygeneruje kľúč RSA-2048 a prejde handshake (`hello` → `init` → `nonce_proof` → `pending_remote_init`).
-2. V termináli vykreslí QR kód `https://discord.com/ra/<fingerprint>` s odpočtom platnosti (~4,5 min).
+2. V termináli vykreslí QR kód `https://discord.com/ra/<fingerprint>` s odpočtom platnosti (`timeout_ms`, pozorované ~4 – 5,7 min).
    Naskenuješ ho v mobilnej aplikácii Discord (Settings → Scan QR Code).
 3. Po naskenovaní vypíše „Prihlasuje sa <meno>, potvrď na telefóne“ (`pending_ticket`).
 4. Po potvrdení (`pending_login`) zavolá `POST /users/@me/remote-auth/login`, dešifruje token, overí ho cez
@@ -89,7 +90,7 @@ Protokol popisuje [analyzy/discord-login.md](analyzy/discord-login.md).
 discoop servers [--refresh]
 ```
 Číta z cache. Obnoví ju `--refresh` alebo automaticky, ak je cache prázdna.
-Zdroj: `GET /users/@me/guilds` **[PROTOTYP]**. Stĺpce: meno, ID, počet členov (ak je k dispozícii).
+Zdroj: `GET /users/@me/guilds?with_counts=true` **[OVERENÉ]**. Stĺpce: meno, ID, počet členov (`approximate_member_count`).
 
 ### 4.3 `channels`
 
@@ -99,7 +100,8 @@ discoop channels [-s SERVER] [--refresh] [--type text,announcement,forum,voice] 
 - V human režime je výstup **strom podľa kategórií** zoradený podľa `position`, rovnako ako v Discorde.
   `--flat` dá plochý zoznam.
 - **Skryté kanály** (`___hidden___`, flag `1<<17`) sa nevypisujú. `--include-hidden` ich zobrazí ako počet.
-- Zdroj: `GET /guilds/{id}/channels` **[PROTOTYP]**. Fallback: jednorazové gateway pripojenie (len `READY`).
+- Zdroj: `GET /guilds/{id}/channels` **[OVERENÉ]**. Obfuskované skryté kanály v REST odpovedi nie sú.
+  Filter na `___hidden___` ostáva ako poistka.
 
 ### 4.4 `threads`
 
@@ -261,7 +263,7 @@ Cesty k prílohám v `.md` a `.jsonl` sú relatívne. AI s prístupom k súborom
 
 - Sťahujú sa **hneď po načítaní stránky správ**, lebo podpísané URL platia len 12 až 24 h (analýza, sekcia 5).
 - Ak CDN vráti `403/404` (URL exspirovala), nástroj správu načíta znova (`around=<id>&limit=1`) a URL obnoví.
-  Ďalšia možnosť je `refresh-urls` **[PROTOTYP]**.
+  Ďalšia možnosť je `refresh-urls` **[OVERENÉ]** (`{"attachment_urls": [...]}` → `{"refreshed_urls": [{original, refreshed}]}`).
 - Na CDN netreba token. Sťahuje sa bez `Authorization` hlavičky, takže token sa neposiela nikam navyše.
 - Súbory sa pomenúvajú `<attachment_id>_<filename>` (unikátne, bezpečné pre Windows).
   **Deduplikácia** ide podľa `attachment_id`: pri `--since-last` do toho istého priečinka sa nič nesťahuje dvakrát.
@@ -278,7 +280,8 @@ Cesty k prílohám v `.md` a `.jsonl` sú relatívne. AI s prístupom k súborom
 - **Postup pre kanál:**
   1. Archivované vlákna sa načítajú cez `threads/search?archived=true&sort_by=last_message_time&sort_order=desc`
      a stránkujú cez `offset`. Pri vláknach s poslednou aktivitou staršou ako `--from` sa načítavanie zastaví.
-  2. Aktívne vlákna: REST cesta je **[PROTOTYP]**. Záložný zdroj: správy v stiahnutom okne s objektom `thread`
+  2. Aktívne vlákna: `threads/search?archived=false` pre každý kanál **[OVERENÉ]**. `GET /guilds/{id}/threads/active`
+     je len pre botov (`403`, kód 20002). Doplnkový zdroj: správy v stiahnutom okne s objektom `thread`
      (flag 32), kde `thread.id == message.id`.
   3. Každé vlákno sa stiahne ako samostatný kanál cez `/messages` s tým istým časovým oknom.
 - Vo výstupe je vlákno vnorené pod materským kanálom. Pri fóre je to post s tagmi (`applied_tags` → mená tagov).
@@ -286,7 +289,7 @@ Cesty k prílohám v `.md` a `.jsonl` sú relatívne. AI s prístupom k súborom
 ## 9. Sťahovanie: stránkovanie, rate limit, chyby
 
 **Časové okno:** dátumy sa prevedú na syntetické snowflake (`(ms − 1420070400000) << 22`).
-- Bežné okno: od `--to` dozadu cez `before=<najstaršie_id>&limit=100` **[PROTOTYP: 100]**, kým ID nie je staršie
+- Bežné okno: od `--to` dozadu cez `before=<najstaršie_id>&limit=100` **[OVERENÉ: max 100]**, kým ID nie je staršie
   ako `--from`.
 - `--since-last`: `after=<last_id>&limit=100`. Odpoveď je zostupná, ďalšia strana teda ide od `max(id)`.
   Stav sa uloží až po úspešnom dokončení kanála.
@@ -405,7 +408,7 @@ Scoop/
 
 ## 14. Postup implementácie
 
-0. **Spike / prototyp** (2026-11-03: kód hotový, čaká sa na spustenie používateľom, pozri `prototype/README.md`):
+0. **Spike / prototyp** (2026-11-03: **hotové**. Login aj probe prešli, výsledky v analýzach):
    QR `login` + malý skript, ktorý overí body [PROTOTYP]:
    - QR login: či gateway vyžaduje `Origin`, či `remote-auth/login` pýta captchu, reálne rámce po naskenovaní,
    - `GET /users/@me/guilds` a `GET /guilds/{id}/channels` s user tokenom,

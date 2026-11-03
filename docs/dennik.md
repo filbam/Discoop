@@ -77,10 +77,30 @@ Do účtu sa nikto neprihlásil.
 **Odchýlka od plánu:** neznáme `op` sa (ako vo webovom klientovi) ignorujú a iba zapíšu do trace. Neznámy close kód
 skončí chybou s radou na `--token`.
 
+**Prototyp spustený používateľom (2026-11-03 popoludní):**
+- **`discoop login` cez QR funguje na reálnom účte.** Prvý pokus prešiel bez captchy.
+  - Sken ~52 s, potvrdenie na telefóne ~16 s.
+  - Token je uložený vo Windows Credential Manager.
+  - QR sa v termináli (PowerShell) dal naskenovať.
+  - `timeout_ms` bol ~5,7 min, platnosť QR teda kolíše viac, než sa myslelo.
+- **`prototype/probe.py`** (13 API requestov, bez rate limitov a bez rate-limit hlavičiek), výsledky
+  v [analýze, sekcia 15](analyzy/discord-analyza.md#15-overenie-prototypom-2026-11-03):
+  - zoznam serverov aj kanálov ide cez REST, gateway nebude treba,
+  - `limit` max 100,
+  - `after` vracia najbližšie novšie správy zoradené od najnovšej,
+  - aktívne vlákna cez `threads/search?archived=false`. `guilds/{id}/threads/active` je len pre botov,
+  - CDN funguje bez tokenu,
+  - `refresh-urls` funguje.
+- **Návrh aktualizovaný:** body [PROTOTYP] sú teraz [OVERENÉ].
+- **Stále otvorené:**
+  - tvar `429`,
+  - stránkovanie pinov,
+  - nesúlad `total_results` 15 a 13 vrátených vlákien vo fóre,
+  - `refresh-urls` pri exspirovanej URL.
+
 **Ďalej:**
-1. Používateľ spustí `discoop login --trace …` a `prototype/probe.py` ([prototype/README.md](../prototype/README.md)).
-2. Výsledky zapísať do `analyzy/` (body označené „overiť prototypom“) a do návrhu.
-3. Potvrdiť zvyšné rozhodnutia z návrhu (sekcia 15, body 4 až 6).
+1. Potvrdiť zvyšné rozhodnutia z návrhu (sekcia 15, body 4 až 6).
+2. Krok 1 implementácie: config, cache, `servers`, `channels`, vyhľadávanie podľa mena.
 
 ---
 

@@ -434,7 +434,7 @@ GET /api/v9/guilds/{guild_id}/messages/search?has=file&min_id=155533852016640000
 
 1. **Správy, piny, vlákna aj search sú čisto REST** (`/api/v9`). Gateway netreba na sťahovanie obsahu,
    len na „pohodlné“ metadáta (zoznam kanálov, roly, prezývky, aktívne vlákna).
-2. **Zoznam kanálov:** buď REST `GET /guilds/{id}/channels` **[PREDPOKLAD]**, alebo jednorazové gateway pripojenie.
+2. **Zoznam kanálov:** REST `GET /guilds/{id}/channels` **[OVERENÉ, sekcia 15]**. Gateway netreba.
    Kanály s `name == "___hidden___"` alebo `flags & (1<<17)` treba **preskočiť**, sú neprístupné.
    Prístup k ostatným stačí overiť pokusom (`403` = Missing Access) alebo výpočtom z `permission_overwrites` + rolí.
 3. **Stránkovanie archívu:** od najnovšej `before=<najstaršie_id>&limit=100` až po prázdne pole.
@@ -443,10 +443,11 @@ GET /api/v9/guilds/{guild_id}/messages/search?has=file&min_id=155533852016640000
    `((unix_ms − 1420070400000) << 22)`.
 4. **Prílohy sťahovať hneď** po získaní správy. Čerstvo získaná URL platí ešte **12–24 h** (`ex`).
    Kontrolovať `ex` (hex unix sekundy) a pri expirácii správu znova načítať (`around=<id>&limit=1`)
-   alebo použiť `refresh-urls` **[PREDPOKLAD]**. Na CDN netreba `Authorization`. Emoji URL nie sú podpísané.
+   alebo použiť `refresh-urls` **[OVERENÉ, sekcia 15]**. Na CDN netreba `Authorization`. Emoji URL nie sú podpísané.
    `proxy_url` + `?width=…` sa hodí na menšie náhľady pre AI.
 5. **Vlákna a fóra:** pre každý textový, announcement a forum kanál prejsť
-   `threads/search?archived=true&offset=…` až do `has_more=false`, plus aktívne vlákna.
+   `threads/search?archived=true&offset=…` až do `has_more=false`, plus aktívne vlákna cez
+   `threads/search?archived=false` **[OVERENÉ, sekcia 15]**.
    Každé vlákno potom ako samostatný kanál cez `/messages`. Pri fórach je prvá správa
    `first_messages[]` (`id == thread_id`) a tagy `applied_tags`.
 6. **Odpovede (replies):** `referenced_message` býva v `/messages` (nie v pins ani search). Ak chýba, ostáva
@@ -466,15 +467,19 @@ GET /api/v9/guilds/{guild_id}/messages/search?has=file&min_id=155533852016640000
 
 ## 14. Neoverené a otvorené otázky
 
-**Overiť neskôr prototypom** (vyžaduje vlastné API volania, pozorovaním sa zistiť nedá):
-- Tvar gateway `READY` (guildy, kanály, roly, `merged_members`) a či REST `GET /users/@me/guilds` a
-  `GET /guilds/{id}/channels` fungujú pre user token rovnako (vrátane obfuskácie skrytých kanálov).
-- Maximálny `limit` pre `/messages` (predpoklad 100). Klient používal len 10 a 20.
-- `POST /attachments/refresh-urls`: nespustil sa, tvar je predpoklad.
-- Tvar odpovede `429` a či vtedy prídu rate-limit hlavičky (v bežných odpovediach chýbajú).
-- REST cesta k **aktívnym** vláknam kanála (`threads/search?archived=false`? `guilds/{id}/threads/active`?).
-  Klient ich berie výlučne z gateway (overené 2×).
-- Stránkovanie pinov pri `has_more: true` (kanál s >25 pinmi sa bez searchu nenašiel).
+**Overené prototypom 2026-11-03** (výsledky v sekcii 15):
+- REST `GET /users/@me/guilds` a `GET /guilds/{id}/channels` fungujú pre user token.
+- Maximálny `limit` pre `/messages` je 100.
+- Tvar odpovede `POST /attachments/refresh-urls`.
+- Aktívne vlákna cez REST: `threads/search?archived=false` funguje, `guilds/{id}/threads/active` je len pre botov.
+
+**Stále otvorené:**
+- Tvar odpovede `429`. Pri 13 requestoch s pauzou 1 s nenastal. Rate-limit hlavičky v bežných odpovediach stále chýbajú.
+- Stránkovanie pinov pri `has_more: true` (#2bit-general má len 4 piny).
+- Či REST vracia aj kanály bez práva `VIEW_CHANNEL` (s reálnym menom). Obfuskované `___hidden___` v odpovedi nie sú.
+- Fórum `#help-center` pri `threads/search?archived=false` hlásilo `total_results` 15, ale vrátilo 13 vlákien.
+- `refresh-urls` pri už exspirovanej URL. Testovaná URL bola ešte platná a vrátila sa nezmenená.
+- Tvar gateway `READY`. Pre CLI ho už netreba, REST stačí.
 
 **Neoverené, lebo sa v dátach nevyskytli** (~410 správ z 9 kanálov + 1 fórum post):
 - Raw tvar `sticker_items`, `message_snapshots` (forwardy), `poll`, systémových správ (typy ≠ 0/19),
@@ -491,6 +496,41 @@ GET /api/v9/guilds/{guild_id}/messages/search?has=file&min_id=155533852016640000
 - `#otazky-na-poradce` má `last_message_id` z 2024-09-26 (to ID klient aj ackol), REST však ako najnovšiu
   vrátil správu z 2023-01-05. Najnovšia správa je teda asi zmazaná alebo nedostupná. CLI preto nemá
   `last_message_id` kanála považovať za ID existujúcej správy.
+
+## 15. Overenie prototypom (2026-11-03)
+
+**Zdroj:** `prototype/probe.py`, ktorý spustil používateľ. Bolo to 13 API requestov s pauzou 1 s a 1 CDN GET.
+Report `prototype/out/probe-20261103-134510.json` je lokálny a git ho ignoruje. Všetko v tejto sekcii je **[OVERENÉ]** (prototyp).
+
+| Otázka | Výsledok |
+|---|---|
+| `GET /users/@me/guilds` s user tokenom | `200`, 8 serverov, polia `id, name, icon, banner, owner, permissions, features`. `?with_counts=true` pridá `approximate_member_count` |
+| `GET /guilds/{id}/channels` | `200`, 412 kanálov. Rozpis nižšie |
+| Max `limit` pre `/messages` | `limit=100` vráti 100 správ. `limit=101` vráti `400`, `code 50035 Invalid Form Body` |
+| `before` | 100 starších správ, zoradené od najnovšej |
+| `after` | vracia **najbližšie** správy po kotve, teda najstaršie z novších, ale zoradené **od najnovšej**. Ďalšia strana ide od `max(id)` |
+| `member` v správach | chýba v 0 zo 100 správ |
+| Replies | 29 zo 100 správ je typ 19, všetky mali `referenced_message` |
+| Piny | `limit=25` vráti 4 položky, `has_more: false` |
+| Aktívne vlákna | Dva endpointy, rozpis nižšie |
+| CDN bez tokenu | `200`, `image/png`, súbor sa dal čítať bez `Authorization` |
+| Platnosť URL | `ex − is` = 24 h. URL z práve načítanej správy platila ešte 21,1 h |
+| `POST /attachments/refresh-urls` | `200`, `{"refreshed_urls": [{"original", "refreshed"}]}`. Pri ešte platnej URL vrátil tú istú |
+| Rate-limit hlavičky | žiadne `X-RateLimit-*` ani `Retry-After` v 13 odpovediach. Odpovede nastavujú `set-cookie` (mená cookies sa nezaznamenávali) |
+
+**Kanály z `GET /guilds/{id}/channels`:**
+- **Počty podľa typu:** 358 text, 22 kategórií, 12 announcement, 10 voice, 9 forum, 1 stage. Sú rovnaké ako viditeľné
+  kanály v klientovi.
+- **Skryté kanály:** žiadne `___hidden___` ani flag `1<<17`.
+- **Nové polia** oproti klientovi: `template`, `voice_background_display`, `voice_hangout`, `default_forum_layout`.
+- **Fórum `#help-center`:** `1040350879783604234`.
+
+**Aktívne vlákna:**
+- `GET /guilds/{id}/threads/active` vráti `403`, `code 20002 "Only bots can use this endpoint."`.
+- `GET /channels/{id}/threads/search?archived=false` funguje:
+  - fórum `#help-center`: `total_results` 15, vrátených 13,
+  - `#2bit-general`: 1 aktívne vlákno,
+  - pri fóre je v odpovedi aj `first_messages`.
 
 ---
 

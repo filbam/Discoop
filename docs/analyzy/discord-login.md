@@ -33,9 +33,9 @@ stránky alebo DOM). **[PREDPOKLAD]** = všeobecná znalosť, tu neoverená.
 | Obsah QR | `https://discord.com/ra/<fingerprint>`, fingerprint = base64url(SHA-256(SPKI)), 43 znakov. ECC level **M** | [OVERENÉ] JS + stav (props QR komponentu) |
 | Platnosť QR | `timeout_ms` z `hello` (~250 – 275 s, náhodné). Potom server zavrie socket kódom **4003 "Handshake Timeout"** a klient sám otvorí nový | [OVERENÉ] prevádzka |
 | Heartbeat | `heartbeat_interval` 41 250 ms, klient posiela `{"op":"heartbeat"}`, server odpovedá `heartbeat_ack` | [OVERENÉ] prevádzka |
-| Po naskenovaní | `pending_ticket` so `encrypted_user_payload` → `id:discriminator:avatar:username` | [OVERENÉ] JS |
+| Po naskenovaní | `pending_ticket` so `encrypted_user_payload` → `id:discriminator:avatar:username` | [OVERENÉ] JS + prototyp (sekcia 7) |
 | Po potvrdení na telefóne | `pending_login` s `ticket` → `POST /api/v9/users/@me/remote-auth/login {ticket}` → `encrypted_token` → RSA dešifrovanie → token | [OVERENÉ] JS |
-| Captcha | Globálny interceptor HTTP klienta: `400` + `captcha_key` → captcha → retry s `X-Captcha-Key` (+ `X-Captcha-Rqtoken`, `X-Captcha-Session-Id`). Platí aj pre `remote-auth/login` | [OVERENÉ] JS. Či ju Discord pri QR skutočne pýta: neoverené |
+| Captcha | Globálny interceptor HTTP klienta: `400` + `captcha_key` → captcha → retry s `X-Captcha-Key` (+ `X-Captcha-Rqtoken`, `X-Captcha-Session-Id`). Platí aj pre `remote-auth/login` | [OVERENÉ] JS. Pri prvom reálnom QR logine z terminálu ju Discord **nepýtal** (prototyp) |
 | Email/heslo | `POST /auth/login` → token, alebo `mfa:true` + `ticket` → `POST /auth/mfa/{totp\|sms\|backup\|webauthn}` | [OVERENÉ] JS |
 | Pred loginom stránka volá | `experiments` (→ `X-Fingerprint`), `apex/experiments`, `auth/location-metadata`, `auth/conditional/start`, `science` | [OVERENÉ] prevádzka |
 | Passkey | Pri **každom** zobrazení login formulára stránka sama volá `POST /auth/conditional/start` a `navigator.credentials.get` (conditional mediation) | [OVERENÉ] JS + prevádzka. Toto vyvolalo okno Windows Security (sekcia 8) |
@@ -343,6 +343,17 @@ handshaku (zistenia sú z [OVERENÉ] JS a prevádzky). Neoverené ostáva, či s
 >   `User-Agent: discoop/0.1.0`) a prešiel celý handshake po `pending_remote_init` **[OVERENÉ]** (prototyp).
 > - Dĺžky polí sedia s analýzou: `encoded_public_key` 392, `encrypted_nonce` 344, `nonce` 254, `fingerprint` 43 znakov.
 > - `heartbeat_interval` 41 250 ms, `timeout_ms` 245 280 ms (v rozsahu ~4 – 4,5 min).
+>
+> **Doplnené 2026-11-03, prvý reálny login** (`discoop login --trace`, používateľ naskenoval QR) **[OVERENÉ]** (prototyp):
+> - **Celý tok prešiel bez prehliadača a bez captchy:**
+>   `pending_remote_init` → (sken po ~52 s) `pending_ticket` → (potvrdenie po ~16 s) `pending_login`
+>   → `POST /users/@me/remote-auth/login` `200` → token overený cez `GET /users/@me`.
+> - **Tvary sedia s JS:**
+>   - `pending_ticket.encrypted_user_payload` 344 znakov (256 B RSA),
+>   - `pending_login.ticket` 70 znakov,
+>   - odpoveď `{"encrypted_token": <344 znakov>}`.
+> - **Heartbeaty** počas čakania na sken a potvrdenie prebiehali normálne (`heartbeat` → `heartbeat_ack` ~110 ms).
+> - **`timeout_ms` bol 344 035 ms (~5,7 min).** Platnosť QR teda kolíše viac, než ukázala analýza (~4 – 5,7 min).
 
 - Či gateway **vyžaduje** `Origin: https://discord.com`: s ním funguje (pozri vyššie). Bez neho sa neskúšalo.
   Close kódy pri odmietnutí sú neznáme.

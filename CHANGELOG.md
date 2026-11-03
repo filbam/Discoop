@@ -31,6 +31,10 @@ verzie podľa [SemVer](https://semver.org/).
 - ADR 0005: QR login v termináli bez prehliadača.
 
 ### Zmenené
+- Analýzy doplnené o výsledky prototypu:
+  - `discord-analyza.md`, sekcia 15,
+  - `discord-login.md`, sekcia 7: reálny QR login bez captchy.
+- Návrh: overené body [PROTOTYP] sú teraz [OVERENÉ].
 - Analýza presunutá z `docs/discord-analyza.md` do `docs/analyzy/discord-analyza.md`.
 - Návrh prerobený pre prihlásenie a podporu všetkých OS:
   - login cez QR v termináli namiesto Playwright,
