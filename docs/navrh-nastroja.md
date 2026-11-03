@@ -52,6 +52,7 @@ discoop threads               zoznam vlákien/fórum postov kanála
 discoop messages              stiahnutie správ (+ príloh)
 discoop config                predvolené nastavenia (napr. default server)
 discoop agent-guide           kompaktná referencia pre AI agentov
+discoop ui                    interaktívne terminálové rozhranie (TUI)
 ```
 
 **Globálne prepínače:** `--plain` (alias `--agent`), `--human`, `--quiet`, `--verbose`.
@@ -245,6 +246,36 @@ Uložené v `config.toml` v konfiguračnom adresári (sekcia 10).
 Vypíše kompaktnú referenciu pre AI na ~1 obrazovku: všetky príkazy, parametre, formát výstupu, exit kódy
 a odporúčaný postup (`status` → `servers` → `channels` → `messages`). Agent sa z jedného volania naučí všetko
 a nemusí prechádzať help každého príkazu.
+
+### 4.8 `ui`
+
+```
+discoop ui
+discoop --ui
+```
+
+Interaktívne terminálové rozhranie (TUI) postavené na knižnici Textual (P16, P17, [ADR 0013](rozhodnutia/0013-tui-a-spolocna-vrstva.md)). Slúži ako vizuálna nadstavba pre `--human` režim. V `--plain` režime alebo pri nespustení v termináli (`not sys.stdout.isatty()`) skončí kódom `8`.
+
+**Vlastnosti a rozloženie:**
+- **Responzívny layout v štýle Discordu:**
+  - V širokom okne terminálu (≥ 110 znakov) používa 3 stĺpce:
+    1. *Servery:* zoznam serverov, tlačidlo na obnovenie a tlačidlo „Načítať všetko“ (`load_all`).
+    2. *Kanály:* strom kategórií a kanálov vybraného servera, začiarkavacie políčka pre výber kanálov na export, indikácia prístupu a počtu stiahnutých správ.
+    3. *Nastavenia exportu a náhľad:* globálne časové okno (`--from`/`--to`), voľba režimu (`safe`/`fast`), formát cieľa (priečinok alebo ZIP archív), tlačidlo na spustenie exportu a náhľad správ vybraného kanála.
+  - V úzkom okne terminálu sa layout automaticky prispôsobí a prepne na záložkový systém (tabs).
+- **Načítanie dát a tempovanie:**
+  - Tlačidlá umožňujú načítať servery a kanály jednotlivo alebo naraz (`load_all`).
+  - Hromadné načítanie rešpektuje `safe` tempo a pauzy medzi požiadavkami a dá sa kedykoľvek prerušiť (storno) bez straty už načítaných dát.
+- **Individuálne časové okná per-kanál:**
+  - Používateľ môže vybranému kanálu nastaviť vlastné časové okno odlišné od globálneho.
+  - Kanály s rovnakým časovým oknom sa automaticky zoskupia do samostatných úloh. Pri viacerých úlohách sa výstupy ukladajú do podpriečinkov (`cieľ/01-7d/`, ...) alebo očíslovaných archívov (`cieľ-01-7d.zip`).
+- **Živý príkazový riadok:**
+  - V spodnej lište TUI sa naživo skladá a zobrazuje presný ekvivalentný CLI príkaz `discoop messages ...` zodpovedajúci aktuálnemu výberu a nastaveniam.
+- **Vstavaný náhľad správ:**
+  - Umožňuje rýchlo overiť obsah vybraného kanála priamo v rozhraní pred spustením samotného exportu.
+- **Help obrazovka (`F1` / `?`):**
+  - Modálne okno s pomocníkom vysvetľuje ovládanie rozhrania a klávesové skratky.
+  - Druhá záložka obsahuje kompletný živý výpis `discoop --help` a help všetkých podpríkazov, generovaný priamo z Typer CLI aplikácie.
 
 ## 5. Vyhľadávanie podľa mena
 
@@ -492,6 +523,7 @@ Scoop/
   pyproject.toml
   src/discoop/
     cli.py            Typer app, príkazy, globálne prepínače, výber režimu
+    service.py        servisná vrstva: zjednotená biznis logika pre CLI aj TUI
     auth.py           QR login (remote auth gateway), keyring, záložný login
     api.py            HTTP klient: tempo, retry, 429, chyby → exit kódy
     snowflake.py      čas ↔ snowflake, parsovanie --from/--to
@@ -506,6 +538,12 @@ Scoop/
       jsonout.py      json a jsonl
     export.py         priečinok + zip + manifest, kontrola cieľa a opätovné použitie
     guide.py          text pre agent-guide
+    tui/              interaktívne terminálové rozhranie (Textual)
+      app.py          hlavná Textual aplikácia, responzívny layout, event handling
+      state.py        stav TUI (výber serverov, kanálov, nastavenia úloh)
+      bridge.py       mostík medzi TUI a service.py / API
+      modals.py       modálne dialógy (Help, per-channel nastavenie, chyby)
+      discoop.tcss    CSS štýly komponentov rozhrania
   tests/
     fixtures/         anonymizované JSON z analýzy
   docs/
@@ -517,7 +555,9 @@ Scoop/
 - `attachments.py`: sťahovanie samostatným klientom bez tokenu, obnova podpisov cez `refresh-urls`, bezpečné mená súborov,
 - `export.py`: zostavenie priečinka alebo zipu, `manifest.json`, opätovné použitie súborov pri opakovanom behu,
 - `render/text.py`: formáty `text` a `md` (Markdown pre správy a kanály),
-- `render/jsonout.py`: formáty `json` a `jsonl`.
+- `render/jsonout.py`: formáty `json` a `jsonl`,
+- `service.py`: spoločná servisná vrstva pre orchestráciu načítania serverov, kanálov a sťahovania správ,
+- `tui/`: interaktívne terminálové rozhranie Textual (`discoop ui`, responzívny layout, strom kanálov, výber úloh, náhľad, live CLI bar, Help s `--help`).
 
 ## 14. Postup implementácie
 

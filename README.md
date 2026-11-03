@@ -4,8 +4,8 @@ CLI nástroj na sťahovanie správ a príloh z Discord serverov, ktorých je pou
 študijných informácií. Súkromný projekt na osobné použitie.
 
 **Stav:** rozpracované. Funguje `login` (QR kód v termináli alebo `--token`), `status`, `logout`,
-`servers`, `channels`, `config` a `messages` (výpis správ do konzoly, sťahovanie príloh a export do priečinka
-alebo zipu s manifestom, režimy sťahovania `safe` a `fast`). Vlákna a fóra ešte nie sú.
+`servers`, `channels`, `config`, `messages` (výpis správ do konzoly, sťahovanie príloh a export do priečinka
+alebo zipu s manifestom, režimy sťahovania `safe` a `fast`) a interaktívne terminálové rozhranie `discoop ui` (TUI). Vlákna a fóra ešte nie sú.
 
 ## Inštalácia a použitie
 
@@ -16,12 +16,19 @@ uv sync                      # závislosti do .venv
 uv run discoop --help
 uv run discoop login         # QR kód naskenuj v Discord appke: Settings → Scan QR Code
 uv run discoop status
+uv run discoop ui            # interaktívne terminálové rozhranie (TUI)
 uv run discoop servers
 uv run discoop channels -s "VUT FIT"
 uv run discoop config set default-server "VUT FIT"
 uv run discoop config set export-dir exports      # predvolený priečinok pre exporty
 uv run discoop config set mode safe               # režim: safe (predvolený) alebo fast
 uv run pytest                # testy
+```
+
+Interaktívne terminálové rozhranie (TUI v štýle Discordu, výber kanálov, Help cez `F1`):
+
+```
+uv run discoop ui
 ```
 
 Správy do konzoly (predvolene posledných 24 hodín, od najstaršej):

@@ -6,6 +6,26 @@ verzie podľa [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Pridané
+- **Interaktívne terminálové rozhranie (`discoop ui`, TUI) a spoločná servisná vrstva ([ADR 0013](docs/rozhodnutia/0013-tui-a-spolocna-vrstva.md)):**
+  - **Príkaz `discoop ui` a prepínač `--ui`:**
+    - Plnohodnotné vizuálne terminálové prostredie postavené na knižnici Textual pre pohodlné interaktívne ovládanie klávesnicou (šípky, Enter, Space).
+    - V `--plain` režime alebo mimo interaktívneho terminálu skončí kódom 8 (`BAD_ARGS`). Samotné `discoop` bez argumentov naďalej vypisuje help.
+    - Lazy import knižnice `Textual`: bežné CLI príkazy neplatia žiadnu réžiu inicializácie TUI frameworku.
+  - **Responzívny layout v štýle Discordu:**
+    - 3 stĺpce v širokom okne (servery, kanály, nastavenia exportu a náhľad správ); automatické prispôsobenie na záložkový systém v úzkom okne.
+    - Strom kategórií a kanálov s indikáciou prístupu a stavu výberu (začiarkavacie políčka).
+    - Tlačidlá na načítanie serverov a kanálov jednotlivo aj hromadne („Načítať všetko“) s bezpečným `safe` tempovaním a možnosťou okamžitého zrušenia (storno).
+  - **Pokročilá správa exportu a plánovanie úloh:**
+    - Nastavenie globálneho časového okna (`--from`/`--to`), režimu sťahovania (`safe`/`fast`) a cieľa exportu (priečinok alebo ZIP).
+    - Možnosť nastavenia individuálneho časového okna pre konkrétny vybraný kanál (per-channel custom window).
+    - Automatické zoskupovanie kanálov podľa rovnakého časového okna: kanály so zhodným oknom tvoria jednu úlohu; pri viacerých úlohách sa exporty ukladajú do podpriečinkov (`cieľ/01-7d/`, ...) alebo očíslovaných archívov (`cieľ-01-7d.zip`).
+    - Živý CLI príkazový riadok v spodnej lište TUI zobrazujúci presný ekvivalentný príkaz `discoop messages ...`.
+    - Vstavaný náhľad správ vybraného kanála priamo v rozhraní.
+  - **Vstavaný Help (`F1` / `?`):**
+    - Modálna nápoveda s dvoma záložkami: návod na ovládanie TUI a kompletný živý výpis `discoop --help` vrátane podpríkazov generovaný z Typer aplikácie.
+  - **Spoločná servisná vrstva (`src/discoop/service.py`):**
+    - Zjednotená orchestrácia biznis logiky (`list_servers`, `list_channels`, `load_all`, `run_messages`) pre CLI aj TUI. Žiadna duplicita pri práci s Discord API, cache a exportom.
+  - Nový balík `src/discoop/tui/` (`app.py`, `state.py`, `bridge.py`, `modals.py`, `discoop.tcss`).
 - **Dva režimy sťahovania (`safe` a `fast`):**
   - **`safe` režim (predvolený):**
     - Imituje prirodzené ľudské správanie a scrollovanie v prehliadači na zníženie rizika blokovania účtu.

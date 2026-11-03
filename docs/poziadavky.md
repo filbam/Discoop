@@ -29,3 +29,5 @@ porušuje podmienky Discordu.
 | P13 | 2026-11-03 | Nástroj beží na **Windows, Linuxe aj macOS**. |
 | P14 | 2026-11-03 | Prihlásenie cez **QR kód zobrazený v termináli**, ktorý používateľ naskenuje mobilnou aplikáciou Discordu. |
 | P15 | 2026-11-03 | Premenovať „agent mode“ na **plain mode** (`--plain`), ktorý jasne hovorí, že výstup je čistý text bez farieb a vykresľovania. V helpe ostáva poznámka, že je vhodný pre AI agentov a skripty. Ponechať `--agent` ako skrytý alias pre spätnú kompatibilitu. |
+| P16 | 2026-11-03 | Vizuálne interaktívne prostredie v termináli (TUI) v štýle Discordu/prieskumníka ovládané klávesnicou: načítanie serverov a kanálov (jednotlivo aj všetkých naraz), zaklikávanie kanálov na export s časovým oknom (globálnym aj individuálnym), voľba `safe`/`fast` a cieľa exportu, živý progress a dynamické prispôsobenie veľkosti okna terminálu. Funguje ako nadstavba nad jadrom nástroja. |
+| P17 | 2026-11-03 | V TUI je dostupná obrazovka Help (`F1`/`?`) s vysvetlením používania rozhrania a sekciou pre príkazový riadok, ktorá vypisuje to isté čo `discoop --help`. |

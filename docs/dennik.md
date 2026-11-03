@@ -245,11 +245,22 @@ režime je `text`.
   - V helpe a sekcii `NOTE FOR AI AGENTS` je vysvetlené, že plain mode odstraňuje farby a rich formátovanie, čím šetrí tokeny a je ľahko parsovateľný.
 - Overené automatickými testami (232 testov).
 
+**Interaktívne terminálové rozhranie TUI (`discoop ui`, P16–P17, [ADR 0013](rozhodnutia/0013-tui-a-spolocna-vrstva.md)):**
+- Používateľ požadoval pre `--human` režim vizuálne prostredie v termináli v štýle Discordu/prieskumníka ovládané klávesnicou (šípky, `Space`, `Tab`, `Enter`, skratky), ktoré funguje ako nadstavba nad jadrom nástroja, dynamicky sa prispôsobuje zmene veľkosti okna a obsahuje vstavaný Help s návodom aj výpisom `discoop --help`.
+- **Spoločná servisná vrstva (`src/discoop/service.py`):**
+  - Orchestrácia `list_servers`, `list_channels`, `load_all`, `resolve_targets`, `validate_export_target` a `run_messages` vyčlenená z `cli.py` do `service.py`.
+  - CLI aj TUI volajú rovnaké funkcie; každá úloha v TUI sa prekladá na `MessagesRequest` a v spodnej lište zobrazuje ekvivalentný príkaz `discoop messages ...`.
+- **Architektúra a stav TUI (`src/discoop/tui/`):**
+  - Postavené na knižnici `Textual` (lazy import len pri `discoop ui` / `--ui`, v `--plain` režime skončí kódom `8`).
+  - `state.py`: správa výberu kanálov naprieč servermi (`SelectionState`), globálne a individuálne časové okná (`WindowSpec`), zoskupovanie kanálov s rovnakým oknom do úloh (`plan_jobs`, pri viacerých úlohách podpriečinky `01-7d`, `02-...`), vyhľadávanie kanálov bez diakritiky a emoji (`filter_channels`).
+  - `bridge.py`: prerušiteľný spánok (`CancelToken`) pre okamžité zastavenie (`Esc`) aj počas čítacích pauz v `safe` režime a premostenie udalostí z background worker vlákna do UI.
+  - `app.py`, `modals.py`, `discoop.tcss`: 3-stĺpcový Discord layout (*Servery* │ *Kanály* │ *Export a priebeh*) s automatickým prepnutím na záložky pri zúžení okna (< 95 stĺpcov), tlačidlá na obnovu serverov, kanálov vybraného servera a načítanie úplne všetkého v `safe` tempe, modálne okná pre vlastný čas kanála (`E`), vstavaný prehliadač správ, nastavenia, prihlásenie a obrazovku Help (`F1`/`?`) s generovaným výpisom `discoop --help`.
+
 **Ďalej:**
 1. Krok 4: vlákna a fóra (`threads`, `--threads/--no-threads`).
 2. Rozhodnutie 9 (výpočet prístupu ku kanálom) ostáva odložené (nízka priorita).
 
-Hotové z predchádzajúceho zoznamu: krok 3, jeho test používateľom a safe/fast režimy sťahovania.
+Hotové z predchádzajúceho zoznamu: krok 3, jeho test používateľom, safe/fast režimy sťahovania a interaktívne rozhranie TUI (discoop ui).
 
 ---
 
