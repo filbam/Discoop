@@ -5,75 +5,11 @@ Pure Python, decoupled from Textual widgets for fast startup and testability.
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-import shlex
-from typing import Any
 
 from discoop.attachments import safe_name
-from discoop.models import CATEGORY, Channel, MESSAGE_TYPES, Server
+from discoop.models import CATEGORY, MESSAGE_TYPES, Channel, Server
 from discoop.resolve import normalize
-
-try:
-    from discoop.service import MessagesRequest  # type: ignore[import-untyped,import-not-found]
-except (ImportError, AttributeError):
-
-    @dataclass
-    class MessagesRequest:  # type: ignore[no-redef]
-        """Parameters for running the messages export command/service."""
-
-        channels: tuple[str, ...]
-        server: str | None = None
-        from_: str | None = None
-        to: str | None = None
-        last: int | None = None
-        max_messages: int = 5000
-        include_system: bool = False
-        mode: str = "safe"
-        delay: float | None = None
-        out_dir: str | None = None
-        zip_file: str | None = None
-        print_messages: bool = False
-        no_files: bool = False
-        max_file_size: float | None = None
-        output_format: str = "text"
-
-        def to_argv(self) -> list[str]:
-            argv = ["discoop", "messages"]
-            for ch in self.channels:
-                argv.extend(["-c", ch])
-            if self.server:
-                argv.extend(["-s", self.server])
-            if self.from_ is not None:
-                argv.extend(["--from", self.from_])
-            if self.to is not None:
-                argv.extend(["--to", self.to])
-            if self.last is not None:
-                argv.extend(["--last", str(self.last)])
-            if self.output_format and self.output_format != "text":
-                argv.extend(["--format", self.output_format])
-            if self.include_system:
-                argv.append("--include-system")
-            if self.max_messages != 5000:
-                argv.extend(["--max-messages", str(self.max_messages)])
-            if self.mode == "fast":
-                argv.append("--fast")
-            elif self.mode == "safe":
-                argv.append("--safe")
-            if self.delay is not None:
-                argv.extend(["--delay", str(self.delay)])
-            if self.out_dir is not None:
-                argv.extend(["--out", self.out_dir])
-            if self.zip_file is not None:
-                argv.extend(["--zip", self.zip_file])
-            if self.print_messages:
-                argv.append("--print")
-            if self.no_files:
-                argv.append("--no-files")
-            if self.max_file_size is not None:
-                argv.extend(["--max-file-size", str(self.max_file_size)])
-            return argv
-
-        def to_command_str(self) -> str:
-            return shlex.join(self.to_argv())
+from discoop.service import MessagesRequest
 
 
 @dataclass(frozen=True)
@@ -85,26 +21,34 @@ class WindowSpec:
     last: int | None = None
     max_messages: int = 5000
 
+    def _open_end(self) -> bool:
+        """True if the window ends now (no --to, or --to now)."""
+        return self.to is None or self.to == "now"
+
+    def _start(self) -> str:
+        """Start as the service reads it: without --from the window is 24h, or the whole history with --last."""
+        if self.from_ is not None:
+            return self.from_
+        return "all" if self.last is not None else "24h"
+
     def slug(self) -> str:
         """Filesystem-safe short slug describing the window."""
-        if self.last is not None and self.from_ is None and self.to is None:
+        if self.last is not None and self.from_ is None and self._open_end():
             raw = f"last-{self.last}"
-            return safe_name(raw, raw or "window", max_chars=40, max_bytes=80)
-        parts = [self.from_ or "24h"]
-        if self.to is not None and self.to != "now":
-            parts.append(self.to)
-        if self.last is not None:
-            parts.append(f"last-{self.last}")
-        raw = "_".join(parts)
-        return safe_name(raw, raw or "window", max_chars=40, max_bytes=80)
+        else:
+            parts = [self._start()]
+            if not self._open_end() and self.to is not None:
+                parts.append(self.to)
+            if self.last is not None:
+                parts.append(f"last-{self.last}")
+            raw = "_".join(parts)
+        return safe_name(raw, "window", max_chars=40, max_bytes=80)
 
     def label(self) -> str:
         """Human-readable summary of the window."""
-        if self.last is not None and self.from_ is None and self.to is None:
+        if self.last is not None and self.from_ is None and self._open_end():
             return f"last {self.last}"
-        start = self.from_ or "24h"
-        end = self.to or "now"
-        base = f"{start} → {end}"
+        base = f"{self._start()} → {self.to or 'now'}"
         if self.last is not None:
             return f"{base} (last {self.last})"
         return base
@@ -244,6 +188,8 @@ def plan_jobs(selection: SelectionState, settings: ExportSettings) -> list[Plann
                 out_dir = f"{base.rstrip('/\\')}/{idx:02d}-{window.slug()}"
         elif settings.target == "zip":
             base = settings.path.strip() or "exports/discoop-export.zip"
+            if base.endswith(("/", "\\")):
+                base += "discoop-export.zip"
             if not base.lower().endswith(".zip"):
                 base += ".zip"
             if total == 1:
@@ -265,8 +211,8 @@ def plan_jobs(selection: SelectionState, settings: ExportSettings) -> list[Plann
             delay=settings.delay,
             out_dir=out_dir,
             zip_file=zip_file,
-            print_messages=is_preview,
-            no_files=True if is_preview else (not settings.files),
+            # Preview = console output of the CLI: --print, --no-files, --max-file-size only work with --out/--zip.
+            no_files=not is_preview and not settings.files,
             max_file_size=None if (is_preview or not settings.files) else settings.max_file_size,
             output_format=settings.preview_format if is_preview else "text",
         )

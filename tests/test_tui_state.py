@@ -1,10 +1,19 @@
 """Tests for TUI state management, job planning, bridge, and event dispatch."""
 
+from datetime import timedelta
+from pathlib import Path
 import threading
 import time
+from typing import Any
 
+import httpx
 import pytest
 
+from discoop import service
+from discoop.api import DiscordAPI
+from discoop.cache import Cache
+from discoop.directory import Directory
+from discoop.errors import DiscoopError, ExitCode
 from discoop.models import CATEGORY, Channel, Server
 from discoop.tui.bridge import CancelToken, Cancelled, TuiEvents
 from discoop.tui.state import (
@@ -15,6 +24,7 @@ from discoop.tui.state import (
     filter_channels,
     plan_jobs,
 )
+from fake_messages import CET, FIT, NOW, FakeChannel, FakeDiscord, Network, series
 
 
 def test_window_spec_slug() -> None:
@@ -36,6 +46,12 @@ def test_window_spec_slug() -> None:
     # When to="now", "now" is omitted from the slug
     assert WindowSpec(from_="7d", to="now").slug() == "7d"
     assert WindowSpec(from_="2026-10-01", to="now", last=10).slug() == "2026-10-01_last-10"
+
+    # Without from, --last means the whole history; to="now" is an open end
+    assert WindowSpec(from_=None, to="now", last=50).slug() == "last-50"
+    assert WindowSpec(from_=None, to="2026-10-31", last=5).slug() == "all_2026-10-31_last-5"
+    assert WindowSpec(from_=None, to="2026-10-31").slug() == "24h_2026-10-31"
+    assert WindowSpec(from_=None, to=None).slug() == "24h"
 
     # Sanitization of forbidden path characters
     assert (
@@ -59,6 +75,11 @@ def test_window_spec_label() -> None:
         WindowSpec(from_="2026-10-01", to="2026-10-31", last=20).label()
         == "2026-10-01 → 2026-10-31 (last 20)"
     )
+
+    # No from: 24h, or the whole history with last
+    assert WindowSpec(from_=None, to=None).label() == "24h → now"
+    assert WindowSpec(from_=None, to="now", last=50).label() == "last 50"
+    assert WindowSpec(from_=None, to="2026-10-31", last=5).label() == "all → 2026-10-31 (last 5)"
 
     # All to now
     assert WindowSpec(from_="all", to=None).label() == "all → now"
@@ -274,23 +295,115 @@ def test_plan_jobs_multiple_jobs_folder_and_zip() -> None:
     assert zjob2.request.zip_file == "exports/discoop-export-02-2026-10-01_2026-10-31.zip"
 
 
+def _fake_api_factory(channels: dict[str, FakeChannel]):
+    transport = httpx.MockTransport(Network(FakeDiscord(channels), None).handle)
+
+    def api_factory(token: str | None = None, **kw: Any) -> DiscordAPI:
+        kw.setdefault("delay", 0.0)
+        return DiscordAPI("test-token", transport=transport, **kw)
+
+    return api_factory
+
+
 def test_plan_jobs_preview_target() -> None:
     s1 = Server(id="srv-1", name="Guild 1")
     c1 = Channel(id="ch-1", server_id="srv-1", name="general", type=0)
-
     state = SelectionState()
     state.toggle(s1, c1)
 
-    settings = ExportSettings(target="preview", preview_format="jsonl")
-    jobs = plan_jobs(state, settings)
+    jobs = plan_jobs(state, ExportSettings(target="preview", preview_format="jsonl", files=False, max_file_size=5.0))
 
     assert len(jobs) == 1
-    job = jobs[0]
-    assert job.request.out_dir is None
-    assert job.request.zip_file is None
-    assert job.request.print_messages is True
-    assert job.request.no_files is True
-    assert job.request.output_format == "jsonl"
+    request = jobs[0].request
+    assert request.out_dir is None
+    assert request.zip_file is None
+    assert request.print_messages is False
+    assert request.no_files is False
+    assert request.max_file_size is None
+    assert request.output_format == "jsonl"
+    assert request.to_argv()[-2:] == ["--format", "jsonl"]
+    # The same combination of options that the CLI accepts: console output only.
+    assert (
+        service.validate_export_target(
+            request.out_dir, request.zip_file, request.print_messages, request.no_files, request.max_file_size
+        )
+        is None
+    )
+
+
+def test_plan_jobs_preview_runs_through_service() -> None:
+    server = Server(FIT, "VUT FIT", 5000)
+    channel = Channel("200", FIT, "2bit-general", 0, None, 0)
+    api_factory = _fake_api_factory({"200": FakeChannel(series(3, newest=NOW, step=timedelta(minutes=5)))})
+
+    with Cache.default() as cache:
+        cache.replace_servers([server])
+        cache.replace_channels(FIT, [channel])
+
+    state = SelectionState()
+    state.toggle(server, channel)
+    jobs = plan_jobs(state, ExportSettings(target="preview", preview_format="md"))
+
+    emitted: list[str] = []
+    events = TuiEvents(CancelToken(), lambda name, payload: emitted.append(name))
+    with Cache.default() as cache, Directory(cache, api_factory) as directory:
+        outcome = service.run_messages(jobs[0].request, directory=directory, now=NOW, tz=CET, events=events)
+
+    assert outcome.exported is None
+    assert len(outcome.results) == 1
+    assert outcome.results[0].messages
+    assert emitted[0] == "channel_start"
+    assert emitted[-1] == "channel_done"
+
+
+def test_plan_jobs_paths_and_suffixes() -> None:
+    s1 = Server(id="srv-1", name="Guild 1")
+    c1 = Channel(id="ch-1", server_id="srv-1", name="a", type=0)
+    c2 = Channel(id="ch-2", server_id="srv-1", name="b", type=0)
+    state = SelectionState()
+    state.toggle(s1, c1)
+    state.toggle(s1, c2)
+    state.set_custom_window("ch-2", WindowSpec(from_="30d"))
+
+    # Trailing slashes of both kinds do not double up.
+    out = [j.request.out_dir for j in plan_jobs(state, ExportSettings(target="folder", path="out\\sub\\"))]
+    assert out == ["out\\sub/01-7d", "out\\sub/02-30d"]
+    out = [j.request.out_dir for j in plan_jobs(state, ExportSettings(target="folder", path="out/"))]
+    assert out == ["out/01-7d", "out/02-30d"]
+
+    # An upper-case suffix counts as a zip name and no second .zip is added.
+    zips = [j.request.zip_file for j in plan_jobs(state, ExportSettings(target="zip", path="out/Run.ZIP"))]
+    assert zips == ["out/Run-01-7d.zip", "out/Run-02-30d.zip"]
+    single = SelectionState()
+    single.toggle(s1, c1)
+    assert plan_jobs(single, ExportSettings(target="zip", path="out/Run.ZIP"))[0].request.zip_file == "out/Run.ZIP"
+    assert plan_jobs(single, ExportSettings(target="zip", path="out/Run"))[0].request.zip_file == "out/Run.zip"
+
+    # A path that names a folder gets a file name instead of a hidden ".zip".
+    assert plan_jobs(single, ExportSettings(target="zip", path="out/"))[0].request.zip_file == "out/discoop-export.zip"
+
+    # Blank path falls back to the default.
+    assert plan_jobs(single, ExportSettings(target="folder", path="  "))[0].request.out_dir == "exports/discoop-export"
+
+
+def test_set_custom_window_follows_global_window_changes() -> None:
+    server = Server(id="s1", name="Server 1")
+    c1 = Channel(id="c1", server_id="s1", name="general", type=0)
+    state = SelectionState()
+    state.toggle(server, c1)
+
+    # A window equal to the global one is not stored: the channel keeps following the global window.
+    state.set_custom_window("c1", WindowSpec())
+    state.global_window = WindowSpec(from_="30d")
+    assert state.window_for("c1") == WindowSpec(from_="30d")
+    assert not state.has_custom_window("c1")
+
+    # A stored custom window stays when the global one changes; None removes it.
+    state.set_custom_window("c1", WindowSpec(from_="1d"))
+    state.global_window = WindowSpec(from_="3d")
+    assert state.window_for("c1") == WindowSpec(from_="1d")
+    state.set_custom_window("c1", None)
+    assert state.window_for("c1") == WindowSpec(from_="3d")
 
 
 def test_filter_channels() -> None:
@@ -319,6 +432,13 @@ def test_filter_channels() -> None:
     # Category name match: 'community' matches category and includes ALL child channels
     filtered_cat = filter_channels(all_channels, "community")
     assert filtered_cat == [cat2, c3, c4]
+
+    # A channel without a category matches alone and is not pulled in by an unrelated category
+    loose = Channel(id="30", server_id="s1", name="community-loose", type=0)
+    with_loose = [*all_channels, loose]
+    assert filter_channels(with_loose, "loose") == [loose]
+    assert filter_channels(with_loose, "community") == [cat2, c3, c4, loose]
+    assert filter_channels(with_loose, "nothing-here") == []
 
 
 def test_cancel_token_basics_and_multithreading() -> None:
@@ -373,25 +493,25 @@ def test_tui_events_and_cancellation() -> None:
         emitted.append((name, payload))
 
     events = TuiEvents(token, emit)
+    server = Server(id="srv-1", name="Guild")
+    channel = Channel(id="ch-1", server_id="srv-1", name="general", type=0)
 
-    # Normal event emissions
-    events.channel_start("srv-1", "ch-1")
-    assert emitted[-1][0] == "channel_start"
-    assert emitted[-1][1] == {"server": "srv-1", "channel": "ch-1"}
+    events.channel_start(2, 3, server, channel)
+    assert emitted[-1] == ("channel_start", {"index": 2, "total": 3, "server": server, "channel": channel})
 
     events.page(15, 987654321)
-    assert emitted[-1][0] == "page"
-    assert emitted[-1][1] == {"count": 15, "cursor": 987654321}
+    assert emitted[-1] == ("page", {"count": 15, "oldest_id": 987654321})
 
     events.pause(1.5, "reading pause")
-    assert emitted[-1][0] == "pause"
-    assert emitted[-1][1] == {"seconds": 1.5, "reason": "reading pause"}
+    assert emitted[-1] == ("pause", {"seconds": 1.5, "reason": "reading pause"})
 
-    events.channel_done("srv-1", "ch-1")
-    assert emitted[-1][0] == "channel_done"
+    result = service.ChannelMessages(server, channel, (), False)
+    events.channel_done(result)
+    assert emitted[-1] == ("channel_done", {"result": result})
 
-    events.skipped("ch-1", "NO_ACCESS")
-    assert emitted[-1][0] == "skipped"
+    error = DiscoopError(ExitCode.NO_ACCESS, "No access to #general.")
+    events.skipped(error)
+    assert emitted[-1] == ("skipped", {"error": error, "reason": "No access to #general."})
 
     events.warning("Warning text")
     assert emitted[-1] == ("warning", {"message": "Warning text"})
@@ -399,24 +519,30 @@ def test_tui_events_and_cancellation() -> None:
     events.note("Note text")
     assert emitted[-1] == ("note", {"text": "Note text"})
 
-    # Download progress emissions
+    # Download progress emissions; the service reaches them through events.downloads
     events.downloads.start(10, 50000)
     assert emitted[-1] == ("dl_start", {"files": 10, "total_bytes": 50000})
+
+    events.downloads.file(3, 10, "job")
+    assert emitted[-1] == ("dl_file", {"number": 3, "total": 10, "job": "job"})
 
     events.downloads.advance(1024)
     assert emitted[-1] == ("dl_advance", {"size": 1024})
 
+    events.downloads.note("Refreshing 2 expired file URLs")
+    assert emitted[-1] == ("note", {"text": "Refreshing 2 expired file URLs"})
+
     events.downloads.finish()
     assert emitted[-1] == ("dl_finish", {})
 
-    # When token is cancelled, checking methods raise Cancelled
+    # When the token is cancelled, progress callbacks raise Cancelled
     token.cancel()
 
     with pytest.raises(Cancelled):
         events.page(20, 123)
 
     with pytest.raises(Cancelled):
-        events.channel_start("srv-1", "ch-1")
+        events.channel_start(1, 1, server, channel)
 
     with pytest.raises(Cancelled):
         events.pause(1.0, "rate limit")
@@ -425,4 +551,42 @@ def test_tui_events_and_cancellation() -> None:
         events.downloads.start(1, 100)
 
     with pytest.raises(Cancelled):
+        events.downloads.file(1, 1, "job")
+
+    with pytest.raises(Cancelled):
         events.downloads.advance(100)
+
+    # finish runs in a `finally` of the downloader and must not replace the original error
+    events.downloads.finish()
+    assert emitted[-1] == ("dl_finish", {})
+
+
+def test_cancel_between_channels_writes_nothing(tmp_path: Path) -> None:
+    server = Server(FIT, "VUT FIT", 5000)
+    channels = [Channel("200", FIT, "one", 0, None, 0), Channel("201", FIT, "two", 0, None, 1)]
+    api_factory = _fake_api_factory(
+        {c.id: FakeChannel(series(2, newest=NOW, step=timedelta(minutes=5))) for c in channels}
+    )
+    with Cache.default() as cache:
+        cache.replace_servers([server])
+        cache.replace_channels(FIT, channels)
+
+    token = CancelToken()
+
+    def emit(name: str, payload: dict) -> None:
+        if name == "channel_done":
+            token.cancel()
+
+    state = SelectionState()
+    for channel in channels:
+        state.toggle(server, channel)
+    target = tmp_path / "out" / "run.zip"
+    jobs = plan_jobs(state, ExportSettings(target="zip", path=str(target)))
+
+    with Cache.default() as cache, Directory(cache, api_factory) as directory:
+        with pytest.raises(Cancelled):
+            service.run_messages(jobs[0].request, directory=directory, now=NOW, tz=CET, events=TuiEvents(token, emit))
+
+    # Cancelled during fetching: nothing was exported, not even a partial zip.
+    assert not target.exists()
+    assert not list(tmp_path.rglob("*.part"))

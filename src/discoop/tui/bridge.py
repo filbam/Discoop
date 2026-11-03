@@ -7,20 +7,14 @@ from collections.abc import Callable
 import threading
 from typing import Any
 
-from discoop.attachments import Progress as DownloadProgress
+from discoop.attachments import FileJob, Progress as DownloadProgress
+from discoop.errors import DiscoopError
+from discoop.models import Channel, ChannelMessages, Server
+from discoop.service import Cancelled, Events
 
-try:
-    from discoop.service import Cancelled, Events  # type: ignore[import-untyped]
-except (ImportError, AttributeError):
+__all__ = ["CancelToken", "Cancelled", "TuiDownloadProgress", "TuiEvents"]
 
-    class Cancelled(Exception):  # type: ignore[no-redef]
-        """Raised when an operation is cancelled by the user."""
-
-    class Events:  # type: ignore[no-redef]
-        """Base events interface when service.py is not yet loaded."""
-
-        def __init__(self, downloads: DownloadProgress | None = None) -> None:
-            self.downloads: DownloadProgress = downloads or DownloadProgress()
+Emit = Callable[[str, dict[str, Any]], None]
 
 
 class CancelToken:
@@ -50,11 +44,13 @@ class CancelToken:
 
 
 class TuiDownloadProgress(DownloadProgress):
-    """Bridges attachment download progress into TUI events with cancellation checks."""
+    """Bridges attachment download progress into TUI events with cancellation checks.
 
-    def __init__(
-        self, cancel_token: CancelToken, emit: Callable[[str, dict[str, Any]], None]
-    ) -> None:
+    `finish` never raises: the downloader calls it from a `finally` block.
+    """
+
+    def __init__(self, cancel_token: CancelToken, emit: Emit) -> None:
+        super().__init__()
         self.cancel_token = cancel_token
         self.emit = emit
 
@@ -62,7 +58,7 @@ class TuiDownloadProgress(DownloadProgress):
         self.cancel_token.check()
         self.emit("dl_start", {"files": files, "total_bytes": total_bytes})
 
-    def file(self, number: int, total: int, job: Any) -> None:
+    def file(self, number: int, total: int, job: FileJob) -> None:
         self.cancel_token.check()
         self.emit("dl_file", {"number": number, "total": total, "job": job})
 
@@ -71,106 +67,44 @@ class TuiDownloadProgress(DownloadProgress):
         self.emit("dl_advance", {"size": size})
 
     def finish(self) -> None:
-        self.cancel_token.check()
         self.emit("dl_finish", {})
 
     def note(self, text: str) -> None:
-        self.cancel_token.check()
         self.emit("note", {"text": text})
 
 
 class TuiEvents(Events):
-    """Dispatches service and scraping events to the TUI event listener."""
+    """Dispatches service events to the TUI listener; progress callbacks raise Cancelled once cancelled.
 
-    def __init__(
-        self, cancel_token: CancelToken, emit: Callable[[str, dict[str, Any]], None]
-    ) -> None:
+    Cancelling is safe at every check: a zip is built in a staging folder and moved into place only when complete,
+    and a folder keeps `"complete": false` in its manifest until the export has finished.
+    """
+
+    def __init__(self, cancel_token: CancelToken, emit: Emit) -> None:
+        super().__init__(TuiDownloadProgress(cancel_token, emit))
         self.cancel_token = cancel_token
         self.emit = emit
-        self.downloads = TuiDownloadProgress(cancel_token, emit)
 
-    def channel_start(self, *args: Any, **kwargs: Any) -> None:
+    def channel_start(self, index: int, total: int, server: Server, channel: Channel) -> None:
         self.cancel_token.check()
-        payload = dict(kwargs)
-        if len(args) >= 4:
-            payload.setdefault("index", args[0])
-            payload.setdefault("total", args[1])
-            payload.setdefault("server", args[2])
-            payload.setdefault("channel", args[3])
-        elif len(args) == 2:
-            payload.setdefault("server", args[0])
-            payload.setdefault("channel", args[1])
-        elif len(args) == 1:
-            if isinstance(args[0], dict):
-                payload = {**args[0], **kwargs}
-            else:
-                payload.setdefault("channel", args[0])
-        self.emit("channel_start", payload)
+        self.emit("channel_start", {"index": index, "total": total, "server": server, "channel": channel})
 
-    def page(self, *args: Any, **kwargs: Any) -> None:
+    def page(self, kept: int, oldest_id: int) -> None:
         self.cancel_token.check()
-        payload = dict(kwargs)
-        if len(args) >= 2:
-            payload.setdefault("count", args[0])
-            payload.setdefault("cursor", args[1])
-        elif len(args) == 1:
-            if isinstance(args[0], dict):
-                payload = {**args[0], **kwargs}
-            else:
-                payload.setdefault("count", args[0])
-        self.emit("page", payload)
+        self.emit("page", {"count": kept, "oldest_id": oldest_id})
 
-    def pause(self, *args: Any, **kwargs: Any) -> None:
+    def pause(self, seconds: float, reason: str) -> None:
         self.cancel_token.check()
-        payload = dict(kwargs)
-        if len(args) >= 2:
-            payload.setdefault("seconds", args[0])
-            payload.setdefault("reason", args[1])
-        elif len(args) == 1:
-            if isinstance(args[0], dict):
-                payload = {**args[0], **kwargs}
-            else:
-                payload.setdefault("seconds", args[0])
-        self.emit("pause", payload)
+        self.emit("pause", {"seconds": seconds, "reason": reason})
 
-    def channel_done(self, *args: Any, **kwargs: Any) -> None:
-        payload = dict(kwargs)
-        if len(args) == 1:
-            if isinstance(args[0], dict):
-                payload = {**args[0], **kwargs}
-            else:
-                payload.setdefault("channel", args[0])
-        elif len(args) >= 2:
-            payload.setdefault("server", args[0])
-            payload.setdefault("channel", args[1])
-        self.emit("channel_done", payload)
+    def channel_done(self, result: ChannelMessages) -> None:
+        self.emit("channel_done", {"result": result})
 
-    def skipped(self, *args: Any, **kwargs: Any) -> None:
-        payload = dict(kwargs)
-        if len(args) == 1:
-            if isinstance(args[0], dict):
-                payload = {**args[0], **kwargs}
-            else:
-                payload.setdefault("reason", args[0])
-        elif len(args) >= 2:
-            payload.setdefault("channel", args[0])
-            payload.setdefault("reason", args[1])
-        self.emit("skipped", payload)
+    def skipped(self, error: DiscoopError) -> None:
+        self.emit("skipped", {"error": error, "reason": error.message})
 
-    def warning(self, *args: Any, **kwargs: Any) -> None:
-        payload = dict(kwargs)
-        if len(args) == 1:
-            if isinstance(args[0], dict):
-                payload = {**args[0], **kwargs}
-            else:
-                payload.setdefault("message", args[0])
-        self.emit("warning", payload)
+    def warning(self, text: str) -> None:
+        self.emit("warning", {"message": text})
 
-    def note(self, *args: Any, **kwargs: Any) -> None:
-        payload = dict(kwargs)
-        if len(args) == 1:
-            if isinstance(args[0], dict):
-                payload = {**args[0], **kwargs}
-            else:
-                payload.setdefault("text", args[0])
-        self.emit("note", payload)
+    def note(self, text: str) -> None:
+        self.emit("note", {"text": text})
