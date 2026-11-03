@@ -1,5 +1,7 @@
 """Plain data the commands work with: servers and channels as cached locally."""
 
+from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -17,6 +19,8 @@ CHANNEL_TYPES = {
     16: "media",
 }
 CATEGORY = 4
+# Types `channels --type` accepts: everything /guilds/{id}/channels returns except categories.
+LISTABLE_TYPES = {name: number for number, name in CHANNEL_TYPES.items() if number in {0, 2, 5, 13, 14, 15, 16}}
 _VOICE_LIKE = {2, 13}
 _HIDDEN_FLAG = 1 << 17
 
@@ -61,6 +65,20 @@ def channel_from_api(data: dict[str, Any], server_id: str) -> Channel:
         position=int(data.get("position") or 0),
         topic=data.get("topic"),
     )
+
+
+def group_by_category(channels: Iterable[Channel]) -> list[tuple[Channel | None, list[Channel]]]:
+    """Sidebar layout: channels without a category first, then each category in order."""
+    channels = list(channels)
+    categories = sorted((c for c in channels if c.type == CATEGORY), key=lambda c: (c.position, int(c.id)))
+    category_ids = {c.id for c in categories}
+    children: dict[str | None, list[Channel]] = defaultdict(list)
+    for channel in channels:
+        if channel.type != CATEGORY:
+            children[channel.parent_id if channel.parent_id in category_ids else None].append(channel)
+    groups: list[tuple[Channel | None, list[Channel]]] = [(None, sorted(children[None], key=Channel.sort_key))]
+    groups += [(category, sorted(children[category.id], key=Channel.sort_key)) for category in categories]
+    return groups
 
 
 def is_hidden(data: dict[str, Any]) -> bool:

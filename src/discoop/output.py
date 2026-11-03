@@ -5,7 +5,7 @@ Data goes to stdout, everything else (notes, errors) to stderr, in both modes.
 
 import os
 import sys
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from typing import TextIO
 
 from rich.console import Console
@@ -56,6 +56,20 @@ class Output:
         for key, value in values.items():
             table.add_row(key.replace("_", " "), Text(str(value)))
         self.console.print(Panel(table, title=title, expand=False) if title else table)
+
+    def rows(self, columns: Sequence[str], rows: Iterable[Sequence[object]], title: str | None = None) -> None:
+        """Tabular result: a header plus tab-separated lines for agents, a table for humans."""
+        if self.agent:
+            print("\t".join(columns))
+            for row in rows:
+                print("\t".join("" if value is None else str(value).replace("\t", " ") for value in row))
+            return
+        table = Table(title=title, title_justify="left", header_style="bold")
+        for column in columns:
+            table.add_column("ID" if column == "id" else column.replace("_", " ").capitalize())
+        for row in rows:
+            table.add_row(*(Text("" if value is None else str(value)) for value in row))
+        self.console.print(table)
 
     def message(self, text: str, style: str | None = None) -> None:
         """A one-line result (stdout)."""
