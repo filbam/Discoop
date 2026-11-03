@@ -80,7 +80,7 @@ Protokol popisuje [analyzy/discord-login.md](analyzy/discord-login.md).
 - **2FA netreba riešiť** v termináli. Prihlásenie potvrdzuje tvoj už prihlásený mobil.
 - **Samostatné zariadenie:** Discord vidí nástroj ako novú reláciu, tvoje bežné prihlásenie sa nezmení.
 - **Neplatný token** (odhlásené zariadenie, zmena hesla): každý príkaz skončí kódom `2` s hláškou, že treba
-  spustiť `discoop login`.
+   spustiť `discoop login`.
 - **Bezpečnosť:** QR ani token sa nikdy nelogujú.
 - **Záložná cesta** a správanie `login` v agent režime sú otvorené rozhodnutia (sekcia 15, body 7 a 8).
 
@@ -161,10 +161,10 @@ discoop messages -c 1286436864789843999 --from 2026-10-01 --to 2026-10-31 --zip 
 discoop messages -c "isc-*" --since-last --agent
 ```
 
-**Implementované 2026-11-03 (krok 2, v ten istý deň otestované používateľom na jeho účte):**
-- **Prepínače:** `-c` (opakovateľný), `-s`, `--from`, `--to`, `--last`, `--format text|json`, `--include-system`,
-  `--max-messages`. Prepínače neskorších krokov zatiaľ nie sú (`--threads/--no-threads`, `--out`, `--zip`,
-  `--print`, `--no-files`, `--since-last`, `--raw`, `--delay`, formáty `md` a `jsonl`). Tempo je z `config set delay`.
+**Implementované 2026-11-03 (krok 2 do konzoly, krok 3 s exportom a prílohami):**
+- **Prepínače:** `-c` (opakovateľný), `-s`, `--from`, `--to`, `--last`, `--format text|md|json|jsonl`, `--include-system`,
+  `--max-messages`, `--out DIR`, `--zip FILE`, `--print`, `--no-files`, `--max-file-size MB`.
+  Prepínače neskorších krokov zatiaľ nie sú (`--threads/--no-threads`, `--since-last`, `--raw`, `--delay`). Tempo je z `config set delay`.
 - **Výber kanálov:**
   - `-c` berie meno, ID alebo glob vzor. Mená a vzory sa hľadajú v kanáloch servera z `-s` alebo `default-server`
     a **preskakujú kategórie**, takže kategória `general` a kanál `general` sa nebijú.
@@ -189,7 +189,7 @@ discoop messages -c "isc-*" --since-last --agent
 - **Systémové správy:** za bežné sa okrem typov 0 a 19 považujú aj 20 a 23 (odpovede botov na slash
   a kontextové príkazy). Návrh mal len 0 a 19. `--include-system` ukáže aj ostatné.
 - **Formát `text`** je podľa 6.2 s týmito odchýlkami a doplnkami:
-  - Príloha je `[file] meno veľkosť URL`. Lokálna cesta pribudne s exportom.
+  - Príloha je `[file] meno veľkosť URL` (alebo lokálna cesta pri exporte s `--print`).
   - Hlavička nemá `threads:` (vlákna sú krok 4). Zóna je ako posun `UTC+01:00`, nie meno
     (IANA meno sa na Windows bez ďalšej knižnice spoľahlivo zistiť nedá).
   - Riadok autora môže mať značky `[bot]`, `(edited)`, `(pinned)`, `(forwarded)`, `(system message, type N)`.
@@ -198,43 +198,27 @@ discoop messages -c "isc-*" --since-last --agent
     odsadené o 4 medzery. Ďalej `[sticker]`.
   - **Embed nezopakuje URL, ktorú správa už ukazuje** (v texte alebo v predchádzajúcom embede). Ostane len značka
     s titulkom, napr. `[link] "Studium"` pod URL v texte. Embed bez titulku a popisu sa vynechá celý, napr. GIF
-    poslaný ako holá URL. JSON má embedy celé (pozri nižšie).
-  - **`[reactions]` je jeden riadok** so všetkými reakciami správy. Discord posiela jednu položku na emoji
-    (analýza, sekcia 4), super reakcie sú v nej ako `count_details.burst`. Podľa dokumentácie Discordu ich `count`
-    zahŕňa **[PREDPOKLAD]**, na účte boli pozorované len položky s `burst: 0`. Zápis `🔥5 (2 super)` znamená
-    5 reakcií, z toho 2 super.
+    poslaný ako holá URL. JSON má embedy celé.
+  - **`[reactions]` je jeden riadok** so všetkými reakciami správy. Zápis `🔥5 (2 super)` znamená 5 reakcií, z toho 2 super.
   - **Prázdne riadky na začiatku a na konci textu** správy aj popisu rich embedu sa orežú, `\r\n` sa zmení na `\n`.
-    Platí to aj pre JSON.
-  - `<t:unix>` sa prepíše na lokálny čas a `</príkaz:id>` na `/príkaz`. `<@&id>` je vždy `@role:<id>`, mená rolí sa
-    nesťahujú. Neznámy používateľ alebo kanál je `@user:<id>`, `#channel:<id>`.
+  - `<t:unix>` sa prepíše na lokálny čas a `</príkaz:id>` na `/príkaz`. `<@&id>` je vždy `@role:<id>`.
   - Reply bez `referenced_message` je `reply-to (message not available)`. Citát má najviac 80 znakov.
   - Medzi správami nie je prázdny riadok (menej tokenov). Správa začína riadkom `[YYYY-MM-DD HH:MM]`.
+- **Formát `md`:** Markdown s hlavičkou `# server / #kanál`, zoznamom detailov (`- `) a správami oddelenými prázdnym riadkom. Obrázky (`image/*`) sa vkladajú priamo ako `![meno](cesta) veľkosť`, ostatné súbory ako odkazy `[meno](cesta) veľkosť`. V `channels/<kanál>.md` majú cesty prefix `../files/...`.
 - **Formát `json`:** jeden objekt `{from, to, last, truncated, channels: [...], messages: [...]}`.
-  - `channels` má pri každom kanáli server, kanál, počet správ a súborov a `truncated`.
-  - Správy majú schému zo 6.2, doplnené sú polia `type`, `stickers`, `forwarded`, `links[].description`
-    a `reactions[].super` (počet super reakcií, podľa dokumentácie zahrnutých aj v `count`).
-  - `links` má každý embed aj s URL, aj keď ju má aj `text`. JSON je úplný štruktúrovaný formát pre skripty
-    a budúci export, každá položka `links` má byť použiteľná sama. Duplicitu rieši len formát `text`, kde stojí tokeny.
-  - V prílohách chýba `path` (až pri exporte). `thread` je zatiaľ vždy `null`.
-  - `text` má prepísané mentions rovnako ako formát `text`.
-  - V agent režime je JSON na jednom riadku, v human režime odsadený.
-- **Human režim** (návrh presný vzhľad neopisoval): rovnaký layout ako `text`, s farbami a s jedným prázdnym
-  riadkom medzi správami. Dlhé riadky zalamuje terminál, nie Rich, aby URL ostali celé. Počas sťahovania beží spinner
-  na stderr. Poznámka na konci pripomenie, že predvolené okno je 24 h.
-- **Forwardy** (`message_snapshots` pri `message_reference.type 1`) sa zobrazia s textom a prílohami pôvodnej
-  správy a značkou `(forwarded)`. Tvar je **[PREDPOKLAD]** (analýza, sekcia 4). Pri teste používateľa 2026-11-03
-  sa jeden forward zobrazil so značkou, textom aj prílohou.
-- **Viac kanálov:** nedostupný (`NO_ACCESS`) alebo neznámy (`NOT_FOUND`) kanál sa preskočí s varovaním. Keď sa
-  nedá prečítať žiadny, koniec s kódom prvej chyby. Ostatné chyby ukončia celý beh.
-- **Prázdna prvá strana** (`200 []`): poznámka na stderr, že pred koncom okna nie sú žiadne správy, alebo chýba
-  právo `READ_MESSAGE_HISTORY` (agent ju vidí s `--verbose`). Keď kanál staršie správy má a v okne len nie sú,
-  poznámka sa nevypíše. Chyby `403`/`404` sú v sekcii 9.
+- **Formát `jsonl`:** jeden riadok JSON správy podľa schémy zo sekcie 6.2 (bez hlavičky, tá je v manifeste).
+- **Export (`--out`, `--zip`):**
+  - Vytvorí štruktúru: `manifest.json`, `messages.md`, `messages.jsonl`, `channels/<meno>.md` a `files/<kanál>/<attachment_id>_<meno>`.
+  - Predvolene vypíše do konzoly súhrn. `--print` vypíše správy na stdout s relatívnymi cestami k lokálnym súborom a súhrn ide na stderr.
+  - `--no-files` preskočí sťahovanie príloh (v manifeste ako `skipped`).
+  - `--max-file-size` (predvolene 50 MB, `0` = bez limitu) preskočí väčšie súbory.
 
 ### 4.6 `config`
 
 ```
 discoop config set default-server "VUT FIT"
 discoop config set delay 1.0
+discoop config set export-dir "exports"
 discoop config get delay
 discoop config unset delay
 discoop config list
@@ -242,10 +226,10 @@ discoop config list
 Uložené v `config.toml` v konfiguračnom adresári (sekcia 10).
 
 **Implementované 2026-11-03:**
-- **Kľúče:** `default-server` a `delay` (predvolene 1.0 s).
+- **Kľúče:** `default-server`, `delay` (predvolene 1.0 s) a `export-dir`.
 - **`default-server`** sa pri `set` vyhľadá ako server (meno alebo ID) a uloží sa jeho **ID**, takže
   premenovanie servera nastavenie nerozbije.
-- **`export-dir`** pribudne spolu s exportom (`messages --out/--zip`).
+- **`export-dir`** (pridané v kroku 3): priečinok pre relatívne cesty `--out`/`--zip`. Ukladá sa ako absolútna cesta.
 - **Neznámy kľúč** alebo zlá hodnota skončí kódom `8`.
 
 ### 4.7 `agent-guide`
@@ -334,36 +318,46 @@ Meno autora je `global_name` a ak chýba, `username`. Prezývky zo servera REST 
 
 | Parameter | Výsledok | Prílohy |
 |---|---|---|
-| (nič) / `--print` | konzola | len názov a URL (URL vyprší o 12 až 24 h) |
+| (nič) / `--print` | konzola | len názov a URL (URL vyprší o 12 až 24 h; pri exporte lokálna cesta) |
 | `--out DIR` | priečinok | stiahnuté (vypnúť cez `--no-files`) |
 | `--zip FILE` | zip | stiahnuté (vypnúť cez `--no-files`) |
 
 **Štruktúra exportu** (rovnaká pre priečinok aj zip):
 ```
 vutfit_2026-11-03_1200/
-  manifest.json            parametre behu, čas, počty, verzia nástroja, truncated
+  manifest.json            parametre behu, čas, počty, verzia nástroja, truncated, zoznam príloh so stavom
   messages.md              všetky kanály pre človeka/AI (sekcia na kanál, vlákna vnorené)
-  messages.jsonl           štruktúrované dáta
+  messages.jsonl           štruktúrované dáta (jedno JSON posolstvo na riadok)
   channels/
     isc-public.md          ten istý obsah rozdelený po kanáloch
   files/
     isc-public/<attachment_id>_<filename>
 ```
-Cesty k prílohám v `.md` a `.jsonl` sú relatívne. AI s prístupom k súborom ich teda vie otvoriť.
+Cesty k prílohám v `.md` a `.jsonl` sú relatívne (`files/...`). V `channels/*.md` majú predponu `../files/...`.
+
+**Pravidlá exportu a zvolené defaulty (krok 3):**
+- **Ochrana cieľa:** cieľový priečinok alebo zip nesmie prepísať existujúce súbory, ktoré nepochádzajú z discoop exportu (kontrola prítomnosti `manifest.json` s `"tool": "discoop"`). Neplatný cieľ skončí kódom `8` ešte pred dotazom na Discord.
+- **Opakovaný export:** do existujúceho priečinka alebo zipu sa súbory so zhodným `attachment_id` a veľkosťou znova nesťahujú (`present`).
+- **Atomický zápis:** súbory sa sťahujú s príponou `.part` a premenujú sa až po dokončení. Zip archív sa stavia v dočasnom staging priečinku a nahradí starší archív až po dokončení.
+- **Kompresia zipu:** texty (`manifest.json`, `*.md`, `messages.jsonl`) sú komprimované (`ZIP_DEFLATED`), kým prílohy v `files/` sú nekomprimované (`ZIP_STORED`), keďže väčšina médií (obrázky, videá, PDF) je už komprimovaná.
 
 ## 7. Prílohy
 
 - Sťahujú sa **hneď po načítaní stránky správ**, lebo podpísané URL platia len 12 až 24 h (analýza, sekcia 5).
-- Ak CDN vráti `403/404` (URL exspirovala), nástroj správu načíta znova (`around=<id>&limit=1`) a URL obnoví.
-  Ďalšia možnosť je `refresh-urls` **[OVERENÉ]** (`{"attachment_urls": [...]}` → `{"refreshed_urls": [{original, refreshed}]}`).
-- Na CDN netreba token. Sťahuje sa bez `Authorization` hlavičky, takže token sa neposiela nikam navyše.
-- Súbory sa pomenúvajú `<attachment_id>_<filename>` (unikátne, bezpečné pre Windows).
-  **Deduplikácia** ide podľa `attachment_id`: pri `--since-last` do toho istého priečinka sa nič nesťahuje dvakrát.
+- **Obnova URL:** URL s expiráciou (`ex`) do 60 sekúnd sa pred stiahnutím obnovia cez `POST /attachments/refresh-urls` v dávkach po najviac 50 URL. Ak CDN vráti `403`, `404` alebo `410`, nástroj URL obnoví cez `refresh-urls` a pokúsi sa o stiahnutie ešte raz.
+- **Bezpečnosť:** na CDN netreba token. Sťahuje sa samostatným klientom bez `Authorization` hlavičky. `DiscordAPI` odmietne iné ako API cesty.
+- **Bezpečné mená:**
+  - Pomenovanie `<attachment_id>_<filename>` je unikátne.
+  - Meno súboru sa skracuje na max 100 znakov a 200 UTF-8 bajtov (so zachovaním prípony do 16 znakov).
+  - Priečinky kanálov majú max 50 znakov, pri kolízii bez ohľadu na veľkosť písmen sa pridá `_<channel_id>`.
+  - Zakázané znaky a oddeľovače sa nahradia `_`, koncové bodky a medzery sa orežú. Rezervované názvy Windows (`CON`, `NUL`, `COM1`, …) dostanú prefix `_`.
+- **Deduplikácia:** ide podľa `attachment_id` a veľkosti súboru.
 - **Čo sa sťahuje:**
   - áno: prílohy (`attachments[]`),
   - nie: embedy (GIF, link preview, YouTube); zapíšu sa len ako `[link]`,
   - voliteľne: obrázky z embedov typu `image` (`--embed-images`).
-- `--max-file-size` (predvolene 50 MB) chráni pred obrovskými videami.
+- `--max-file-size` (predvolene 50 MB, `0` = bez limitu) chráni pred obrovskými videami.
+- **Odolnosť voči chybám:** chyba pri sťahovaní jednotlivej prílohy nezastaví export celého kanála. Príloha sa označí ako `failed` v manifeste a súhrn chýb sa vypíše na stderr.
 
 ## 8. Vlákna a fóra
 
@@ -386,15 +380,15 @@ Cesty k prílohám v `.md` a `.jsonl` sú relatívne. AI s prístupom k súborom
 - `--since-last`: `after=<last_id>&limit=100`. Odpoveď je zostupná, ďalšia strana teda ide od `max(id)`.
   Stav sa uloží až po úspešnom dokončení kanála.
 
-**Tempo:**
-- Requesty idú **sekvenčne** s pauzou `--delay` (predvolene 1.0 s, s malým náhodným rozptylom).
-- CDN sťahovanie môže bežať paralelne v 2 vláknach (CDN nie je API rate limit).
+**Tempo a sťahovanie CDN:**
+- API requesty idú **sekvenčne** s pauzou `--delay` (predvolene 1.0 s, s malým náhodným rozptylom).
+- CDN sťahovanie beží sekvenčne s timeoutom 60 s (20 s na spojenie) a hlavičkou `Accept-Encoding: identity`.
 - Discord neposiela rate-limit hlavičky (analýza, sekcia 10), preto tempo nastavuje pevne nástroj.
 
 **Chyby:**
 - `429`: počká `retry_after` z tela odpovede a pokračuje **[PROTOTYP: tvar]**.
   Opakovaný `429` predĺži `delay` na dvojnásobok.
-- `5xx` a sieťové chyby: 3 pokusy s backoffom.
+- `5xx` a sieťové chyby: 3 pokusy s backoffom (pri CDN pauzy 1 s a 2 s).
 - `401`: koniec s kódom `2` (treba login).
 - `403` na kanál s kódom `50001` (Missing Access) alebo `50013` (Missing Permissions): kanál sa preskočí
   s varovaním. Pri jedinom zadanom kanáli koniec s kódom `5`.
@@ -405,7 +399,6 @@ Cesty k prílohám v `.md` a `.jsonl` sú relatívne. AI s prístupom k súborom
 - `403` pri kanáli bez `VIEW_CHANNEL` je **[OVERENÉ]** 2026-11-03: `discoop messages` na kanáli
   `1549737445002584094` skončil `NO_ACCESS` (kód `5`). Presný kód (`50001` alebo `50013`) výstup neukazuje.
 - Ostatné kódy chýb sú **[PREDPOKLAD]** podľa [analyzy/pristup-ku-kanalom.md](analyzy/pristup-ku-kanalom.md), sekcia 7.
-  Implementované 2026-11-03 v `messages` (krok 2).
 
 **Rozsah volaní:** nástroj nikdy nevolá `ack`, `science`, `metrics` ani nič, čo zapisuje.
 
@@ -420,7 +413,7 @@ Adresáre určí `platformdirs` podľa OS:
 | Linux | `~/.local/share/discoop/` | `~/.config/discoop/` |
 
 Obsah:
-- `config.toml`: nastavenia.
+- `config.toml`: nastavenia (`default-server`, `delay`, `export-dir`).
 - `cache.db`: SQLite s tabuľkami:
   - **teraz** (2026-11-03): `servers`, `channels` (typ, kategória, pozícia, téma) a `fetched` (kedy sa čo obnovilo).
     Normalizované mená sa počítajú v Pythone, kanálov je pár stoviek.
@@ -495,27 +488,24 @@ Scoop/
     cache.py          SQLite: servery, kanály, vlákna, users, sync_state
     resolve.py        normalizácia mien, zhoda, globy, nejednoznačnosť
     scrape.py         stránkovanie správ, vlákna, časové okno
-    attachments.py    sťahovanie, obnova URL, deduplikácia
-    model.py          normalizované dataclasses (Message, Attachment, …)
+    attachments.py    sťahovanie, obnova URL, bezpečné mená súborov
+    models.py         normalizované dataclasses (Message, Attachment, Server, Channel...)
+    normalize.py      normalizácia správ z API, mentions
     render/
-      plain.py        text pre agentov
-      markdown.py
-      jsonout.py
-      human.py        Rich
-    export.py         priečinok + zip + manifest
+      text.py         text pre agentov, farebný human výstup, markdown (md)
+      jsonout.py      json a jsonl
+    export.py         priečinok + zip + manifest, kontrola cieľa a opätovné použitie
     guide.py          text pre agent-guide
   tests/
     fixtures/         anonymizované JSON z analýzy
   docs/
 ```
 
-**Stav 2026-11-03 (po kroku 2):** správy sú v týchto moduloch, mierne inak ako v strome vyššie:
-- `snowflake.py`: čas ↔ snowflake, parsovanie `--from/--to`, okno,
-- `scrape.py`: stránkovanie správ v okne (vlákna pribudnú v kroku 4),
-- `normalize.py`: surová správa → `models.Message`, prepis mentions (nový modul),
-- `models.py`: dataclasses pre správy pribudli k serverom a kanálom (namiesto `model.py`),
-- `render/text.py`: formát `text` pre agentov aj Rich výstup pre človeka, jeden layout (namiesto `plain.py` a `human.py`),
-- `render/jsonout.py`: formát `json`.
+**Stav 2026-11-03 (po kroku 3):**
+- `attachments.py`: sťahovanie samostatným klientom bez tokenu, obnova podpisov cez `refresh-urls`, bezpečné mená súborov,
+- `export.py`: zostavenie priečinka alebo zipu, `manifest.json`, opätovné použitie súborov pri opakovanom behu,
+- `render/text.py`: formáty `text` a `md` (Markdown pre správy a kanály),
+- `render/jsonout.py`: formáty `json` a `jsonl`.
 
 ## 14. Postup implementácie
 
@@ -528,15 +518,14 @@ Scoop/
    - tvar `429` a `refresh-urls`.
 
    Spúšťa ho používateľ, pretože beží na jeho účte. Výsledky sa zapíšu do analýzy.
-1. **Jadro:** config, cache, API klient, `servers`, `channels`, `resolve`, `status`.
-2. **`messages`** → `text`/`json` do konzoly, časové okno, `--last` (2026-11-03: **hotové**, čaká na test
-   používateľa, podrobnosti v 4.5).
-3. **Prílohy** + `--out` / `--zip` + manifest.
+1. **Jadro:** config, cache, API klient, `servers`, `channels`, `resolve`, `status` (2026-11-03: **hotové**).
+2. **`messages`** → `text`/`json` do konzoly, časové okno, `--last` (2026-11-03: **hotové**, otestované na účte).
+3. **Prílohy** + `--out` / `--zip` + manifest (2026-11-03: **hotové**, čaká na test používateľa).
 4. **Vlákna a fóra**, `threads`.
 5. **Human režim** (Rich), `agent-guide`, help texty.
 6. **`--since-last`**, deduplikácia.
 
-**Testy:** unit testy (snowflake, parsovanie času, resolve, renderery) nad anonymizovanými fixtures, bez živého API.
+**Testy:** unit testy (snowflake, parsovanie času, resolve, renderery, sťahovanie, export) nad anonymizovanými fixtures a MockTransport, bez živého API.
 
 ## 15. Otvorené rozhodnutia
 

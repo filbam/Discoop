@@ -11,6 +11,7 @@ from discoop.errors import DiscoopError, ExitCode
 DESCRIPTIONS = {
     "default-server": "server ID used when --server is not given",
     "delay": "seconds between Discord API requests",
+    "export-dir": "folder for relative --out/--zip paths (default: the current folder)",
 }
 DEFAULTS: dict[str, Any] = {"delay": 1.0}
 
@@ -67,3 +68,19 @@ def parse_delay(raw: str) -> float:
     if value < 0:
         raise DiscoopError(ExitCode.BAD_ARGS, f'"{raw}" is not a valid delay.', "Use seconds, e.g. 1 or 0.5.")
     return value
+
+
+def parse_export_dir(raw: str) -> str:
+    """An absolute folder path, so the setting means the same folder whatever the current folder is later."""
+    if not raw.strip():
+        raise DiscoopError(ExitCode.BAD_ARGS, "export-dir cannot be empty.", "Use `discoop config unset export-dir`.")
+    path = Path(raw.strip()).expanduser().resolve()
+    if path.exists() and not path.is_dir():
+        raise DiscoopError(ExitCode.BAD_ARGS, f"{path} is a file, not a folder.")
+    return str(path)
+
+
+def parse_value(key: str, raw: str) -> Any:
+    """Check and convert a value for `config set` (default-server is resolved by the CLI instead)."""
+    check_key(key)
+    return parse_export_dir(raw) if key == "export-dir" else parse_delay(raw)

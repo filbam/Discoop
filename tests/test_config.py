@@ -1,6 +1,6 @@
 import pytest
 
-from discoop.config import Config, parse_delay
+from discoop.config import Config, parse_delay, parse_value
 from discoop.errors import DiscoopError, ExitCode
 
 
@@ -43,3 +43,16 @@ def test_parse_delay():
     for bad in ("-1", "fast"):
         with pytest.raises(DiscoopError):
             parse_delay(bad)
+
+
+def test_export_dir(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert Config.default().get("export-dir") is None
+    assert parse_value("export-dir", "exports") == str(tmp_path / "exports")  # stored absolute
+    assert parse_value("export-dir", str(tmp_path / "a" / ".." / "b")) == str(tmp_path / "b")
+    assert parse_value("delay", "2") == 2.0
+    (tmp_path / "file.txt").write_text("x", encoding="utf-8")
+    for bad in ("", "  ", "file.txt"):
+        with pytest.raises(DiscoopError) as e:
+            parse_value("export-dir", bad)
+        assert e.value.code == ExitCode.BAD_ARGS

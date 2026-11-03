@@ -193,12 +193,31 @@ režime je `text`.
 - **Na zváženie, nemenené:** reply na správu, ktorá má len prílohu, nemá citát (`reply-to meno` bez textu).
   Rich embed, ktorý má len obrázok (bez URL, titulku a popisu), sa vo výstupe nezobrazí vôbec.
 
+**Krok 3 implementácie (prílohy, `--out`, `--zip`, manifest):**
+- Hotové, 223 testov (59 nových v `test_attachments.py` a `test_export.py`).
+- **Sťahovanie príloh:**
+  - Samostatný klient bez tokenu: token sa posiela výhradne na Discord API, CDN requesty (`cdn.discordapp.com`, `media.discordapp.net`) idú bez hlavičky `Authorization`.
+  - Obnova expirovaných podpisov cez `POST /attachments/refresh-urls` v dávkach po 50 pred stiahnutím (pri expirácii do 60 s) aj po odmietnutí CDN (403, 404, 410) v tempe nastavenom v konfigurácii (`delay`).
+  - Bezpečné mená pre Windows, Linux a macOS: skrátenie na 100 znakov a 200 bajtov, zachovanie prípony, orezanie bodiek a medzier, prefix `_` pre rezervované mená Windows (`CON`, `NUL`, ...).
+  - Priečinky kanálov skrátené na 50 znakov, pri kolízii názvov kanálov prípona `_<id>`.
+  - Zlyhaná príloha (chyba siete, prekročenie redirectov, neplatná URL) nezastaví export celého kanála, zapíše sa do manifestu a súhrn chýb ide na stderr.
+- **Export do priečinka a zipu:**
+  - Štruktúra: `manifest.json`, `messages.md`, `messages.jsonl`, `channels/<meno>.md` a `files/<kanál>/<attachment_id>_<meno>`.
+  - Atomický zápis: `.part` pre stiahnuté súbory a staging priečinok pre zip archív.
+  - Ochrana existujúcich dát: odmietnutie neprázdneho priečinka alebo súboru, ktorý nie je exportom discoop.
+  - Opakovaný beh opätovne použije už stiahnuté súbory so zhodným ID a veľkosťou (`present`), a to aj z predchádzajúceho `.zip` archívu.
+  - Kompresia v zip: `ZIP_DEFLATED` pre texty a manifest, `ZIP_STORED` pre súbory v `files/`.
+- **Prepínače a konfigurácia:**
+  - `--print` popri exporte vypíše správy na stdout s relatívnymi cestami, súhrn ide na stderr.
+  - `--no-files` preskočí sťahovanie súborov (`skipped`), `--max-file-size` preskočí súbory nad zadanú veľkosť v MB.
+  - Formáty `md` a `jsonl` sú dostupné aj pre konzolu.
+  - `discoop config set export-dir <cesta>` ukladá predvolený priečinok pre relatívne exportné cesty ako absolútnu cestu.
+- **Potvrdené defaulty:** dávkovanie po 50 a predstih 60 s pri `refresh-urls`, sekvenčné sťahovanie CDN s timeoutom 60 s a 3 pokusmi (pauzy 1 s a 2 s), limity mien 100/50 znakov a 200 bajtov, overenie cieľa cez `manifest.json`, `ZIP_STORED` pre `files/`.
+
 **Ďalej:**
-1. Krok 3: prílohy, `--out`/`--zip`, manifest.
-2. **Odložené, nízka priorita: rozhodnutie 9, výpočet prístupu ku kanálom.**
-   - Dôvody: používateľ to nepovažuje za dôležité a Discord podľa changelogu 2026-08-12 plánuje, že REST
-     prestane vracať nedostupné kanály aj používateľom.
-   - Podklady a možný postup sú v [analyzy/pristup-ku-kanalom.md](analyzy/pristup-ku-kanalom.md), sekcia 9.
+1. Test kroku 3 používateľom.
+2. Krok 4: vlákna a fóra (`threads`, `--threads/--no-threads`).
+3. Rozhodnutie 9 (výpočet prístupu ku kanálom) ostáva odložené (nízka priorita).
 
 Hotové z predchádzajúceho zoznamu: rozhodnutia 4 až 6 (ADR 0011), krok 2 a jeho test používateľom.
 

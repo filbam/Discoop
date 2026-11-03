@@ -56,3 +56,13 @@ def test_delay_paces_requests():
     now[0] += 0.25
     api.request("GET", "/b")
     assert sleeps == [0.75]
+
+
+@pytest.mark.parametrize(
+    "path", ["https://cdn.discordapp.com/attachments/1/2/a.png", "//cdn.discordapp.com/x", "users/@me"]
+)
+def test_token_never_leaves_the_api(path):
+    """The client with the token only takes API paths; files come from the CDN through another client."""
+    api, _ = make_api(lambda r: pytest.fail(f"request sent to {r.url}"))
+    with pytest.raises(ValueError):
+        api.request("GET", path)

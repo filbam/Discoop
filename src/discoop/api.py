@@ -59,7 +59,11 @@ class DiscordAPI:
         """Send a request. Retries 429, 5xx and network errors; maps 401 to AUTH_REQUIRED.
 
         Other 4xx responses are returned as they are, so callers can inspect them.
+        `path` is relative to the API base: the token is never sent anywhere else (files come from the CDN through
+        a separate client without it, see discoop.attachments).
         """
+        if not path.startswith("/") or path.startswith("//"):
+            raise ValueError(f"Not an API path: {path!r}. The token only goes to {API_BASE}.")
         attempt = 0
         while True:
             self._pace()

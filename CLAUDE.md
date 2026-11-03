@@ -5,8 +5,8 @@ analýzu študijných informácií (hlavne server VUT FIT). Je to osobný projek
 že scraping porušuje podmienky Discordu.
 
 Stav (2026-11-03): implementované sú `login` (QR aj `--token`), `status`, `logout`, `servers`, `channels`
-a `config` so SQLite cache, `messages` do konzoly (`text`/`json`). Aktuálne ďalšie kroky sú v bloku
-„Ďalej“ najnovšej sekcie [denníka](docs/dennik.md). Začni od [docs/poziadavky.md](docs/poziadavky.md) a
+a `config` so SQLite cache, `messages` do konzoly aj s exportom príloh do priečinka a zipu (`--out`, `--zip`, manifest).
+Aktuálne ďalšie kroky sú v bloku „Ďalej“ najnovšej sekcie [denníka](docs/dennik.md). Začni od [docs/poziadavky.md](docs/poziadavky.md) a
 [docs/navrh-nastroja.md](docs/navrh-nastroja.md).
 
 ## Dokumentácia: zaznamenávaj všetko

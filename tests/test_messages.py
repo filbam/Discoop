@@ -1,6 +1,5 @@
 import json
-from collections import Counter
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -13,19 +12,8 @@ from discoop.normalize import Normalizer, known_users
 from discoop.render import Query, jsonout, text
 from discoop.snowflake import Window
 from discoop.tokenstore import TokenStore
-from fake_messages import BOT, NOW, USER_A, USER_B, FakeChannel, message, series
+from fake_messages import BOT, CET, FIT, NOW, USER_A, USER_B, FakeChannel, FakeDiscord, message, series
 
-CET = timezone(timedelta(hours=1))
-FIT = "461541385204400138"
-GUILDS = [{"id": FIT, "name": "VUT FIT", "approximate_member_count": 5000}]
-CHANNELS = [
-    {"id": "100", "type": 4, "name": "general", "position": 1},
-    {"id": "200", "type": 0, "name": "2bit-general", "parent_id": "100", "position": 0},
-    {"id": "202", "type": 0, "name": "2bit-terminy", "parent_id": "100", "position": 1},
-    {"id": "203", "type": 0, "name": "general", "parent_id": "100", "position": 2},
-    {"id": "204", "type": 15, "name": "help-center", "position": 3},
-    {"id": "205", "type": 5, "name": "2bit-info", "parent_id": "100", "position": 4},
-]
 DEADLINE = 1794005940  # 2026-11-06 23:59 in UTC+01:00
 FILE_URL = "https://cdn.discordapp.com/attachments/200/800000000000000001/zadanie.pdf?ex=1&is=2&hm=3&"
 
@@ -112,43 +100,10 @@ def discord(monkeypatch):
     TokenStore.default().save("tok")
     monkeypatch.setattr(cli, "utc_now", lambda: NOW)
     monkeypatch.setattr(cli, "LOCAL_ZONE", CET)
-    fake = FakeDiscord()
+    fake = FakeDiscord({"200": FakeChannel(conversation())} | {c: FakeChannel([]) for c in ("202", "203", "205")})
     transport = httpx.MockTransport(fake.handle)
     monkeypatch.setattr(cli, "DiscordAPI", lambda token, **kw: DiscordAPI(token, transport=transport))
     return fake
-
-
-ERROR_CODES = {401: 0, 403: 50001, 404: 10003}  # Missing Access, Unknown Channel
-
-
-class FakeDiscord:
-    def __init__(self) -> None:
-        self.calls: Counter = Counter()
-        self.channels = {"200": FakeChannel(conversation())} | {c: FakeChannel([]) for c in ("202", "203", "205")}
-        self.status: dict[str, int | tuple[int, int]] = {}  # channel ID -> forced status (and JSON error code)
-
-    def handle(self, request: httpx.Request) -> httpx.Response:
-        path = request.url.path.removeprefix("/api/v9")
-        self.calls[path] += 1
-        if path == "/users/@me/guilds":
-            return httpx.Response(200, json=GUILDS)
-        if path == f"/guilds/{FIT}/channels":
-            return httpx.Response(200, json=CHANNELS)
-        parts = path.strip("/").split("/")
-        if parts[0] == "channels":
-            channel_id = parts[1]
-            if channel_id in self.status:
-                forced = self.status[channel_id]
-                status, code = forced if isinstance(forced, tuple) else (forced, ERROR_CODES[forced])
-                return httpx.Response(status, json={"message": "error", "code": code})
-            if len(parts) == 2:
-                known = next((c for c in CHANNELS if c["id"] == channel_id), None)
-                if known:
-                    return httpx.Response(200, json={**known, "guild_id": FIT})
-                return httpx.Response(404, json={"message": "Unknown Channel", "code": 10003})
-            if parts[2] == "messages" and channel_id in self.channels:
-                return self.channels[channel_id].respond(request)
-        return httpx.Response(404, json={"message": "Unknown Channel", "code": 10003})
 
 
 def run(capsys, *args):
@@ -254,7 +209,7 @@ def test_json(capsys, discord):
     }
     assert answer["attachments"] == [
         {"id": "800000000000000001", "filename": "zadanie.pdf", "type": "application/pdf", "size": 421888,
-         "url": FILE_URL}
+         "url": FILE_URL, "path": None}  # path: only when an export saved the file
     ]
     assert answer["reactions"] == [{"emoji": "✅", "count": 3, "super": 0}, {"emoji": ":peepolove:", "count": 1, "super": 0}]
     assert announcement["has_thread"] is True and announcement["pinned"] is True

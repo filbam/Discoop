@@ -109,6 +109,7 @@ class Attachment:
     type: str | None
     size: int
     url: str
+    path: str | None = None  # where an export saved the file, relative to the export folder (POSIX separators)
 
 
 @dataclass(frozen=True)

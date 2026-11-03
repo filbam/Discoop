@@ -6,6 +6,25 @@ verzie podľa [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Pridané
+- **Krok 3 implementácie: sťahovanie príloh, export do priečinka a zipu, manifest.**
+  - **Export do priečinka a zipu:** `discoop messages --out DIR` a `--zip FILE`.
+    - Štruktúra: `manifest.json`, `messages.md`, `messages.jsonl`, `channels/<kanál>.md` a `files/<kanál>/<attachment_id>_<meno>`.
+    - Cesty v `messages.md` a `messages.jsonl` sú relatívne k priečinku exportu (`files/...`), v `channels/*.md` k danému súboru (`../files/...`). Obrázky (`image/*`) sa v Markdown vkladajú priamo ako `![meno](cesta) veľkosť`.
+    - Opakovaný export do existujúceho priečinka alebo zipu opätovne použije už stiahnuté kompletné prílohy (`present`) a znova ich nesťahuje.
+    - Sťahovanie prebieha cez dočasné súbory `.part` a `.zip` sa stavia v staging priečinku a nahradí starší archív až po kompletnom dokončení.
+    - Ochrana pred prepísaním iných dát: neprázdny priečinok alebo súbor, ktorý nie je exportom discoop (chýba manifest s `"tool": "discoop"`), nástroj odmietne kódom 8 ešte pred volaním API.
+  - **Sťahovanie príloh z CDN:**
+    - Sťahovanie prebieha samostatným HTTP klientom **bez tokenu** (Discord CDN nevyžaduje autentifikáciu). `DiscordAPI` odmietne volania mimo API base.
+    - Obnova exspirovaných podpisov (`ex` v minulosti alebo do 60 s) a URL odmietnutých CDN (403, 404, 410) cez `POST /attachments/refresh-urls` v dávkach po 50 v tempe nastavenom v konfigurácii (`delay`).
+    - Zlyhaná príloha (chyba siete, zlyhané obnovenie URL, limit presmerovaní) nezastaví export, zaznamená sa v manifeste ako `failed` a súhrn chýb sa vypíše na stderr.
+    - Bezpečné mená súborov pre Windows, Linux a macOS: skrátenie na 100 znakov a 200 bajtov, zachovanie prípony, orezanie bodiek a medzier, prefix `_` pre rezervované mená Windows (`CON`, `NUL`, ...), deduplikácia a bezpečné priečinky kanálov (max 50 znakov, pri kolízii `_<id>`).
+  - **Nové prepínače a formáty:**
+    - `--print`: popri exporte vypíše správy aj do konzoly (s lokálnymi cestami k stiahnutým súborom); bez neho sa pri exporte vypíše len súhrn.
+    - `--no-files`: export bez sťahovania príloh (v manifeste ako `skipped`).
+    - `--max-file-size`: vynechanie príloh nad zadanú veľkosť v MB (predvolene 50 MB, `0` = bez limitu).
+    - `--format md` a `--format jsonl` v konzole aj s `--print`.
+    - `discoop config set export-dir <priečinok>`: predvolený priečinok pre relatívne cesty `--out`/`--zip`.
+  - Nové moduly `attachments.py`, `export.py`, testy `test_attachments.py`, `test_export.py` (spolu 223 testov).
 - `discoop messages`: super reakcie sú pri počte reakcie (`🔥5 (2 super)`), v JSON pole `reactions[].super`.
 - **Krok 2 implementácie: `discoop messages`** vypíše správy kanálov do konzoly.
   - **Výber:** `-c` meno, ID alebo vzor (`isc-*`), dá sa opakovať. Server cez `-s` alebo `default-server`,

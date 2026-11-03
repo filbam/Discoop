@@ -8,19 +8,23 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn, TransferSpeedColumn
 from rich.text import Text
 from rich.tree import Tree
 
-from discoop import __version__, login as login_flow, paths
+from discoop import __version__, export, login as login_flow, paths
 from discoop.api import DiscordAPI
+from discoop.attachments import DOWNLOADED, FAILED, NO_FILES, PRESENT, SKIPPED, FileJob, cdn_client
+from discoop.attachments import Progress as DownloadProgress
 from discoop.cache import Cache, clear_cache
-from discoop.config import DESCRIPTIONS, Config, check_key, parse_delay
+from discoop.config import DESCRIPTIONS, Config, check_key, parse_value
 from discoop.directory import Directory
 from discoop.errors import DiscoopError, ExitCode, auth_required
 from discoop.models import CATEGORY, LISTABLE_TYPES, MESSAGE_TYPES, Channel, ChannelMessages, Server, group_by_category
 from discoop.normalize import Normalizer, known_users
 from discoop.output import Output, detect_agent_mode
 from discoop.render import Query, jsonout, text as text_render
+from discoop.render.text import size_label
 from discoop.resolve import is_pattern
 from discoop.scrape import fetch_messages
 from discoop.snowflake import parse_window, to_local, to_time, utc_now
@@ -37,6 +41,8 @@ GETTING STARTED
                                    after that, --server can be left out
   discoop messages -s "VUT FIT" -c isc-public --from 7d
                                    print a channel's messages (default: last 24 h)
+  discoop messages -s "VUT FIT" -c isc-public --from 7d --out exports/isc
+                                   save them with their files (or --zip FILE)
   discoop status                   check that the stored login still works
   Servers and channels accept a name or an ID. Names ignore case,
   diacritics and emoji; a name that fits several items is an error."""
@@ -58,7 +64,7 @@ NOTE FOR AI AGENTS
   user to run `discoop login` in their own terminal."""
 
 MESSAGES_HELP = """\
-Print the messages of channels, oldest first.
+Print the messages of channels, oldest first, or export them with their files.
 
 \b
 Without --from/--to/--last you get the last 24 hours.
@@ -69,15 +75,30 @@ that whole day. --last N gives the N newest messages, from the
 whole history unless --from is given.
 
 \b
+Export with --out DIR (a folder) or --zip FILE (the same in a zip):
+  manifest.json      counts and the status of every file
+  messages.md        all channels (messages.jsonl: one JSON per line)
+  channels/NAME.md   one Markdown file per channel
+  files/NAME/        the attachments, as <attachment id>_<file name>
+Only a summary is printed; --print adds the messages. Paths in the
+messages are relative to the export. Exporting into the same folder
+again keeps the files already there. A relative DIR or FILE goes to
+the export-dir setting when it is set (discoop config set export-dir).
+
+\b
 Examples:
   discoop messages -s "VUT FIT" -c isc-public --from 7d
   discoop messages -c 1286436864789843999 --from 2026-10-01 --to 2026-10-31
   discoop messages -s "VUT FIT" -c "isc-*" --last 20 --format json
+  discoop messages -s "VUT FIT" -c isc-public --from 30d --out exports/isc
+  discoop messages -c 1286436864789843999 --from all --zip exports/isc.zip
 
-Attachments are listed with their Discord URL, which expires in 12 to 24 hours."""
+Without --out/--zip, attachments are only listed with their Discord URL, which expires in 12 to 24 hours."""
 
-FORMATS = ("text", "json")
+FORMATS = ("text", "md", "json", "jsonl")
 DEFAULT_MAX_MESSAGES = 5000
+DEFAULT_MAX_FILE_SIZE_MB = 50.0
+MB = 1024 * 1024
 # Local time zone for parsing and showing times; None = the system zone (tests set a fixed one).
 LOCAL_ZONE: tzinfo | None = None
 
@@ -251,12 +272,31 @@ def messages(
     last: int | None = typer.Option(
         None, "--last", metavar="N", help="Only the N newest messages.", show_default=False
     ),
-    output_format: str = typer.Option("text", "--format", help="text or json."),
+    output_format: str = typer.Option(
+        "text", "--format", help="text, md, json or jsonl. With --out/--zip it is the format of --print."
+    ),
     include_system: bool = typer.Option(
         False, "--include-system", help="Keep system messages (joins, pins, boosts, ...)."
     ),
     max_messages: int = typer.Option(
         DEFAULT_MAX_MESSAGES, "--max-messages", metavar="N", help="Stop after N messages per channel."
+    ),
+    out_dir: str | None = typer.Option(
+        None, "--out", metavar="DIR", help="Export to this folder, with the attachments.", show_default=False
+    ),
+    zip_file: str | None = typer.Option(
+        None, "--zip", metavar="FILE", help="Export to this zip file, with the attachments.", show_default=False
+    ),
+    print_messages: bool = typer.Option(
+        False, "--print", help="With --out/--zip: print the messages too, not only a summary."
+    ),
+    no_files: bool = typer.Option(False, "--no-files", help="With --out/--zip: do not download attachments."),
+    max_file_size: float | None = typer.Option(
+        None,
+        "--max-file-size",
+        metavar="MB",
+        help=f"With --out/--zip: skip larger attachments. Default {DEFAULT_MAX_FILE_SIZE_MB:g}, 0 = no limit.",
+        show_default=False,
     ),
 ) -> None:
     out: Output = ctx.obj
@@ -265,11 +305,13 @@ def messages(
         raise DiscoopError(ExitCode.BAD_ARGS, "--last must be at least 1.")
     if max_messages < 1:
         raise DiscoopError(ExitCode.BAD_ARGS, "--max-messages must be at least 1.")
+    export_to = _export_target(out_dir, zip_file, print_messages, no_files, max_file_size)
     window = parse_window(from_, to, now=utc_now(), tz=LOCAL_ZONE, whole_history=last is not None)
     limit = max_messages if last is None else min(last, max_messages)
-    query = Query(window, last, max_messages)
+    query = Query(window, last, max_messages, include_system)
     results: list[ChannelMessages] = []
     skipped: list[DiscoopError] = []
+    exported: export.Exported | None = None
     with _directory() as directory:
         targets = _message_targets(directory, server, channel)
         for target_server, target in targets:
@@ -306,18 +348,16 @@ def messages(
                 )
             items = tuple(normalizer.message(m) for m in fetched.messages)
             results.append(ChannelMessages(target_server, target, items, truncated))
-    if not results and skipped:
-        raise DiscoopError(skipped[0].code, "None of the channels could be read.", skipped[0].hint)
-    if output_format == "json":
-        if out.agent:
-            print(jsonout.dumps(results, query, LOCAL_ZONE))
-        else:
-            out.console.print_json(jsonout.dumps(results, query, LOCAL_ZONE))
-    elif out.agent:
-        print(text_render.plain(results, query, LOCAL_ZONE))
+        if not results and skipped:
+            raise DiscoopError(skipped[0].code, "None of the channels could be read.", skipped[0].hint)
+        if export_to is not None:
+            exported = _export(out, directory, export_to, results, query, no_files, max_file_size)
+    if exported is None:
+        _print_messages(out, results, query, output_format)
     else:
-        # The terminal wraps long lines itself, so URLs stay whole for clicking and copying.
-        out.console.print(text_render.styled(results, query, LOCAL_ZONE), soft_wrap=True)
+        if print_messages:
+            _print_messages(out, exported.results, query, output_format)
+        _export_report(out, exported, summary_on_stdout=not print_messages)
     if from_ is None and last is None:
         out.note("Messages from the last 24 hours. For more use --from 7d, --from 2026-10-01 or --from all.")
 
@@ -348,7 +388,7 @@ def config_set(
     key: str = typer.Argument(..., help="Setting name."),
     value: str = typer.Argument(..., help="New value. default-server takes a server name or ID."),
 ) -> None:
-    """Change a setting. default-server is resolved and stored as the server ID."""
+    """Change a setting. default-server is stored as the server ID, export-dir as an absolute path."""
     out: Output = ctx.obj
     config = Config.default()
     check_key(key)
@@ -358,7 +398,7 @@ def config_set(
         config.set(key, target.id)
         out.message(f"default-server = {target.id} ({target.name})")
     else:
-        config.set(key, parse_delay(value))
+        config.set(key, parse_value(key, value))
         out.message(f"{key} = {config.get(key)}")
 
 
@@ -405,6 +445,185 @@ def _parse_format(raw: str) -> str:
     if value not in FORMATS:
         raise DiscoopError(ExitCode.BAD_ARGS, f'Unknown format "{raw}".', f"Use one of: {', '.join(FORMATS)}.")
     return value
+
+
+def _print_messages(out: Output, results: list[ChannelMessages], query: Query, output_format: str) -> None:
+    if output_format == "json":
+        if out.agent:
+            print(jsonout.dumps(results, query, LOCAL_ZONE))
+        else:
+            out.console.print_json(jsonout.dumps(results, query, LOCAL_ZONE))
+    elif output_format == "jsonl":
+        lines = jsonout.lines(results, LOCAL_ZONE)
+        if lines:
+            _print_plain(out, "\n".join(lines))
+    elif output_format == "md":
+        _print_plain(out, text_render.markdown(results, query, LOCAL_ZONE))
+    elif out.agent:
+        print(text_render.plain(results, query, LOCAL_ZONE))
+    else:
+        # The terminal wraps long lines itself, so URLs stay whole for clicking and copying.
+        out.console.print(text_render.styled(results, query, LOCAL_ZONE), soft_wrap=True)
+
+
+def _print_plain(out: Output, data: str) -> None:
+    if out.agent:
+        print(data)
+    else:
+        out.console.print(Text(data), soft_wrap=True)
+
+
+def _export_target(
+    out_dir: str | None, zip_file: str | None, print_messages: bool, no_files: bool, max_file_size: float | None
+) -> tuple[Path, bool] | None:
+    """The export path and whether it is a zip, checked before any request; None without --out/--zip."""
+    if out_dir is not None and zip_file is not None:
+        raise DiscoopError(ExitCode.BAD_ARGS, "--out and --zip cannot be used together.", "Choose one of them.")
+    raw = out_dir if out_dir is not None else zip_file
+    if raw is None:
+        given = (("--print", print_messages), ("--no-files", no_files), ("--max-file-size", max_file_size is not None))
+        flags = [flag for flag, used in given if used]
+        if flags:
+            raise DiscoopError(
+                ExitCode.BAD_ARGS,
+                f"{', '.join(flags)} only work{'s' if len(flags) == 1 else ''} with --out or --zip.",
+                "Without them the messages are printed and no files are downloaded.",
+            )
+        return None
+    if max_file_size is not None and max_file_size < 0:
+        raise DiscoopError(ExitCode.BAD_ARGS, "--max-file-size cannot be negative.", "Use 0 for no limit.")
+    path = Path(raw).expanduser()
+    base = Config.default().get("export-dir")
+    if not path.is_absolute() and base:
+        path = Path(base) / path
+    path = path.resolve()
+    as_zip = zip_file is not None
+    export.check_target(path, as_zip)
+    return path, as_zip
+
+
+def _export(
+    out: Output,
+    directory: Directory,
+    export_to: tuple[Path, bool],
+    results: list[ChannelMessages],
+    query: Query,
+    no_files: bool,
+    max_file_size: float | None,
+) -> export.Exported:
+    limit = DEFAULT_MAX_FILE_SIZE_MB if max_file_size is None else max_file_size
+    options = export.Options(files=not no_files, max_file_size=int(limit * MB) if limit > 0 else None)
+    progress = _AgentDownloads(out) if out.agent else _HumanDownloads(out)
+    path, as_zip = export_to
+    with cdn_client() as cdn:
+        return export.export(
+            path,
+            as_zip,
+            results,
+            query,
+            api=directory.api(),
+            cdn=cdn,
+            options=options,
+            created=utc_now(),
+            tz=LOCAL_ZONE,
+            now=lambda: utc_now().timestamp(),
+            progress=progress,
+        )
+
+
+def _export_report(out: Output, exported: export.Exported, summary_on_stdout: bool) -> None:
+    """The summary (stdout, or a stderr note when --print put the messages there) and warnings about files."""
+    jobs = exported.jobs
+    counts = {status: exported.count(status) for status in (DOWNLOADED, PRESENT, FAILED, SKIPPED)}
+    messages = sum(len(r.messages) for r in exported.results)
+    truncated = any(r.truncated for r in exported.results)
+    if summary_on_stdout:
+        out.fields(
+            {
+                "export": exported.path,
+                "channels": len(exported.results),
+                "messages": messages,
+                "files": len(jobs),
+                "downloaded": counts[DOWNLOADED],
+                "already_present": counts[PRESENT],
+                "failed": counts[FAILED],
+                "skipped": counts[SKIPPED],
+                "truncated": "yes" if truncated else "no",
+            },
+            title="Export",
+        )
+    else:
+        out.note(
+            f"Exported to {exported.path}: {len(exported.results)} channels, {messages} messages, {len(jobs)} files"
+            f" ({counts[DOWNLOADED]} downloaded, {counts[PRESENT]} already present, {counts[FAILED]} failed,"
+            f" {counts[SKIPPED]} skipped)."
+        )
+    failed = [job for job in jobs if job.status == FAILED]
+    if failed:
+        out.warning(
+            f"{len(failed)} of {len(jobs)} files could not be downloaded; manifest.json lists them as failed: "
+            + _examples(failed, lambda job: f"{job.attachment.filename} ({job.reason})")
+        )
+    too_large = [job for job in jobs if job.status == SKIPPED and job.reason != NO_FILES]
+    if too_large:
+        out.warning(
+            f"{len(too_large)} files larger than --max-file-size were not downloaded (use --max-file-size 0 for all): "
+            + _examples(too_large, lambda job: f"{job.attachment.filename} ({size_label(job.attachment.size)})")
+        )
+
+
+def _examples(jobs: list[FileJob], describe: Callable[[FileJob], str], count: int = 3) -> str:
+    shown = "; ".join(describe(job) for job in jobs[:count])
+    return shown + ("; ..." if len(jobs) > count else ".")
+
+
+class _AgentDownloads(DownloadProgress):
+    """Download progress for agents: notes on stderr, seen with --verbose."""
+
+    def __init__(self, out: Output) -> None:
+        self.out = out
+
+    def start(self, files: int, total_bytes: int) -> None:
+        self.out.note(f"Downloading {files} files ({size_label(total_bytes)})")
+
+    def file(self, number: int, total: int, job: FileJob) -> None:
+        self.out.note(f"Downloading {number}/{total}: {job.path}")
+
+    def note(self, text: str) -> None:
+        self.out.note(text)
+
+
+class _HumanDownloads(DownloadProgress):
+    """Download progress for humans: a Rich progress bar on stderr."""
+
+    def __init__(self, out: Output) -> None:
+        self.bar = Progress(
+            TextColumn("{task.description}"),
+            BarColumn(),
+            DownloadColumn(),
+            TransferSpeedColumn(),
+            console=out.err_console,
+            transient=True,
+        )
+        self.task: Any = None
+
+    def start(self, files: int, total_bytes: int) -> None:
+        self.bar.start()
+        self.task = self.bar.add_task(f"Downloading {files} files", total=total_bytes or None)
+
+    def file(self, number: int, total: int, job: FileJob) -> None:
+        name = job.attachment.filename
+        short = name if len(name) <= 40 else name[:39] + "…"
+        self.bar.update(self.task, description=f"Downloading {number}/{total} {short}")
+
+    def advance(self, size: int) -> None:
+        self.bar.advance(self.task, size)
+
+    def finish(self) -> None:
+        self.bar.stop()
+
+    def note(self, text: str) -> None:
+        self.bar.console.print(Text(text, style="dim"))
 
 
 def _message_targets(directory: Directory, server: str | None, queries: list[str]) -> list[tuple[Server, Channel]]:
