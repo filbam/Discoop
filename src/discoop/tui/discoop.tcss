@@ -537,3 +537,51 @@ ModalScreen {
 #preview-content {
     color: #dbdee1;
 }
+
+/* ==================== Login Modal ==================== */
+
+.login-modal-dialog {
+    width: 76;
+    max-width: 95%;
+    height: auto;
+    max-height: 92%;
+    overflow-y: auto;
+}
+
+#qr-container {
+    align: center middle;
+    height: auto;
+    margin: 1 0;
+}
+
+#btn-login-qr {
+    background: #5865F2;
+    color: #ffffff;
+    text-style: bold;
+    min-width: 24;
+    margin-bottom: 1;
+}
+
+#btn-login-qr:hover {
+    background: #4752c4;
+}
+
+#qr-box {
+    width: auto;
+    height: auto;
+    content-align: center middle;
+}
+
+#qr-status-lbl {
+    text-align: center;
+    width: 100%;
+    margin-top: 1;
+    color: #dbdee1;
+}
+
+#qr-countdown-lbl {
+    text-align: center;
+    width: 100%;
+    color: #fee75c;
+    text-style: bold;
+}

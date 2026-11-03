@@ -10,9 +10,11 @@ Provides:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+import asyncio
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime
 from pathlib import Path
+import time
 from typing import Any
 
 from rich.text import Text
@@ -20,6 +22,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
+from textual.timer import Timer
 from textual.widgets import (
     Button,
     Input,
@@ -36,6 +39,10 @@ from discoop.cli import LOCAL_ZONE
 from discoop.config import Config
 from discoop.errors import DiscoopError
 from discoop.models import ChannelMessages
+from discoop.qr import qr_text
+from discoop.remote_auth.crypto import UserPayload
+from discoop.remote_auth.protocol import GATEWAY_URL, LoginTicket, wait_for_ticket
+from discoop.remote_auth.trace import Trace
 from discoop.render import Query, jsonout, text as text_render
 from discoop.snowflake import Window, parse_window, utc_now
 from discoop.tokenstore import TokenStore
@@ -523,17 +530,25 @@ class LoginModal(ModalScreen[bool]):
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
+        Binding("g", "generate_qr", "Generate QR"),
     ]
 
-    def __init__(self, api_factory: Callable[..., DiscordAPI] | None = None) -> None:
+    def __init__(
+        self,
+        api_factory: Callable[..., DiscordAPI] | None = None,
+        wait_for_ticket_fn: Callable[..., Awaitable[LoginTicket | None]] = wait_for_ticket,
+    ) -> None:
         super().__init__()
         self.api_factory = api_factory or DiscordAPI
+        self.wait_for_ticket_fn = wait_for_ticket_fn
+        self._qr_deadline: float | None = None
+        self._countdown_timer: Timer | None = None
 
     def compose(self) -> ComposeResult:
         store = TokenStore.default()
         stored = store.load()
 
-        with Container(classes="modal-dialog"):
+        with Container(classes="modal-dialog login-modal-dialog"):
             yield Label("Discord Authentication", classes="modal-title")
 
             if stored is not None:
@@ -541,10 +556,13 @@ class LoginModal(ModalScreen[bool]):
             else:
                 yield Label("🔴 No token currently stored.", id="login-status-lbl")
 
-            yield Label(
-                "To log in using QR code scan with your phone, run [bold]discoop login[/bold] in your terminal.",
-                classes="section-label",
-            )
+            yield Label("Log in via Discord mobile app:", classes="section-label")
+            with Vertical(id="qr-container"):
+                yield Button("📱 Generate QR Code", id="btn-login-qr")
+                yield Static("", id="qr-box")
+                yield Label("", id="qr-status-lbl")
+                yield Label("", id="qr-countdown-lbl")
+
             yield Label("Or paste your Discord user token below:", classes="section-label")
 
             yield Input(
@@ -560,8 +578,19 @@ class LoginModal(ModalScreen[bool]):
                     yield Button("Logout / Clear", variant="error", id="btn-login-logout")
                 yield Button("Cancel", variant="default", id="btn-login-cancel")
 
+    def on_unmount(self) -> None:
+        if self._countdown_timer is not None:
+            self._countdown_timer.stop()
+            self._countdown_timer = None
+
     def action_cancel(self) -> None:
+        if self._countdown_timer is not None:
+            self._countdown_timer.stop()
+            self._countdown_timer = None
         self.dismiss(False)
+
+    def action_generate_qr(self) -> None:
+        self._start_qr_login()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id
@@ -570,10 +599,97 @@ class LoginModal(ModalScreen[bool]):
         elif btn_id == "btn-login-logout":
             TokenStore.default().delete()
             clear_cache()
+            if self._countdown_timer is not None:
+                self._countdown_timer.stop()
+                self._countdown_timer = None
             self.notify("Logged out and cache cleared.", title="Logout")
             self.dismiss(True)
         elif btn_id == "btn-login-save":
             self._verify_token()
+        elif btn_id == "btn-login-qr":
+            self._start_qr_login()
+
+    def _start_qr_login(self) -> None:
+        self.query_one("#login-error", Label).update("")
+        if self._countdown_timer is not None:
+            self._countdown_timer.stop()
+        self._countdown_timer = self.set_interval(1.0, self._tick_countdown)
+        self.run_worker(self._run_qr_login(), exclusive=True, group="qr")
+
+    def _tick_countdown(self) -> None:
+        if not self.is_mounted:
+            return
+        if self._qr_deadline is not None:
+            left = max(0, int(self._qr_deadline - time.monotonic()))
+            self.query_one("#qr-countdown-lbl", Label).update(f"Expires in {left // 60}:{left % 60:02d}")
+        else:
+            self.query_one("#qr-countdown-lbl", Label).update("")
+
+    def on_connecting(self, session: int) -> None:
+        self._qr_deadline = None
+        self.query_one("#qr-box", Static).update("")
+        self.query_one("#qr-countdown-lbl", Label).update("")
+        if session > 1:
+            self.query_one("#qr-status-lbl", Label).update("Getting a new QR code...")
+        else:
+            self.query_one("#qr-status-lbl", Label).update("Connecting to Discord QR gateway...")
+
+    def on_qr(self, url: str, deadline: float | None) -> None:
+        self._qr_deadline = deadline
+        self.query_one("#qr-box", Static).update(qr_text(url))
+        self.query_one("#qr-status-lbl", Label).update(
+            "Scan this QR code with the Discord mobile app (Settings > Scan QR Code)."
+        )
+        self._tick_countdown()
+
+    def on_scanned(self, user: UserPayload) -> None:
+        self._qr_deadline = None
+        self.query_one("#qr-box", Static).update("")
+        self.query_one("#qr-countdown-lbl", Label).update("")
+        self.query_one("#qr-status-lbl", Label).update(
+            f"Scanned as {user.username}! Confirm the login on your phone..."
+        )
+
+    def on_restart(self, reason: str) -> None:
+        self._qr_deadline = None
+        self.query_one("#qr-box", Static).update("")
+        self.query_one("#qr-countdown-lbl", Label).update("")
+        self.query_one("#qr-status-lbl", Label).update(
+            f"{reason.capitalize()}, getting a new QR code..."
+        )
+
+    async def _run_qr_login(self) -> None:
+        try:
+            ticket = await self.wait_for_ticket_fn(self)
+            if ticket is None:
+                return
+
+            def _exchange_and_store() -> tuple[dict[str, Any], str]:
+                with Trace(None) as trace:
+                    with self.api_factory(None) as api:
+                        token = login_flow.exchange_ticket(ticket, api, trace)
+                me, location = login_flow.verify_and_store(token, TokenStore.default(), self.api_factory)
+                return me, location
+
+            me, _ = await asyncio.to_thread(_exchange_and_store)
+            clear_cache()
+            if self._countdown_timer is not None:
+                self._countdown_timer.stop()
+                self._countdown_timer = None
+            self.notify(f"Logged in as {me.get('username', 'user')}!", title="Success")
+            self.dismiss(True)
+        except asyncio.CancelledError:
+            pass
+        except DiscoopError as e:
+            if self._countdown_timer is not None:
+                self._countdown_timer.stop()
+                self._countdown_timer = None
+            self.query_one("#login-error", Label).update(e.message)
+        except Exception as e:
+            if self._countdown_timer is not None:
+                self._countdown_timer.stop()
+                self._countdown_timer = None
+            self.query_one("#login-error", Label).update(f"Login failed: {e}")
 
     def _verify_token(self) -> None:
         error_label = self.query_one("#login-error", Label)
@@ -587,6 +703,9 @@ class LoginModal(ModalScreen[bool]):
         try:
             me, location = login_flow.verify_and_store(token, TokenStore.default(), self.api_factory)
             clear_cache()
+            if self._countdown_timer is not None:
+                self._countdown_timer.stop()
+                self._countdown_timer = None
             self.notify(f"Logged in as {me.get('username', 'user')}!", title="Success")
             self.dismiss(True)
         except DiscoopError as e:

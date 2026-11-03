@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import contextlib
 from dataclasses import replace
 from datetime import timedelta
 import io
 import json
 from pathlib import Path
+import time
 from typing import Any
 
 import httpx
 import pytest
-from textual.widgets import OptionList, Static, TabbedContent
+from textual.widgets import Input, Label, OptionList, Static, TabbedContent
 
 from discoop import cli, service
 from discoop.api import DiscordAPI
@@ -20,9 +23,11 @@ from discoop.cache import Cache
 from discoop.cli import command_help
 from discoop.directory import Directory
 from discoop.models import Channel, Server
+from discoop.remote_auth.crypto import OAEP_SHA256, RemoteAuthKeys, UserPayload
+from discoop.remote_auth.protocol import LoginTicket
 from discoop.tokenstore import TokenStore
 from discoop.tui.app import DiscoopApp
-from discoop.tui.modals import HelpScreen
+from discoop.tui.modals import HelpScreen, LoginModal
 from discoop.tui.state import ExportSettings, SelectionState, WindowSpec, plan_jobs
 from fake_messages import CET, FIT, NOW, FakeChannel, FakeDiscord, Network, series
 
@@ -357,3 +362,163 @@ def test_cli_and_service_export_equivalence(tmp_path: Path, monkeypatch: pytest.
     assert manifest_service["complete"] == manifest_cli["complete"]
     assert manifest_service["truncated"] == manifest_cli["truncated"]
     assert manifest_service["created"] == manifest_cli["created"]
+
+
+async def test_login_modal_qr_code_display_and_login() -> None:
+    """Test LoginModal QR generation, rendering scannable code, and finishing login."""
+    keys = RemoteAuthKeys()
+    user = UserPayload(id="42", discriminator="0001", avatar=None, username="qr_user")
+    token_value = "qr-auth-token-xyz"
+
+    def mock_handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if "remote-auth/login" in path:
+            body = json.loads(request.content)
+            assert body == {"ticket": "test-ticket-999"}
+            encrypted = keys.public_key.encrypt(token_value.encode("utf-8"), OAEP_SHA256)
+            return httpx.Response(200, json={"encrypted_token": base64.b64encode(encrypted).decode("ascii")})
+        if "users/@me" in path:
+            return httpx.Response(200, json={"id": "42", "username": "qr_user", "global_name": "QR User"})
+        if "guilds" in path:
+            return httpx.Response(200, json=[])
+        return httpx.Response(404, json={"message": "Not Found"})
+
+    api_factory = _make_dummy_api_factory(transport=httpx.MockTransport(mock_handler))
+
+    qr_shown = asyncio.Event()
+    finish_login = asyncio.Event()
+
+    async def fake_wait_for_ticket(listener: Any, **kwargs: Any) -> LoginTicket:
+        listener.on_connecting(1)
+        listener.on_qr("https://discord.com/ra/testfingerprint123", time.monotonic() + 120)
+        qr_shown.set()
+        await finish_login.wait()
+        listener.on_scanned(user)
+        return LoginTicket(ticket="test-ticket-999", keys=keys, user=user)
+
+    app = DiscoopApp(api_factory=api_factory)
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+
+        # Push LoginModal with fake wait_for_ticket_fn
+        modal = LoginModal(api_factory=api_factory, wait_for_ticket_fn=fake_wait_for_ticket)
+        app.push_screen(modal)
+        await pilot.pause()
+
+        assert isinstance(app.screen, LoginModal)
+
+        # Click the Generate QR Code button
+        await pilot.click("#btn-login-qr")
+
+        # Wait until QR code is displayed
+        await qr_shown.wait()
+        await pilot.pause()
+
+        # Assert QR code is displayed
+        qr_box = modal.query_one("#qr-box", Static)
+        assert "▀" in str(qr_box.content)
+
+        # Assert status label mentions scanning the QR code
+        status_lbl = modal.query_one("#qr-status-lbl", Label)
+        assert "Scan this QR code with the Discord mobile app" in str(status_lbl.content)
+
+        # Assert countdown label shows remaining time
+        countdown_lbl = modal.query_one("#qr-countdown-lbl", Label)
+        assert "Expires in" in str(countdown_lbl.content)
+
+        # Signal fake_wait_for_ticket to proceed with scanned and return ticket
+        finish_login.set()
+        await pilot.pause()
+        await asyncio.sleep(0.05)
+        await pilot.pause()
+
+        # Modal should be dismissed
+        assert not isinstance(app.screen, LoginModal)
+
+        # Token should be stored
+        stored = TokenStore.default().load()
+        assert stored is not None
+        assert stored.token == token_value
+
+
+async def test_login_modal_listener_callbacks() -> None:
+    """Test listener callback state updates in LoginModal."""
+    api_factory = _make_dummy_api_factory()
+    modal = LoginModal(api_factory=api_factory)
+
+    app = DiscoopApp(api_factory=api_factory)
+    async with app.run_test(size=(140, 40)) as pilot:
+        app.push_screen(modal)
+        await pilot.pause()
+
+        # on_connecting (session 1)
+        modal.on_connecting(1)
+        assert str(modal.query_one("#qr-status-lbl", Label).content) == "Connecting to Discord QR gateway..."
+        assert str(modal.query_one("#qr-box", Static).content) == ""
+
+        # on_qr
+        modal.on_qr("https://discord.com/ra/test1234", time.monotonic() + 60)
+        assert "▀" in str(modal.query_one("#qr-box", Static).content)
+        assert "Scan this QR code" in str(modal.query_one("#qr-status-lbl", Label).content)
+        assert "Expires in" in str(modal.query_one("#qr-countdown-lbl", Label).content)
+
+        # on_restart
+        modal.on_restart("qr code expired")
+        assert str(modal.query_one("#qr-box", Static).content) == ""
+        assert "expired" in str(modal.query_one("#qr-status-lbl", Label).content).lower()
+        assert str(modal.query_one("#qr-countdown-lbl", Label).content) == ""
+
+        # on_connecting (session 2)
+        modal.on_connecting(2)
+        assert str(modal.query_one("#qr-status-lbl", Label).content) == "Getting a new QR code..."
+
+        # on_scanned
+        user = UserPayload(id="123", discriminator="0001", avatar=None, username="phone_user")
+        modal.on_scanned(user)
+        assert str(modal.query_one("#qr-box", Static).content) == ""
+        assert "phone_user" in str(modal.query_one("#qr-status-lbl", Label).content)
+
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, LoginModal)
+
+
+async def test_login_modal_paste_token_and_logout() -> None:
+    """Test manual token pasting and logout in LoginModal."""
+    TokenStore.default().delete()
+
+    api_factory = _make_dummy_api_factory()
+    app = DiscoopApp(api_factory=api_factory)
+    async with app.run_test(size=(140, 40)) as pilot:
+        await pilot.pause()
+
+        # Open LoginModal
+        modal = LoginModal(api_factory=api_factory)
+        app.push_screen(modal)
+        await pilot.pause()
+
+        # Try save with empty token -> error
+        await pilot.click("#btn-login-save")
+        await pilot.pause()
+        assert "Please enter a Discord token" in str(modal.query_one("#login-error", Label).content)
+
+        # Enter token and save (pause to avoid double-click threshold)
+        await asyncio.sleep(0.5)
+        modal.query_one("#input-token", Input).value = "pasted-secret-token"
+        await pilot.click("#btn-login-save")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, LoginModal)
+        assert TokenStore.default().load().token == "pasted-secret-token"
+
+        # Reopen LoginModal to test logout
+        modal2 = LoginModal(api_factory=api_factory)
+        app.push_screen(modal2)
+        await pilot.pause()
+
+        assert modal2.query_one("#btn-login-logout") is not None
+        await pilot.click("#btn-login-logout")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, LoginModal)
+        assert TokenStore.default().load() is None
