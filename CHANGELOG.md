@@ -6,6 +6,8 @@ verzie podľa [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Pridané
+- ADR 0010: prácu robia agenti, hlavný Claude ich riadi, kontroluje a commituje. Pravidlá v `CLAUDE.md`,
+  sekcia „Práca cez agentov“.
 - **Krok 1 implementácie:** `discoop servers`, `discoop channels`, `discoop config`.
   - Zoznamy sa ukladajú do lokálnej SQLite cache a obnovujú cez `--refresh`, pri prvom použití,
     alebo raz automaticky, keď sa meno nenájde.
@@ -41,6 +43,7 @@ verzie podľa [SemVer](https://semver.org/).
 - ADR 0005: QR login v termináli bez prehliadača.
 
 ### Zmenené
+- `CLAUDE.md`: aktuálny stav projektu namiesto „návrh, zatiaľ bez kódu“.
 - Analýzy doplnené o výsledky prototypu:
   - `discord-analyza.md`, sekcia 15,
   - `discord-login.md`, sekcia 7: reálny QR login bez captchy.

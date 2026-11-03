@@ -4,7 +4,9 @@ CLI nástroj na sťahovanie správ a príloh z Discord serverov, ktorých je pou
 analýzu študijných informácií (hlavne server VUT FIT). Je to osobný projekt na študijné účely. Používateľ vie,
 že scraping porušuje podmienky Discordu.
 
-Stav: návrh, zatiaľ bez kódu. Začni od [docs/poziadavky.md](docs/poziadavky.md) a
+Stav (2026-11-03): implementované sú `login` (QR aj `--token`), `status`, `logout`, `servers`, `channels`
+a `config` so SQLite cache, 71 testov. Ďalší na rade je príkaz `messages`. Aktuálne ďalšie kroky sú v bloku
+„Ďalej“ najnovšej sekcie [denníka](docs/dennik.md). Začni od [docs/poziadavky.md](docs/poziadavky.md) a
 [docs/navrh-nastroja.md](docs/navrh-nastroja.md).
 
 ## Dokumentácia: zaznamenávaj všetko
@@ -35,6 +37,23 @@ Pravidlá:
 - **Jazyk:** dokumenty po slovensky, technické termíny, kód a commit správy po anglicky.
 - **Bez citlivých údajov:** žiadny token, cookies ani mená či texty správ iných ľudí. Príklady anonymizuj.
 
+## Práca cez agentov
+
+Hlavný Claude prácu nerobí sám, vysiela agentov a riadi ich ([ADR 0010](docs/rozhodnutia/0010-praca-cez-agentov.md)).
+- **Hlavný Claude:**
+  - hovorí s používateľom, delí prácu na kroky a píše agentom samostatné zadania
+    (čo je hotové, ktoré súbory, čo má byť výsledkom, ako to overiť),
+  - výsledok kontroluje sám (diff, `uv run pytest`), správa agenta nie je dôkaz,
+  - sám nepíše kód ani dokumenty, chyby vracia agentovi. Výnimka: triviálna oprava pri kontrole.
+- **Agenti:**
+  - robia celý krok vrátane testov a záznamov podľa tohto súboru,
+  - necommitujú a nepushujú,
+  - na konci vrátia stručnú správu: čo zmenili, ako to overili, čo ostalo otvorené.
+- **Súbežnosť:** čítajúci agenti môžu bežať naraz. Píšuci agenti nikdy nemenia rovnaké súbory, inak idú za sebou.
+  Denník v jednom bloku práce píše len jeden agent.
+- **Discord:** pravidlá pre Discord API (sekcia Vývoj) a sekcia Práca s Discordom platia pre agentov rovnako.
+  Agent v prehliadači používateľa pracuje len podľa ADR 0003 a len keď o to používateľ požiada.
+
 ## Git
 
 - Repo: `github.com/filbam/Discoop` (súkromné), vetva `main` ([ADR 0002](docs/rozhodnutia/0002-sukromne-repo-a-identita.md)).
@@ -42,7 +61,8 @@ Pravidlá:
 - **Prihlásenie na GitHub:** ako `filbam` (`credential.https://github.com.username`). Predvolený účet
   `FilipBambura` súkromné repo nevidí.
 - **Commit správy:** po anglicky, s Co-Authored-By riadkom.
-- **Commit:** sám po každom hotovom a otestovanom kroku (dohodnuté 2026-11-03).
+- **Commit:** sám po každom hotovom a otestovanom kroku (dohodnuté 2026-11-03). Commituje hlavný Claude
+  po kontrole práce agenta ([ADR 0010](docs/rozhodnutia/0010-praca-cez-agentov.md)).
 - **Push:** iba na pokyn používateľa.
 
 ## Vývoj

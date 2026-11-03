@@ -117,6 +117,13 @@ skončí chybou s radou na `--token`.
     sú opravené.
   - Riešenie je otvorené rozhodnutie 9: výpočet prístupu z práv a rolí.
 
+**Zmena spôsobu práce** ([ADR 0010](rozhodnutia/0010-praca-cez-agentov.md)):
+- Hlavná konverzácia pri implementácii minula kontext a musela sa zhrnúť.
+- Používateľ určil: prácu robia agenti, hlavný Claude ich riadi, kontroluje výsledok (diff, `uv run pytest`)
+  a commituje.
+- Agenti necommitujú. Píšuci agenti nemenia rovnaké súbory a denník v bloku práce píše len jeden.
+- `CLAUDE.md` má novú sekciu „Práca cez agentov“ a aktuálny stav projektu.
+
 **Ďalej:**
 1. Rozhodnutie 9: výpočet prístupu ku kanálom. Treba overiť, ako pre user token získať roly člena.
 2. Potvrdiť zvyšné rozhodnutia z návrhu (sekcia 15, body 4 až 6). Týkajú sa `messages`.
