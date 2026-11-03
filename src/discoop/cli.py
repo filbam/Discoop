@@ -1,11 +1,16 @@
 """Command line entry point."""
 
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime, tzinfo
 from pathlib import Path
 from typing import Any
+
+try:
+    import click
+except ImportError:
+    from typer import _click as click
 
 import typer
 from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn, TransferSpeedColumn
@@ -27,6 +32,14 @@ from discoop.render import Query, jsonout, text as text_render
 from discoop.render.text import size_label
 from discoop.resolve import is_pattern
 from discoop.scrape import fetch_messages
+from discoop.service import (
+    Events,
+    MessagesOutcome,
+    MessagesRequest,
+    resolve_targets,
+    run_messages,
+    validate_export_target,
+)
 from discoop.snowflake import parse_window, to_local, to_time, utc_now
 from discoop.tokenstore import TokenStore
 
@@ -35,6 +48,7 @@ SUMMARY = "Download messages and files from Discord servers you are a member of.
 GETTING_STARTED = """\
 GETTING STARTED
   discoop login                    log in by scanning a QR code with the Discord app
+  discoop ui                       interactive terminal user interface
   discoop servers                  list your servers
   discoop channels -s "VUT FIT"    list the channels of a server
   discoop config set default-server "VUT FIT"
@@ -132,6 +146,7 @@ def _root(
     human: bool = typer.Option(False, "--human", help="Force the rich output for humans."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show progress notes in plain mode."),
     version: bool = typer.Option(False, "--version", help="Show the version and exit."),
+    ui_flag: bool = typer.Option(False, "--ui", help="Start the interactive terminal UI."),
 ) -> None:
     out: Output = ctx.obj
     if (plain or agent) and human:
@@ -140,9 +155,27 @@ def _root(
     if version:
         out.message(f"discoop {__version__}")
         raise typer.Exit()
+    if ui_flag:
+        ui(ctx)
+        raise typer.Exit()
     if ctx.invoked_subcommand is None:
         typer.echo(ctx.get_help())
         raise typer.Exit()
+
+
+@app.command()
+def ui(ctx: typer.Context) -> None:
+    """Start the interactive terminal user interface."""
+    out: Output = ctx.obj
+    if out.plain:
+        raise DiscoopError(
+            ExitCode.BAD_ARGS,
+            "discoop ui requires an interactive terminal.",
+            "Use commands such as `discoop messages` in scripts or with --plain.",
+        )
+    from discoop.tui.app import run_app
+
+    run_app()
 
 
 @app.command()
@@ -322,69 +355,47 @@ def messages(
     output_format = _parse_format(output_format)
     if safe and fast:
         raise DiscoopError(ExitCode.BAD_ARGS, "--safe and --fast cannot be used together.", "Choose one of them.")
-    if delay is not None and delay < 0:
-        raise DiscoopError(ExitCode.BAD_ARGS, "--delay cannot be negative.", "Use seconds, e.g. 1 or 0.5.")
-    if last is not None and last < 1:
-        raise DiscoopError(ExitCode.BAD_ARGS, "--last must be at least 1.")
-    if max_messages < 1:
-        raise DiscoopError(ExitCode.BAD_ARGS, "--max-messages must be at least 1.")
     selected_mode = "safe" if safe else ("fast" if fast else (Config.default().get("mode") or "safe"))
     effective_delay = delay if delay is not None else Config.default().get("delay")
-    export_to = _export_target(out_dir, zip_file, print_messages, no_files, max_file_size)
-    window = parse_window(from_, to, now=utc_now(), tz=LOCAL_ZONE, whole_history=last is not None)
-    limit = max_messages if last is None else min(last, max_messages)
-    query = Query(window, last, max_messages, include_system, mode=selected_mode)
-    results: list[ChannelMessages] = []
-    skipped: list[DiscoopError] = []
-    exported: export.Exported | None = None
-    with _directory(delay=effective_delay, mode=selected_mode) as directory:
-        targets = _message_targets(directory, server, channel)
-        for i, (target_server, target) in enumerate(targets):
-            if i > 0:
-                directory.api().between_channels()
-            label = f"#{target.name} ({target.id}) in {target_server.name}"
-            try:
-                with _progress(out, label, directory.api()) as on_page:
-                    fetched = fetch_messages(
-                        directory.api(),
-                        target.id,
-                        window,
-                        label=label,
-                        limit=limit,
-                        include_system=include_system,
-                        on_page=on_page,
-                    )
-            except DiscoopError as e:
-                if len(targets) == 1 or e.code not in (ExitCode.NO_ACCESS, ExitCode.NOT_FOUND):
-                    raise
-                out.warning(f"Skipped: {e.message}")
-                skipped.append(e)
-                continue
-            names = {c.id: c.name for c in directory.channels(target_server)}
-            normalizer = Normalizer(names, known_users(fetched.messages), LOCAL_ZONE)
-            truncated = fetched.hit_limit and (last is None or max_messages < last)
-            if truncated:
-                out.warning(
-                    f"Stopped at --max-messages {max_messages} in {label}: older messages in the window"
-                    " were not fetched. Raise --max-messages or use a later --from."
-                )
-            if fetched.nothing_before_end:
-                out.note(
-                    f"Discord returned no messages for {label} before {_local_time(window.end)}. Either there are"
-                    " none, or you lack the Read Message History permission there."
-                )
-            items = tuple(normalizer.message(m) for m in fetched.messages)
-            results.append(ChannelMessages(target_server, target, items, truncated))
-        if not results and skipped:
-            raise DiscoopError(skipped[0].code, "None of the channels could be read.", skipped[0].hint)
-        if export_to is not None:
-            exported = _export(out, directory, export_to, results, query, no_files, max_file_size)
-    if exported is None:
-        _print_messages(out, results, query, output_format)
+
+    request = MessagesRequest(
+        channels=tuple(channel),
+        server=server,
+        from_=from_,
+        to=to,
+        last=last,
+        max_messages=max_messages,
+        include_system=include_system,
+        mode=selected_mode,
+        delay=effective_delay,
+        out_dir=out_dir,
+        zip_file=zip_file,
+        print_messages=print_messages,
+        no_files=no_files,
+        max_file_size=max_file_size,
+        output_format=output_format,
+    )
+    events = _CliEvents(out, tz=LOCAL_ZONE)
+    try:
+        with _directory(delay=effective_delay, mode=selected_mode) as directory:
+            outcome = run_messages(
+                request,
+                directory=directory,
+                cdn=cdn_client,
+                now=utc_now(),
+                tz=LOCAL_ZONE,
+                events=events,
+                export_dir=Config.default().get("export-dir"),
+                default_server=Config.default().get("default-server"),
+            )
+    finally:
+        events.close()
+    if outcome.exported is None:
+        _print_messages(out, outcome.results, outcome.query, output_format)
     else:
         if print_messages:
-            _print_messages(out, exported.results, query, output_format)
-        _export_report(out, exported, summary_on_stdout=not print_messages)
+            _print_messages(out, outcome.exported.results, outcome.query, output_format)
+        _export_report(out, outcome.exported, summary_on_stdout=not print_messages)
     if from_ is None and last is None:
         out.note("Messages from the last 24 hours. For more use --from 7d, --from 2026-10-01 or --from all.")
 
@@ -506,30 +517,9 @@ def _print_plain(out: Output, data: str) -> None:
 def _export_target(
     out_dir: str | None, zip_file: str | None, print_messages: bool, no_files: bool, max_file_size: float | None
 ) -> tuple[Path, bool] | None:
-    """The export path and whether it is a zip, checked before any request; None without --out/--zip."""
-    if out_dir is not None and zip_file is not None:
-        raise DiscoopError(ExitCode.BAD_ARGS, "--out and --zip cannot be used together.", "Choose one of them.")
-    raw = out_dir if out_dir is not None else zip_file
-    if raw is None:
-        given = (("--print", print_messages), ("--no-files", no_files), ("--max-file-size", max_file_size is not None))
-        flags = [flag for flag, used in given if used]
-        if flags:
-            raise DiscoopError(
-                ExitCode.BAD_ARGS,
-                f"{', '.join(flags)} only work{'s' if len(flags) == 1 else ''} with --out or --zip.",
-                "Without them the messages are printed and no files are downloaded.",
-            )
-        return None
-    if max_file_size is not None and max_file_size < 0:
-        raise DiscoopError(ExitCode.BAD_ARGS, "--max-file-size cannot be negative.", "Use 0 for no limit.")
-    path = Path(raw).expanduser()
-    base = Config.default().get("export-dir")
-    if not path.is_absolute() and base:
-        path = Path(base) / path
-    path = path.resolve()
-    as_zip = zip_file is not None
-    export.check_target(path, as_zip)
-    return path, as_zip
+    return validate_export_target(
+        out_dir, zip_file, print_messages, no_files, max_file_size, export_dir=Config.default().get("export-dir")
+    )
 
 
 def _export(
@@ -656,31 +646,66 @@ class _HumanDownloads(DownloadProgress):
         self.bar.console.print(Text(text, style="dim"))
 
 
-def _message_targets(directory: Directory, server: str | None, queries: list[str]) -> list[tuple[Server, Channel]]:
-    """Resolve every -c. A bare ID needs no server; names and patterns use --server or default-server."""
-    targets: dict[str, tuple[Server, Channel]] = {}
-    for raw in queries:
-        query = raw.strip()
-        if query.isdigit() and server is None:
-            found = directory.channel_by_id(query)
-            where = directory.server(found.server_id)
-            matches = [found]
+class _CliEvents(Events):
+    """Event handler for the CLI: progress indicators, notes, warnings."""
+
+    def __init__(self, out: Output, tz: tzinfo | None = None) -> None:
+        super().__init__(downloads=_AgentDownloads(out) if out.agent else _HumanDownloads(out))
+        self.out = out
+        self.tz = tz
+        self._status = None
+        self._label = ""
+
+    def channel_start(self, index: int, total: int, server: Server, channel: Channel) -> None:
+        self._label = f"#{channel.name} ({channel.id}) in {server.name}"
+        if self.out.agent:
+            self.out.note(f"Fetching {self._label}")
         else:
-            where = directory.server(_server_query(server))
-            matches = directory.find_channels(where, query)
-        readable = [c for c in matches if c.type in MESSAGE_TYPES]
-        if not is_pattern(query) and not readable:
-            raise _unreadable(matches[0])
-        if not readable:
-            shown = ", ".join("#" + c.name for c in matches[:5])
-            raise DiscoopError(
-                ExitCode.NOT_FOUND,
-                f'"{query}" matches no channel with messages, only: {shown}.',
-                "Forums and their posts (threads) come in a later version.",
-            )
-        for found_channel in readable:
-            targets.setdefault(found_channel.id, (where, found_channel))
-    return list(targets.values())
+            if self._status is not None:
+                self._status.stop()
+            self._status = self.out.err_console.status(f"Fetching {self._label}")
+            self._status.start()
+
+    def page(self, kept: int, oldest_id: int) -> None:
+        time_str = to_local(to_time(oldest_id), self.tz).strftime("%Y-%m-%d %H:%M")
+        msg = f"Fetching {self._label}: {kept} messages, back to {time_str}"
+        if self.out.agent:
+            self.out.note(msg)
+        elif self._status is not None:
+            self._status.update(msg)
+
+    def pause(self, seconds: float, reason: str) -> None:
+        if self.out.agent:
+            self.out.note(f"Pausing {seconds:.1f}s ({reason})")
+        elif self._status is not None:
+            prefix = f"Fetching {self._label}: " if self._label else ""
+            self._status.update(f"{prefix}pausing {seconds:.1f}s ({reason})")
+
+    def channel_done(self, result: ChannelMessages) -> None:
+        if self._status is not None:
+            self._status.stop()
+            self._status = None
+
+    def skipped(self, error: DiscoopError) -> None:
+        if self._status is not None:
+            self._status.stop()
+            self._status = None
+        self.out.warning(f"Skipped: {error.message}")
+
+    def warning(self, text: str) -> None:
+        self.out.warning(text)
+
+    def note(self, text: str) -> None:
+        self.out.note(text)
+
+    def close(self) -> None:
+        if self._status is not None:
+            self._status.stop()
+            self._status = None
+
+
+def _message_targets(directory: Directory, server: str | None, queries: list[str]) -> list[tuple[Server, Channel]]:
+    return resolve_targets(directory, server, queries, default_server=Config.default().get("default-server"))
 
 
 def _unreadable(channel: Channel) -> DiscoopError:
@@ -818,3 +843,27 @@ def _use_utf8_streams() -> None:
     for stream in (sys.stdout, sys.stderr):
         if not stream.isatty() and hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
+
+
+def command_help(path: Sequence[str] = ()) -> str:
+    """Return plain-text help string for the command or root if path is empty."""
+    old_help = app.info.help
+    old_app_mode = app.rich_markup_mode
+    old_config_mode = config_app.rich_markup_mode
+    try:
+        app.rich_markup_mode = None
+        config_app.rich_markup_mode = None
+        app.info.help = _help_text(True)
+        cmd = typer.main.get_command(app)
+        ctx = click.Context(cmd, info_name="discoop")
+        for name in path:
+            sub = cmd.get_command(ctx, name)
+            if sub is None:
+                raise DiscoopError(ExitCode.BAD_ARGS, f"Unknown command: {name}")
+            ctx = click.Context(sub, info_name=name, parent=ctx)
+            cmd = sub
+        return cmd.get_help(ctx)
+    finally:
+        app.info.help = old_help
+        app.rich_markup_mode = old_app_mode
+        config_app.rich_markup_mode = old_config_mode
