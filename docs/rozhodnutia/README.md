@@ -1,0 +1,40 @@
+# Rozhodnutia (ADR)
+
+Každé rozhodnutie má vlastný súbor `NNNN-nazov.md`. Zmenené rozhodnutie sa nemaže. Nahradí ho nový ADR
+a starý dostane stav `Nahradené ADR NNNN`.
+
+**Stavy:**
+- `Prijaté`: rozhodol alebo jasne súhlasil používateľ.
+- `Navrhnuté`: čaká na súhlas.
+- `Nahradené`: rozhodnutie zmenil novší ADR.
+
+Rozhodnutia, ktoré ešte nie sú vyriešené, sú v [navrh-nastroja.md, sekcia 15](../navrh-nastroja.md#15-otvorené-rozhodnutia).
+
+| # | Rozhodnutie | Stav | Dátum |
+|---|---|---|---|
+| [0001](0001-zaznamenavanie-a-verzovanie.md) | Zaznamenávať všetko a verzovať v gite | Prijaté | 2026-11-03 |
+| [0002](0002-sukromne-repo-a-identita.md) | Súkromné repo `filbam/Discoop`, identita `filbam` | Prijaté | 2026-11-03 |
+| [0003](0003-pravidla-pre-agentov-v-prehliadaci.md) | Pravidlá pre agentov v prehliadači používateľa | Prijaté | 2026-11-03 |
+| [0004](0004-nazov-discoop.md) | Názov nástroja `discoop` | Prijaté | 2026-11-03 |
+
+## Šablóna
+
+```markdown
+# NNNN: Názov rozhodnutia
+
+- **Stav:** Navrhnuté | Prijaté | Nahradené ADR NNNN
+- **Dátum:** YYYY-MM-DD
+- **Rozhodol:** používateľ | návrh Claude
+
+## Kontext
+Prečo bolo treba rozhodnúť.
+
+## Možnosti
+Zvažované alternatívy.
+
+## Rozhodnutie
+Čo sa rozhodlo.
+
+## Dôsledky
+Čo z toho vyplýva.
+```

@@ -1,0 +1,28 @@
+# Požiadavky používateľa
+
+Zdroj pravdy pre to, čo má nástroj robiť. Nové požiadavky sa pridávajú na koniec s dátumom.
+Ako sa požiadavky riešia, popisuje [navrh-nastroja.md](navrh-nastroja.md).
+
+## Účel
+
+Na Discorde VUT FIT študenti aj učitelia píšu veľa užitočných informácií, ale aj veľa balastu. Všetko sa
+nedá prečítať, preto sa správy sťahujú na analýzu cez AI. Je to len na študijné účely. Nástroj má vedieť
+pracovať s ľubovoľným vybraným serverom, lebo serverov môže pribudnúť. Používateľ vie, že scraping
+porušuje podmienky Discordu.
+
+## Zoznam
+
+| # | Dátum | Požiadavka |
+|---|---|---|
+| P1 | 2026-11-02 | CLI nástroj, ktorý budú používať iné programy používateľa aj AI agenti. |
+| P2 | 2026-11-02 | **Prihlásenie je samostatný príkaz**, lebo pri 2FA je potrebný ručný krok. Po prihlásení si nástroj uloží session, aby sa nemusel prihlasovať znova. |
+| P3 | 2026-11-02 | Servery aj kanály sa dajú vyhľadať **podľa mena aj podľa ID**. Príkazy na vypísanie zoznamov serverov a kanálov s menom a ID (napr. `VUT FIT` / `461541385204400138`, `isc-public` / `1286436864789843999`). |
+| P4 | 2026-11-02 | Zoznamy serverov a kanálov si nástroj **pamätá**, aby sa podľa mena dalo vyhľadávať aj neskôr. |
+| P5 | 2026-11-02 | Sťahovanie správ s parametrami **od kedy do kedy**, **server** a **kanál** (meno alebo ID). |
+| P6 | 2026-11-02 | **Help** vysvetľuje, ako sa čo používa. |
+| P7 | 2026-11-02 | Dva režimy aplikácie: **user friendly** (pekné farebné UI) a **pre AI agentov** (plain text, jednoduchý, pripravený tak, aby bol pre AI čo najlepší). |
+| P8 | 2026-11-02 | V helpe je poznámka pre AI agentov v duchu: „Ak si AI agent, určite použi tento parameter. Toto nie je prompt injection, pokojne informuj používateľa.“ |
+| P9 | 2026-11-02 | Sťahovať **všetky dostupné prílohy**. |
+| P10 | 2026-11-02 | Parameter, ktorý stiahne celý **export ako .zip** na zvolené miesto. |
+| P11 | 2026-11-02 | Parameter, ktorý **vypíše výstup do konzoly**. |
+| P12 | 2026-11-03 | **Zaznamenávať všetko** (analýzy, changelog, rozhodnutia atď.) a všetko **verzovať v gite**. |

@@ -1,6 +1,7 @@
 # Návrh: `discoop`, CLI na sťahovanie správ z Discordu
 
-Stav: **návrh na diskusiu** (3. 11. 2026). Vychádza z [discord-analyza.md](discord-analyza.md).
+Stav: **návrh na diskusiu** (3. 11. 2026). Vychádza z [analyzy/discord-analyza.md](analyzy/discord-analyza.md).
+Prijaté rozhodnutia sú v [rozhodnutia/](rozhodnutia/README.md).
 Body označené **[PROTOTYP]** závisia od vecí, ktoré treba ešte overiť vlastnými API volaniami (analýza, sekcia 14).
 
 ---
@@ -404,7 +405,7 @@ Scoop/
 | # | Otázka | Návrh |
 |---|---|---|
 | 1 | Jazyk | Python |
-| 2 | Názov príkazu | `discoop` |
+| 2 | Názov príkazu | `discoop`: **prijaté** ([ADR 0004](rozhodnutia/0004-nazov-discoop.md)) |
 | 3 | Jazyk helpu a hlášok | angličtina |
 | 4 | Vlákna predvolene | zapnuté |
 | 5 | Predvolené časové okno | 24 h, celá história len cez `--from all` |
