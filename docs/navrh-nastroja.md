@@ -107,8 +107,11 @@ discoop channels [-s SERVER] [--refresh] [--type text,forum,...] [--flat]
 - **Human režim:** strom podľa kategórií. `--flat` dá tabuľku.
 - **Agent režim:** vždy riadky so stĺpcami `id type category name` oddelenými tabulátorom.
 - **Filter `--type`** (čiarkami): `text, voice, announcement, stage, directory, forum, media`.
-- **Skryté kanály** (`___hidden___`, flag `1<<17`) sa nevypisujú. REST ich aj tak nevracia, filter je len poistka.
-  Prepínač `--include-hidden` z pôvodného návrhu preto vypadol.
+- **Skryté kanály** (`___hidden___`, flag `1<<17`) sa nevypisujú.
+- **Pozor, zistené pri teste 2026-11-03:** REST vracia **aj kanály, ktoré používateľ nevidí**, a to s reálnym menom
+  (napr. kategórie `moderation`, `logging`). `channels` ich zatiaľ vypisuje tiež.
+  - Riešenie je otvorené rozhodnutie 9 (sekcia 15): vypočítať prístup z `permission_overwrites` a rolí používateľa.
+  - Prepínač `--include-hidden` sa môže vrátiť ako „ukáž aj nedostupné“.
 - **Zdroj:** `GET /guilds/{id}/channels` **[OVERENÉ]**.
 - **Bez prístupu:** `403`/`404` na server skončí kódom `5`.
 - **Server** sa zadáva cez `-s` (meno alebo ID), inak sa použije `default-server`. Keď nie je ani jedno,
@@ -458,6 +461,7 @@ Scoop/
 | 5 | Predvolené časové okno | 24 h, celá história len cez `--from all` |
 | 6 | Predvolený formát v agent režime | `text` (JSON cez `--format json`) |
 | 7 | Záložný login | **prijaté** ([ADR 0008](rozhodnutia/0008-zalozny-login-token.md)): `discoop login --token`, token zo skrytého promptu alebo stdin, nie z argumentu, aby neostal v histórii shellu. Prihlásenie cez prehliadač nie vo v1 (ťažká závislosť na každom OS). Email a heslo nie (captcha, práca s heslom) |
+| 9 | Kanály bez prístupu v `channels` | Vypočítať prístup (`VIEW_CHANNEL`, pri čítaní aj `READ_MESSAGE_HISTORY`):<br>• základné práva servera z `permissions` v `/users/@me/guilds`, vlastník servera má všetky práva,<br>• prepisy `permission_overwrites` pre @everyone, roly používateľa a jeho samotného.<br>Roly používateľa treba získať (`GET /users/@me/guilds/{id}/member`, overiť). Nedostupné kanály predvolene skryť, `--include-hidden` ich ukáže |
 | 8 | `login` v agent režime | **prijaté** ([ADR 0009](rozhodnutia/0009-login-v-agent-rezime.md)): odmietnuť s kódom `2` a pokynom „požiadaj používateľa, nech spustí `discoop login`“. Prihlásenie potrebuje človeka s mobilom a QR je citlivý |
 
 **Nápady na neskôr (v2):** lokálny archív všetkých správ v SQLite s fulltextom, `discoop sync` pre zoznam

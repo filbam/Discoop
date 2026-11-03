@@ -23,6 +23,9 @@ exports/
 # Prototype outputs (probe reports, login traces)
 prototype/out/
 
+# The user's scratch files (test logs with real server and channel names)
+/temp/
+
 # Editors and OS
 .vscode/
 .idea/

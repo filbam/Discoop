@@ -435,8 +435,9 @@ GET /api/v9/guilds/{guild_id}/messages/search?has=file&min_id=155533852016640000
 1. **Správy, piny, vlákna aj search sú čisto REST** (`/api/v9`). Gateway netreba na sťahovanie obsahu,
    len na „pohodlné“ metadáta (zoznam kanálov, roly, prezývky, aktívne vlákna).
 2. **Zoznam kanálov:** REST `GET /guilds/{id}/channels` **[OVERENÉ, sekcia 15]**. Gateway netreba.
-   Kanály s `name == "___hidden___"` alebo `flags & (1<<17)` treba **preskočiť**, sú neprístupné.
-   Prístup k ostatným stačí overiť pokusom (`403` = Missing Access) alebo výpočtom z `permission_overwrites` + rolí.
+   **REST vracia aj kanály, ktoré používateľ nevidí, a to s reálnym menom** (sekcia 15). Prístup treba vypočítať
+   z `permission_overwrites` a rolí používateľa, alebo ho overiť pokusom (`403` = Missing Access).
+   Kanály s `name == "___hidden___"` alebo `flags & (1<<17)` (obfuskované v klientovi) sa preskakujú.
 3. **Stránkovanie archívu:** od najnovšej `before=<najstaršie_id>&limit=100` až po prázdne pole.
    **Inkrementálny sync:** pre každý kanál uložiť `last_seen_id` a ťahať `after=<last_seen_id>&limit=100`,
    pozor, výsledok je zostupný, ďalšie `after` = **max(id)**. Časové okno vytvoriť syntetickým snowflake
@@ -476,7 +477,8 @@ GET /api/v9/guilds/{guild_id}/messages/search?has=file&min_id=155533852016640000
 **Stále otvorené:**
 - Tvar odpovede `429`. Pri 13 requestoch s pauzou 1 s nenastal. Rate-limit hlavičky v bežných odpovediach stále chýbajú.
 - Stránkovanie pinov pri `has_more: true` (#2bit-general má len 4 piny).
-- Či REST vracia aj kanály bez práva `VIEW_CHANNEL` (s reálnym menom). Obfuskované `___hidden___` v odpovedi nie sú.
+- ~~Či REST vracia aj kanály bez práva `VIEW_CHANNEL`~~. **Áno, vracia ich s reálnym menom**
+  (doplnené 2026-11-03, sekcia 15). Otvorené ostáva, ako pre user token zistiť roly člena a vypočítať prístup.
 - Fórum `#help-center` pri `threads/search?archived=false` hlásilo `total_results` 15, ale vrátilo 13 vlákien.
 - `refresh-urls` pri už exspirovanej URL. Testovaná URL bola ešte platná a vrátila sa nezmenená.
 - Tvar gateway `READY`. Pre CLI ho už netreba, REST stačí.
@@ -521,7 +523,13 @@ Report `prototype/out/probe-20261103-134510.json` je lokálny a git ho ignoruje.
 **Kanály z `GET /guilds/{id}/channels`:**
 - **Počty podľa typu:** 358 text, 22 kategórií, 12 announcement, 10 voice, 9 forum, 1 stage. Sú rovnaké ako viditeľné
   kanály v klientovi.
-- **Skryté kanály:** žiadne `___hidden___` ani flag `1<<17`.
+- **Skryté kanály:** žiadne `___hidden___` ani flag `1<<17`. **REST ich však neskrýva, vracia ich s reálnym menom.**
+  - Overil to test `discoop channels` (2026-11-03): v zozname sú celé kategórie, ktoré používateľ v Discorde nevidí
+    (`moderation`, `logging`, `fillers`), aj kanál `#přípravné-kurzy` (`1549737445002584094`).
+  - Ten istý kanál klient zobrazil ako `___hidden___` (sekcia 3).
+  - Obfuskáciu teda robí klient (alebo gateway), nie REST.
+  - Zoznam z REST tak obsahuje všetkých 390 kanálov servera a prístup k nim treba vypočítať z
+    `permission_overwrites` a rolí používateľa.
 - **Nové polia** oproti klientovi: `template`, `voice_background_display`, `voice_hangout`, `default_forum_layout`.
 - **Fórum `#help-center`:** `1040350879783604234`.
 

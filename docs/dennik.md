@@ -102,13 +102,23 @@ skončí chybou s radou na `--token`.
 - Hotové, 71 testov, commity `1d31ba4` a `ce466c7`.
 - Proti reálnemu Discordu to zatiaľ spustil len používateľ, podľa CLAUDE.md volá API iba on.
 - **Odchýlky od návrhu:**
-  - `--include-hidden` vypadol, lebo REST skryté kanály nevracia.
+  - `--include-hidden` vypadol, lebo sa zdalo, že REST skryté kanály nevracia. Neskorší test ukázal opak.
   - `default-server` sa ukladá ako ID.
   - `export-dir` sa odložil na export.
 - **Cache** sa maže pri login aj logout, aby po prihlásení iným účtom neostali staré servery.
 
+**Test používateľa** (log v `Temp/`, lokálny, gitom ignorovaný):
+- **Funguje:** `servers`, `channels` (strom, `--flat`, `--type`), `config set default-server`, `--agent channels`.
+  - 8 serverov, VUT FIT má 390 kanálov.
+- **Zistenie:** REST `GET /guilds/{id}/channels` vracia **aj kanály, ktoré používateľ nevidí**, s reálnymi menami.
+  - Napríklad celé kategórie `moderation`, `logging`, `fillers`.
+  - Aj `#přípravné-kurzy` (`1549737445002584094`), ktorý klient zobrazil ako `___hidden___`.
+  - Predchádzajúce tvrdenie „REST skryté kanály nevracia“ bolo chybné. Analýza (sekcie 13–15) aj návrh (4.3)
+    sú opravené.
+  - Riešenie je otvorené rozhodnutie 9: výpočet prístupu z práv a rolí.
+
 **Ďalej:**
-1. Používateľ vyskúša `uv run discoop servers` a `uv run discoop channels -s "VUT FIT"` (aj `--flat`).
+1. Rozhodnutie 9: výpočet prístupu ku kanálom. Treba overiť, ako pre user token získať roly člena.
 2. Potvrdiť zvyšné rozhodnutia z návrhu (sekcia 15, body 4 až 6). Týkajú sa `messages`.
 3. Krok 2: `messages` do konzoly (`text`/`json`), časové okno, `--last`.
 
