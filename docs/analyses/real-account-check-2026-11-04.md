@@ -1,230 +1,228 @@
-# Overenie na reálnom účte: výsledky skúšky z 2026-11-04
+# Real account verification: test results from 2026-11-04
 
-Dátum: 2026-11-04. Typ: skúška nástroja `discoop` na reálnom účte používateľa (server VUT FIT). Spustil ju hlavný
-Claude na výslovnú žiadosť používateľa, v režime `safe` a v malých časových oknách. Exporty išli do dočasného
-priečinka, ktorý sa po behu zmazal; z obsahu exportov sa nič neuchovalo.
+Date: 2026-11-04. Type: testing the `discoop` tool on the user's real account (VUT FIT server). Initiated by the main
+Claude at the user's explicit request, in `safe` mode and with small time windows. Exports went to a temporary
+directory that was deleted after the run; nothing from the content of the exports was retained.
 
-**Legenda:** **[OVERENÉ]** = pozorované v behoch z 2026-11-04 na reálnom účte (výstupy príkazov, súhrny, manifesty
-a kontrolné skripty hlavného Claudea). **[PREDPOKLAD]** = extrapolácia alebo výklad, ktorý beh nepotvrdil.
+**Legend:** **[VERIFIED]** = observed in the runs of 2026-11-04 on a real account (command outputs, summaries, manifests,
+and verification scripts of the main Claude). **[ASSUMPTION]** = extrapolation or interpretation not confirmed by the run.
 
-**Metodika a súkromie:**
-- Dokument neobsahuje ID používateľa, mená ľudí, texty správ ani názvy vlákien. Fórum sa tu volá „fórum (kategória
-  general)“, ostatné kanály „študijné textové kanály“.
-- Do tohto dokumentu sa dostali len počty, časy, kódy ukončenia a názvy polí.
-- Súvisiace meranie: [thread-probe-2026-11-04.md](thread-probe-2026-11-04.md) (iba čítacie GET volania
-  prototypu). Tu sa spúšťal samotný nástroj `discoop`.
+**Methodology and privacy:**
+- The document contains no user IDs, people's names, message texts, or thread titles. The forum is referred to here as "forum (general
+  category)", other channels as "study text channels".
+- Only counts, times, exit codes, and field names entered this document.
+- Related measurement: [thread-probe-2026-11-04.md](thread-probe-2026-11-04.md) (read-only GET calls of the
+  prototype). Here, the `discoop` tool itself was executed.
 
 ---
 
-## 1. Zhrnutie
+## 1. Summary
 
-| # | Oblasť | Výsledok v skratke |
+| # | Area | Short result |
 |---|---|---|
-| 1 | Diagnostika a základné príkazy | `doctor`: všetkých 6 kontrol OK. `status`, `servers` a `channels` fungujú |
-| 2 | TUI | Používateľ samostatne potvrdil, že `discoop ui` funguje a že sa v ňom prihlásil (QR prihlásenie v TUI funguje) |
-| 3 | `discoop threads` na fóre | `--from 3d`: 2 vlákna za 5,9 s. `--from 90d --refresh --format json`: 61 unikátnych vlákien (50 archivovaných) za 17 s, 4 stránky `threads/search`. `has_more` bolo na poslednej archivovanej strane znova `true`, koniec našlo `reached_start` |
-| 4 | Export fóra | 2 príspevky, 22 správ, 11,6 s, manifest úplný. Nové zistenie: `message_count` v zozname vlákien nezahŕňa štartovaciu správu príspevku |
-| 5 | Prerušenie a obnova | Kód 130, `.partial` s `interrupted: true`, opakovanie dotiahlo len chýbajúci kanál. Prerušenie signálom konzoly nebolo skúšané |
-| 6 | `--since-last` | Druhý beh: nezmenené kanály nesťahovali vlastné správy (0 požiadaviek na `/messages`), vlákna sa čítali ďalej |
-| 7 | `last_message_id` | V 20 z 25 čitateľných kanálov sa zhodovalo s najnovšou správou, v 4 z 25 ukazovalo na novšiu, v 1 z 25 bola najnovšia správa novšia než pole |
-| 8 | Zip s `--max-tokens` | Platný zip (`testzip` čistý), 3 časti, hlavička časti 1 `<!-- discoop part 1 of 3 -->` |
-| 9 | Príloha z CDN | Stiahla sa, ale pri opakovanom exporte sa stiahla znova (známe obmedzenie, sekcia 4) |
-| 10 | Logy `--debug --log` | Dva skutočné logy prezreté: bez tokenu, podpísaných URL, názvov a slov zo správ |
-| 11 | `--progress-json` | 4 udalosti, každý riadok platný JSON, bez názvov |
-| 12 | Rýchlosť | Pauzy režimu `safe` dominujú: asi 4 až 6 s na vlákno |
+| 1 | Diagnostics and basic commands | `doctor`: all 6 checks OK. `status`, `servers`, and `channels` work |
+| 2 | TUI | The user independently confirmed that `discoop ui` works and that they logged in through it (QR login in TUI works) |
+| 3 | `discoop threads` on forum | `--from 3d`: 2 threads in 5.9 s. `--from 90d --refresh --format json`: 61 unique threads (50 archived) in 17 s, 4 `threads/search` pages. `has_more` was `true` again on the last archived page; `reached_start` found the end |
+| 4 | Forum export | 2 posts, 22 messages, 11.6 s, manifest complete. New finding: `message_count` in the thread list does not include the post starter message |
+| 5 | Interruption and resume | Code 130, `.partial` with `interrupted: true`, rerun fetched only the missing channel. Interruption by console signal was not tested |
+| 6 | `--since-last` | Second run: unchanged channels did not fetch their own messages (0 requests to `/messages`), threads continued to be read |
+| 7 | `last_message_id` | Matched the newest message in 20 of 25 readable channels, pointed to a newer message in 4 of 25, newest message was newer than the field in 1 of 25 |
+| 8 | Zip with `--max-tokens` | Valid zip (`testzip` clean), 3 parts, part 1 header `<!-- discoop part 1 of 3 -->` |
+| 9 | Attachment from CDN | Downloaded, but on repeated export downloaded again (known limitation, section 4) |
+| 10 | `--debug --log` logs | Two real logs inspected: no token, signed URLs, names, or words from messages |
+| 11 | `--progress-json` | 4 events, each line valid JSON, without names |
+| 12 | Speed | `safe` mode pauses dominate: about 4 to 6 s per thread |
 
 ---
 
-## 2. Čo sa spustilo a ako
+## 2. What was run and how
 
-- **Účet a rozsah:** reálny účet používateľa, server VUT FIT. Fórum z kategórie general a študijné textové kanály.
-  Okná boli malé (24 hodín, 3, 7 a 14 dní; najširšie bolo 90 dní, a to iba pri výpise vlákien).
-- **Režim:** `safe` (predvolený). Žiadne `fast`.
-- **Príkazy v skratke:**
+- **Account and scope:** the user's real account, VUT FIT server. Forum from the general category and study text channels.
+  Windows were small (24 hours, 3, 7, and 14 days; widest was 90 days, and only for thread listing).
+- **Mode:** `safe` (default). No `fast`.
+- **Commands in brief:**
   - `discoop doctor`, `status`, `servers`, `channels`,
-  - `discoop threads -c <fórum> --from 3d` a `--from 90d --refresh --format json`,
-  - `discoop messages -c <fórum> --from 3d --no-files --out DIR`,
-  - `discoop messages` s `--out` a s `--zip --max-tokens 300 --max-file-size 1`,
-  - `discoop messages --since-last` dvakrát po sebe (stavový súbor presmerovaný do dočasného súboru, takže skutočný
-    `sync-state.json` používateľa sa nezmenil),
-  - export s `--debug --log` a s `--progress-json`,
-  - čítacia sonda na `last_message_id` (iba čítanie).
-- **Prerušenie exportu:** skript, ktorý vyvolal `KeyboardInterrupt` z udalostí CLI počas skutočného sťahovania po
-  sieti. Nebol to signál konzoly (skutočné Ctrl+C).
-- **Čo sa uchovalo:** nič. Exporty boli v dočasnom priečinku, ktorý sa po behu zmazal.
+  - `discoop threads -c <forum> --from 3d` and `--from 90d --refresh --format json`,
+  - `discoop messages -c <forum> --from 3d --no-files --out DIR`,
+  - `discoop messages` with `--out` and with `--zip --max-tokens 300 --max-file-size 1`,
+  - `discoop messages --since-last` twice in succession (state file redirected to a temporary file, so the user's real
+    `sync-state.json` remained unchanged),
+  - export with `--debug --log` and with `--progress-json`,
+  - reading probe on `last_message_id` (read only).
+- **Export interruption:** a script raised `KeyboardInterrupt` from CLI events during actual network downloading.
+  It was not a console signal (real Ctrl+C).
+- **What was retained:** nothing. Exports were in a temporary folder deleted after the run.
 
 ---
 
-## 3. Výsledky
+## 3. Results
 
-### 3.1 Diagnostika, základné príkazy a TUI
+### 3.1 Diagnostics, basic commands, and TUI
 
-- **[OVERENÉ]** `discoop doctor`: všetkých 6 kontrol je OK.
-- **[OVERENÉ]** `status`, `servers` a `channels` fungujú.
-- **[OVERENÉ]** (potvrdenie používateľa, nie meranie hlavného Claudea) `discoop ui` funguje a používateľ sa v ňom
-  prihlásil. QR prihlásenie v TUI teda funguje.
+- **[VERIFIED]** `discoop doctor`: all 6 checks are OK.
+- **[VERIFIED]** `status`, `servers`, and `channels` work.
+- **[VERIFIED]** (the user's confirmation, not the main Claude's measurement) `discoop ui` works and the user logged in
+  through it. QR login in TUI therefore works.
 
-### 3.2 `discoop threads` na fóre (kategória general)
+### 3.2 `discoop threads` on forum (general category)
 
-| Príkaz | Výsledok |
+| Command | Result |
 |---|---|
-| `--from 3d` | 2 vlákna za 5,9 s **[OVERENÉ]** |
-| `--from 90d --refresh --format json` | 61 unikátnych vlákien, z toho 50 archivovaných, zoradené podľa poslednej aktivity zostupne, 17 s **[OVERENÉ]** |
+| `--from 3d` | 2 threads in 5.9 s **[VERIFIED]** |
+| `--from 90d --refresh --format json` | 61 unique threads, 50 of which archived, sorted by last activity descending, 17 s **[VERIFIED]** |
 
-- **[OVERENÉ]** Druhý príkaz urobil 4 požiadavky na `threads/search`: 1 strana aktívnych vlákien a 3 strany
-  archivovaných vlákien (po 25).
-- **[OVERENÉ]** `has_more` bolo na poslednej archivovanej strane znova `true`. Koniec našlo až okno (`reached_start`).
-  Potvrdzuje to, že `has_more` nie je spoľahlivé (rovnako ako v [thread-probe-2026-11-04.md](thread-probe-2026-11-04.md),
-  sekcia 7.6).
-- **[OVERENÉ]** Jedno vlákno, ktoré je ešte aktívne, ale staršie než okno, vypadlo vo filtri okna.
+- **[VERIFIED]** The second command made 4 requests to `threads/search`: 1 page of active threads and 3 pages of
+  archived threads (25 each).
+- **[VERIFIED]** `has_more` was `true` again on the last archived page. Only the window found the end (`reached_start`).
+  This confirms that `has_more` is not reliable (same as in [thread-probe-2026-11-04.md](thread-probe-2026-11-04.md),
+  section 7.6).
+- **[VERIFIED]** One thread that is still active, but older than the window, was dropped by the window filter.
 
-### 3.3 Export fóra: `messages -c <fórum> --from 3d --no-files --out DIR`
+### 3.3 Forum export: `messages -c <forum> --from 3d --no-files --out DIR`
 
-- **[OVERENÉ]** 2 príspevky, 22 správ, 11,6 s, manifest je úplný (`complete`).
-- **[OVERENÉ]** `messages.md` obsahuje sekcie `## thread "..."` s riadkami hlavičky: vytvorenie, posledná aktivita,
-  počet správ, počet súborov a tagy.
-- **[OVERENÉ]** Správy v `messages.jsonl` majú pole `thread: {id, name, parent_id, tags}`. Tagy sú názvy tagov fóra.
-- **[OVERENÉ]** Počty v manifeste: `messages` 0, `threads` 2, `thread_messages` 22. Fórum nemá vlastné správy, čo
-  zodpovedá [ADR 0019](../decisions/0019-threads.md).
-- **[OVERENÉ]** **Nové zistenie:** `message_count`, ktorý ukazuje zoznam vlákien (výpis `discoop threads`),
-  nezahŕňa štartovaciu správu príspevku fóra. Zoznam ukázal 9 a 11, stiahnutie vrátilo 10 a 12 správ. Pozorované na týchto
-  dvoch príspevkoch (spolu 22 správ).
+- **[VERIFIED]** 2 posts, 22 messages, 11.6 s, manifest is complete (`complete`).
+- **[VERIFIED]** `messages.md` contains sections `## thread "..."` with header lines: creation, last activity,
+  message count, file count, and tags.
+- **[VERIFIED]** Messages in `messages.jsonl` have field `thread: {id, name, parent_id, tags}`. Tags are forum tag names.
+- **[VERIFIED]** Counts in manifest: `messages` 0, `threads` 2, `thread_messages` 22. The forum has no messages of its own,
+  which matches [ADR 0019](../decisions/0019-threads.md).
+- **[VERIFIED]** **New finding:** `message_count` shown by the thread list (`discoop threads` output)
+  does not include the forum post starter message. The list showed 9 and 11, the download returned 10 and 12 messages. Observed on these
+  two posts (22 messages in total).
 
-### 3.4 Prerušený export a obnova (skutočná sieť, prerušenie skriptom)
+### 3.4 Interrupted export and resume (real network, script interruption)
 
-Prerušenie vyvolal skript výnimkou `KeyboardInterrupt` z udalostí CLI. Signál konzoly sa nepoužil.
+Interruption was raised by a script via `KeyboardInterrupt` from CLI events. A console signal was not used.
 
-- **(a) Po 2. z 3 kanálov:**
-  - **[OVERENÉ]** Kód ukončenia 130. Vznikol `<cieľ>.partial` s manifestom `complete: false, interrupted: true`
-    a 2 kanálmi. Cieľ neexistoval.
-  - **[OVERENÉ]** Hláška: „Saved 2 of 3 channels in ....partial. Run the same command again to continue.“
-  - **[OVERENÉ]** Ten istý príkaz znova stiahol iba 3. kanál, publikoval cieľ (`complete: true`), zmazal `.partial`
-    a skončil s kódom 0.
-- **(b) Uprostred prvého kanála exportu jedného fóra (počas jeho 2. vlákna):**
-  - **[OVERENÉ]** Kód ukončenia 130, žiadny `.partial`, žiadny cieľ, žiadne súbory `.part`. Opakovanie prebehlo
-    normálne.
-  - Je to v súlade s [ADR 0019](../decisions/0019-threads.md): kanál a jeho vlákna sú nedeliteľná jednotka a
-    ukladajú sa spolu, preto nebolo čo uložiť do `.partial`.
-- **Pozorovanie:** v oboch prípadoch `main()` nevypísal riadok „Interrupted.“, hoci kód má na to `out.error(...)`.
-  Kód 130 vyšiel aj bez neho. Pozri sekciu 5.
-- **Neskúšané:** skutočné Ctrl+C z konzoly počas čakania na sieť alebo počas sťahovania súboru.
+- **(a) After channel 2 of 3:**
+  - **[VERIFIED]** Exit code 130. Created `<target>.partial` with manifest `complete: false, interrupted: true`
+    and 2 channels. Target did not exist.
+  - **[VERIFIED]** Message: "Saved 2 of 3 channels in ....partial. Run the same command again to continue."
+  - **[VERIFIED]** The same command re-downloaded only channel 3, published target (`complete: true`), deleted `.partial`,
+    and finished with exit code 0.
+- **(b) In the middle of the first channel of a single-forum export (during its 2nd thread):**
+  - **[VERIFIED]** Exit code 130, no `.partial`, no target, no `.part` files. Rerun completed normally.
+  - In accordance with [ADR 0019](../decisions/0019-threads.md): a channel and its threads are an indivisible unit and
+    saved together, so there was nothing to save into `.partial`.
+- **Observation:** in both cases, `main()` did not output the line "Interrupted.", although code has `out.error(...)` for it.
+  Exit code 130 was returned anyway. See section 5.
+- **Untested:** real Ctrl+C from the console while waiting on network or during file download.
 
-### 3.5 `--since-last` (stavový súbor presmerovaný do dočasného súboru)
+### 3.5 `--since-last` (state file redirected to temporary file)
 
-- **Dva študijné textové kanály:**
-  - **[OVERENÉ]** 1. beh (bez stavu): stiahli sa posledné 24 hodiny s poznámkou „No previous sync state ...“.
-  - **[OVERENÉ]** 2. beh: oba kanály ohlásili „its own messages are unchanged since last sync, fetching only its
-    threads“. 0 správ. `threads/search` sa volalo dvakrát na kanál (aktívne + archivované), `/messages` kanála vôbec.
-- **Dve fóra:**
-  - **[OVERENÉ]** 1. beh: stiahlo sa 1 vlákno s 1 správou (posledných 24 hodín) a uložili sa 3 záznamy stavu
-    (2 fóra + 1 vlákno).
-  - **[OVERENÉ]** 2. beh: 0 správ.
-- **Nevidené:** vlákno, ktoré medzi dvoma behmi dostane novú odpoveď.
+- **Two study text channels:**
+  - **[VERIFIED]** Run 1 (without state): fetched the last 24 hours with note "No previous sync state ...".
+  - **[VERIFIED]** Run 2: both channels reported "its own messages are unchanged since last sync, fetching only its
+    threads". 0 messages. `threads/search` was called twice per channel (active + archived), `/messages` of the channel not at all.
+- **Two forums:**
+  - **[VERIFIED]** Run 1: fetched 1 thread with 1 message (last 24 hours) and saved 3 state entries
+    (2 forums + 1 thread).
+  - **[VERIFIED]** Run 2: 0 messages.
+- **Not observed:** a thread receiving a new reply between two runs.
 
-### 3.6 Spoľahlivosť `last_message_id` (iba čítanie, dva behy)
+### 3.6 Reliability of `last_message_id` (read only, two runs)
 
-Vzorka: spolu 28 textových a oznamovacích kanálov (najaktívnejšie a náhodné staršie). 25 bolo čitateľných, 3 vrátili
+Sample: 28 text and announcement channels in total (most active and random older ones). 25 were readable, 3 returned
 403.
 
-| Výsledok | Počet z 25 čitateľných |
+| Result | Count out of 25 readable |
 |---|---|
-| Pole sa rovnalo najnovšej dostupnej správe | 20 |
-| Pole ukazovalo na novšiu správu, než je najnovšia dostupná | 4 |
-| Najnovšia správa bola novšia než pole | 1 |
+| Field matched newest available message | 20 |
+| Field pointed to a message newer than newest available | 4 |
+| Newest message was newer than field | 1 |
 
-- **[OVERENÉ]** Čísla z tabuľky.
-- **[PREDPOKLAD]** Štyri prípady „pole novšie“ sú pravdepodobne zmazaná správa. Je to bezpečný smer pre pravidlo
-  preskakovania pri `--since-last`.
-- **[PREDPOKLAD]** Jeden prípad „správa novšia než pole“ (kanál aktívny v ten deň) je pravdepodobne správa, ktorá
-  prišla počas asi 2 minút vzorkovania. Nedokázané.
-- **Vlákna:** 3 vlákna v 7-dňovom okne vzorkovaných kanálov nemali správu novšiu než `last_message_id` rodiča. To je
-  nepreukazné pre otázku, či odpovede vo vláknach posúvajú `last_message_id` rodiča. Ostáva **[PREDPOKLAD]** a kód
-  ostáva opatrný: vlákna sa čítajú ďalej.
+- **[VERIFIED]** Numbers from the table.
+- **[ASSUMPTION]** Four cases of "field newer" are likely a deleted message. This is a safe direction for the
+  `--since-last` skip rule.
+- **[ASSUMPTION]** One case of "message newer than field" (a channel active that day) is likely a message that
+  arrived during the ~2 minutes of sampling. Unproven.
+- **Threads:** 3 threads in the 7-day window of sampled channels had no message newer than the parent's `last_message_id`. This is
+  inconclusive for whether thread replies advance the parent's `last_message_id`. It remains an **[ASSUMPTION]** and the code
+  remains cautious: threads continue to be read.
 
-### 3.7 Zip s delením na tokeny
+### 3.7 Zip with token splitting
 
-`--zip --max-tokens 300 --max-file-size 1` na 3 študijných textových kanáloch za 7 dní:
+`--zip --max-tokens 300 --max-file-size 1` on 3 study text channels over 7 days:
 
-- **[OVERENÉ]** 16 správ, 43,5 s.
-- **[OVERENÉ]** Zip je platný (`testzip` bez chýb). Záznamy: `channels/`, `manifest.json`, `messages.jsonl`,
-  `messages.md`, `parts/part-001.md` až `parts/part-003.md`.
-- **[OVERENÉ]** Časti nie sú v manifeste (zodpovedá [ADR 0017](../decisions/0017-reliable-export-and-partial-success.md)).
-- **[OVERENÉ]** Prvý riadok časti 1 je `<!-- discoop part 1 of 3 -->`. Súhrn ukázal `tokens: ~742`.
+- **[VERIFIED]** 16 messages, 43.5 s.
+- **[VERIFIED]** Zip is valid (`testzip` without errors). Entries: `channels/`, `manifest.json`, `messages.jsonl`,
+  `messages.md`, `parts/part-001.md` through `parts/part-003.md`.
+- **[VERIFIED]** Parts are not in manifest (matches [ADR 0017](../decisions/0017-reliable-export-and-partial-success.md)).
+- **[VERIFIED]** First line of part 1 is `<!-- discoop part 1 of 3 -->`. Summary showed `tokens: ~742`.
 
-### 3.8 Príloha z CDN
+### 3.8 Attachment from CDN
 
-- **[OVERENÉ]** V exporte fóra sa stiahol 1 súbor (PNG, 36731 B), po behu nezostal žiadny súbor `.part`.
-- Opakovaný export do toho istého priečinka stiahol súbor znova. Pozri sekciu 4.
-- V 14 dňoch dvoch fór sa našla iba jedna príloha, takže ide o jednu vzorku.
+- **[VERIFIED]** In the forum export, 1 file was downloaded (PNG, 36731 B); after the run, no `.part` file remained.
+- Repeated export to the same folder downloaded the file again. See section 4.
+- Across 14 days of two forums, only one attachment was found, so this is a single sample.
 
-### 3.9 Logy `--debug --log`
+### 3.9 `--debug --log` logs
 
-- **[OVERENÉ]** Prezreli sa dva skutočné logy (13 a 30 riadkov). Neobsahujú token, `Authorization` ani `Bearer`,
-  parametre podpísaných URL (`ex`, `is`, `hm`), názvy serverov ani kanálov, ani žiadne zo 102 rôznych slov vybraných
-  z exportovaných správ.
-- **[OVERENÉ]** Logy obsahujú ID kanálov a vlákien (hlavička logu na to upozorňuje).
+- **[VERIFIED]** Two real logs were inspected (13 and 30 lines). They contain no token, `Authorization` or `Bearer`,
+  signed URL parameters (`ex`, `is`, `hm`), server or channel names, or any of 102 distinct words sampled
+  from exported messages.
+- **[VERIFIED]** Logs contain channel and thread IDs (the log header warns about this).
 
-### 3.10 `--progress-json` na exporte fóra
+### 3.10 `--progress-json` on forum export
 
-- **[OVERENÉ]** 4 udalosti: `channel_start`, 2x `thread`, `channel_done`. Každý riadok je platný JSON, bez názvov.
-- **[OVERENÉ]** Kľúče: `event, index, total, channel_id, thread_id, messages, files, truncated`.
-- Udalosť `page` sa v tomto behu neobjavila (fórum nemá vlastné správy). Či stránky správ vlákien udalosť `page`
-  emitujú, sa nezisťovalo. Pozri sekciu 5.
+- **[VERIFIED]** 4 events: `channel_start`, 2x `thread`, `channel_done`. Each line is valid JSON, without names.
+- **[VERIFIED]** Keys: `event, index, total, channel_id, thread_id, messages, files, truncated`.
+- The `page` event did not appear in this run (a forum has no messages of its own). Whether thread message pages emit
+  a `page` event was not investigated. See section 5.
 
-### 3.11 Rýchlosť
+### 3.11 Speed
 
-- **[OVERENÉ]** Pauzy režimu `safe` dominujú: v behoch vyššie asi 4 až 6 s na vlákno vrátane podielu na výpise vlákien.
-- **[PREDPOKLAD]** Extrapolácia: úplné stiahnutie fóra s asi 1800 príspevkami trvá v režime `safe` zhruba 2 až 3
-  hodiny. Nemerané.
+- **[VERIFIED]** `safe` mode pauses dominate: in the runs above, about 4 to 6 s per thread including share of thread listing.
+- **[ASSUMPTION]** Extrapolation: full download of a forum with about 1800 posts takes roughly 2 to 3
+  hours in `safe` mode. Unmeasured.
 
 ---
 
-## 4. Známe obmedzenie: príloha, ktorú API popíše inak, sa sťahuje pri každom behu znova
+## 4. Known limitation: attachment described differently by API is re-downloaded on every run
 
-**Stav: otvorené, neopravené.**
+**Status: open, unfixed.**
 
-- **[OVERENÉ]** Export fóra do toho istého priečinka druhýkrát stiahol tú istú prílohu znova
+- **[VERIFIED]** Exporting the forum to the same folder a second time downloaded the same attachment again
   (`downloaded: 1, already_present: 0`).
-- **[OVERENÉ]** Príčina v pozorovaných údajoch: API pri prílohe uviedlo `size` 25238 a `content_type` `image/webp`
-  (názov súboru končil na `.png`), no CDN poslalo platný PNG s rovnakými rozmermi v pixeloch (375x468) a veľkosťou
+- **[VERIFIED]** Cause in observed data: the API reported `size` 25238 and `content_type` `image/webp`
+  for the attachment (filename ended in `.png`), but CDN returned a valid PNG with identical pixel dimensions (375x468) and size
   36731 B.
-- **[PREDPOKLAD]** Preto opätovné použitie podľa ID prílohy a veľkosti (`attachments.reuse_stored`, rovnako opätovné
-  použitie v zipe a `bytes_to_download`) takúto prílohu nepozná. Pozorované bolo len správanie (stiahne sa znova);
-  že za tým je práve porovnanie veľkosti, je výklad z kódu.
-- **Dopad:** neškodný. Prevedený obrázok sa pri každom behu stiahne znova. Pozorované na jedinej prílohe (jedna
-  vzorka).
-- **Možná oprava neskôr (nezaradená, nerobí sa):** uvoľniť kontrolu veľkosti alebo ukladať do manifestu skutočnú
-  veľkosť.
+- **[ASSUMPTION]** Therefore, reuse by attachment ID and size (`attachments.reuse_stored`, similarly reuse
+  in zip and `bytes_to_download`) does not recognise such an attachment. Only behaviour was observed (it downloads again);
+  that size comparison is the reason is an interpretation from the code.
+- **Impact:** harmless. The converted image is re-downloaded on every run. Observed on a single attachment (one
+  sample).
+- **Possible future fix (unscheduled, not being done):** relax size check or store actual size in manifest.
 
 ---
 
-## 5. Otvorené pozorovania
+## 5. Open observations
 
-- **Chýbajúci riadok „Interrupted.“:** kód v `main()` má `out.error(... "Interrupted.")`, no pri oboch
-  prerušeniach (3.4) sa riadok nevypísal a kód 130 vyšiel aj tak. Vetva vyzerá nedosiahnuteľná. **[PREDPOKLAD]**
-  `click`/`typer` skončí s kódom 130 skôr. Neškodné, treba sa na to pozrieť neskôr.
-- **Udalosť `page` pri vláknach:** nezistilo sa, či stránky správ vlákien emitujú v `--progress-json` udalosť `page`
-  (v behu 3.10 sa neobjavila žiadna).
-
----
-
-## 6. Čo ostáva neoverené
-
-- Skutočný signál Ctrl+C z konzoly (počas čakania na sieť aj počas sťahovania súboru).
-- Ctrl+C v TUI.
-- Výber fór a prepínač Threads v TUI na reálnom účte.
-- Export fóra so stovkami príspevkov od začiatku do konca.
-- Vlákno, ktoré medzi dvoma behmi `--since-last` dostane novú odpoveď.
-- Súkromné vlákna (typ 12) a HTTP 202 (neobjavili sa).
-- Export s množstvom príloh (videná len 1 príloha).
-- Linux a macOS.
+- **Missing "Interrupted." line:** code in `main()` has `out.error(... "Interrupted.")`, yet on both
+  interruptions (3.4) the line was not printed and code 130 was returned anyway. The branch appears unreachable. **[ASSUMPTION]**
+  `click`/`typer` exits with code 130 earlier. Harmless, to be reviewed later.
+- **`page` event with threads:** not determined whether thread message pages emit a `page` event in `--progress-json`
+  (none appeared in run 3.10).
 
 ---
 
-## 7. Dopad na dokumentáciu
+## 6. What remains unverified
 
-Záznamy, ktoré tvrdili, že nič z kola 2 nebolo overené na reálnom účte, boli opravené: `CLAUDE.md`,
-[denník](../journal.md), [odovzdanie stavu](../handover.md), [požiadavky P26 až P30](../requirements.md),
-[návrh nástroja](../design.md), [ADR 0017](../decisions/0017-reliable-export-and-partial-success.md),
-[ADR 0019](../decisions/0019-threads.md), [ADR 0020](../decisions/0020-since-last.md) a
+- Real Ctrl+C signal from console (while waiting on network as well as during file download).
+- Ctrl+C in TUI.
+- Forum selection and Threads toggle in TUI on a real account.
+- Export of a forum with hundreds of posts from start to finish.
+- Thread receiving a new reply between two `--since-last` runs.
+- Private threads (type 12) and HTTP 202 (did not appear).
+- Export with many attachments (only 1 attachment seen).
+- Linux and macOS.
+
+---
+
+## 7. Documentation impact
+
+Records claiming that nothing from round 2 was verified on a real account were corrected: `CLAUDE.md`,
+[journal](../journal.md), [handover](../handover.md), [requirements P26 to P30](../requirements.md),
+[design](../design.md), [ADR 0017](../decisions/0017-reliable-export-and-partial-success.md),
+[ADR 0019](../decisions/0019-threads.md), [ADR 0020](../decisions/0020-since-last.md), and
 [CHANGELOG](../../CHANGELOG.md).
