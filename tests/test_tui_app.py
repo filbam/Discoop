@@ -21,7 +21,7 @@ from textual.command import CommandPalette
 from textual.geometry import Region
 from textual.widgets import Button, Input, Label, OptionList, RichLog, Static
 
-from discoop import cli, service
+from discoop import cli, paths, service
 from discoop.api import DiscordAPI
 from discoop.cache import Cache
 from discoop.config import Config
@@ -33,8 +33,8 @@ from discoop.tokenstore import TokenStore
 from discoop.tui import app as tui_app
 from discoop.tui.app import DiscoopApp
 from discoop.tui.modals import HelpScreen, LoginModal, PreviewScreen, SettingsModal, TimeWindowModal
-from discoop.tui.state import ExportSettings, SelectionState, WindowSpec, export_stamp, plan_jobs
-from discoop.tui.widgets import ActionRow, ChannelTree, ChoiceRow, FormPanel, InputRow, display_name
+from discoop.tui.state import ExportSettings, SelectionState, WindowSpec, default_name, plan_jobs
+from discoop.tui.widgets import ActionRow, ChannelTree, ChoiceRow, FormPanel, InputRow, TailInput, display_name
 from fake_messages import CET, FIT, NOW, FakeChannel, FakeDiscord, Network, series
 
 SERVER_A = Server("1000", "Alpha Server", 10)
@@ -371,7 +371,8 @@ def test_cli_and_service_export_equivalence(tmp_path: Path, monkeypatch: pytest.
         mode="safe",
         files=False,
         target="folder",
-        path=str(service_out),
+        folder=str(service_out.parent),
+        name=service_out.name,
     )
 
     jobs = plan_jobs(selection, settings)
@@ -1119,7 +1120,8 @@ async def test_form_rows_follow_their_settings() -> None:
         await pilot.press("left")
         await pilot.pause()
         assert app.settings.target == "preview"
-        assert not app.query_one("#row-path").display
+        assert not app.query_one("#row-folder").display, "a preview is saved nowhere"
+        assert not app.query_one("#row-name").display
         assert not app.query_one("#row-files").display, "a preview downloads no files"
         assert app.query_one("#row-format").display
         assert app.query_one("#row-format") in form.rows()
@@ -1136,7 +1138,8 @@ async def test_form_rows_follow_their_settings() -> None:
         await pilot.press("right")  # wraps around
         await pilot.pause()
         assert app.settings.target == "folder"
-        assert app.query_one("#row-path").display
+        assert app.query_one("#row-folder").display
+        assert app.query_one("#row-name").display
         assert app.query_one("#row-files").display
         assert not app.query_one("#row-max-mb").display, "Attachments is still no"
         assert not app.query_one("#row-format").display
@@ -1359,8 +1362,10 @@ async def test_form_shows_the_real_config_values(tmp_path: Path) -> None:
         assert str(app.query_one("#mode-indicator", Label).content) == "fast"
 
         assert app.settings.export_dir == str(tmp_path / "exports")
-        assert app.query_one("#input-path", Input).value == ""
-        assert app.settings.path == ""
+        assert app.query_one("#input-folder", Input).value == ""
+        assert app.query_one("#input-name", Input).value == ""
+        assert (app.settings.folder, app.settings.name) == ("", "")
+        assert app.query_one("#input-folder", TailInput).full_placeholder == str(tmp_path / "exports"), "the config wins"
 
 
 async def test_config_defaults_are_real_values_too() -> None:
@@ -1370,7 +1375,9 @@ async def test_config_defaults_are_real_values_too() -> None:
         assert app.settings.delay == 1.0
         assert app.query_one("#input-delay", Input).value == "1"
         assert app.settings.export_dir is None
-        assert app.query_one("#input-path", Input).value == ""
+        assert app.query_one("#input-folder", Input).value == ""
+        assert app.query_one("#input-name", Input).value == ""
+        assert app.query_one("#input-folder", TailInput).full_placeholder == str(paths.default_export_dir())
 
 
 async def test_saving_settings_updates_the_form() -> None:
@@ -1392,36 +1399,99 @@ async def test_saving_settings_updates_the_form() -> None:
         assert app.query_one("#input-delay", Input).value == "0.5"
 
 
-async def test_name_row_shows_the_automatic_name_and_the_typed_one() -> None:
+async def test_folder_and_name_rows_show_the_defaults_and_the_typed_values(tmp_path: Path) -> None:
+    default = tmp_path / "documents" / "discoop"
     app = DiscoopApp(api_factory=_make_dummy_api_factory())
     async with app.run_test(size=(140, 40)) as pilot:
         await started(app, pilot)
         server, channel = Server(FIT, "Study Group", 5000), Channel("200", FIT, "general", 0, None, 0)
         app.selection.toggle(server, channel)
-        app.query_one("#input-path", Input).value = ""
+        app.query_one("#input-folder", Input).value = ""
+        app.query_one("#input-name", Input).value = ""
         app._update_command_preview()
         await pilot.pause()
-        stamp = export_stamp()
-        assert app.query_one("#input-path", Input).placeholder == stamp
-        assert f"--out exports/{stamp}" in str(app.query_one("#command-preview", Static).content)
+        command = str(app.query_one("#command-preview", Static).content)
+        name = default_name()
+        assert app.query_one("#input-folder", TailInput).full_placeholder == str(default)
+        assert app.query_one("#input-name", Input).placeholder == name
+        assert name.startswith("discord-export-")
+        assert f"--out {default.as_posix()}/{name}" in command
 
-        app.query_one("#input-path", Input).value = "semester"
+        app.query_one("#input-name", Input).value = "semester"
         await pilot.pause()
-        assert "exports/semester" in str(app.query_one("#command-preview", Static).content)
-        assert stamp not in str(app.query_one("#command-preview", Static).content)
+        command = str(app.query_one("#command-preview", Static).content)
+        assert f"--out {default.as_posix()}/semester" in command
+        assert name not in command
+
+        app.query_one("#input-folder", Input).value = str(tmp_path / "mine")
+        await pilot.pause()
+        assert f"--out {(tmp_path / 'mine').as_posix()}/semester" in str(app.query_one("#command-preview", Static).content)
+
+        app.query_one("#input-folder", Input).value = "ws"  # relative: inside the default folder
+        app.query_one("#input-name", Input).value = "../x"  # a name is not a path
+        await pilot.pause()
+        assert f"--out {default.as_posix()}/ws/_x" in str(app.query_one("#command-preview", Static).content)
+
+        app.query_one("#row-target", ChoiceRow).action_step(1)  # zip
+        app.query_one("#input-name", Input).value = "semester"
+        await pilot.pause()
+        assert f"--zip {default.as_posix()}/ws/semester.zip" in str(app.query_one("#command-preview", Static).content)
 
 
-async def test_an_edited_path_survives_a_config_reload(tmp_path: Path) -> None:
+async def test_the_folder_placeholder_follows_the_config(tmp_path: Path) -> None:
     app = DiscoopApp(api_factory=_make_dummy_api_factory())
     async with app.run_test(size=(140, 40)) as pilot:
         await started(app, pilot)
-        app.query_one("#input-path", Input).value = "my-own-folder"
+        folder = app.query_one("#input-folder", TailInput)
+        assert folder.full_placeholder == str(tmp_path / "documents" / "discoop")
+        Config.default().set("export-dir", str(tmp_path / "chosen"))
+        app._load_config()
+        app._sync_form()
+        await pilot.pause()
+        assert folder.full_placeholder == str(tmp_path / "chosen")
+        Config.default().unset("export-dir")
+        app._load_config()
+        app._sync_form()
+        await pilot.pause()
+        assert folder.full_placeholder == str(tmp_path / "documents" / "discoop")
+
+
+async def test_a_long_folder_placeholder_keeps_its_end(tmp_path: Path) -> None:
+    long = tmp_path / ("OneDrive - " + "University " * 8) / "Documents" / "discoop"
+    Config.default().set("export-dir", str(long))
+    app = DiscoopApp(api_factory=_make_dummy_api_factory())
+    async with app.run_test(size=(100, 40)) as pilot:
+        await started(app, pilot)
+        folder = app.query_one("#input-folder", TailInput)
+        assert folder.full_placeholder == str(long)
+        assert folder.size.width < len(str(long))
+        assert len(folder.placeholder) == folder.size.width, "it fills the line"
+        assert folder.placeholder.startswith("…")
+        assert str(long).endswith(folder.placeholder[1:])
+        assert folder.placeholder.endswith(str(Path("Documents") / "discoop"))
+
+        await pilot.resize_terminal(180, 40)  # more room: more of the path
+        await pilot.pause()
+        assert len(folder.placeholder) == folder.size.width
+        assert str(long).endswith(folder.placeholder[1:])
+        assert app.query_one("#input-name", Input).placeholder == default_name(), "a name is never shortened"
+
+
+async def test_edited_folder_and_name_survive_a_config_reload(tmp_path: Path) -> None:
+    app = DiscoopApp(api_factory=_make_dummy_api_factory())
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        app.query_one("#input-folder", Input).value = "my-own-folder"
+        app.query_one("#input-name", Input).value = "my-own-name"
         await pilot.pause()
         Config.default().set("export-dir", str(tmp_path))
         app._load_config()
         app._sync_form()
         await pilot.pause()
-        assert app.settings.path == "my-own-folder"
+        assert app.settings.folder == "my-own-folder"
+        assert app.settings.name == "my-own-name"
+        assert app.query_one("#input-folder", Input).value == "my-own-folder"
+        assert app.query_one("#input-name", Input).value == "my-own-name"
 
 
 def _export_network(count: int = 150) -> tuple[FakeDiscord, httpx.MockTransport]:
@@ -1439,6 +1509,12 @@ def _seed_export() -> tuple[Server, Channel, Channel]:
         cache.replace_servers([server])
         cache.replace_channels(FIT, [first, second])
     return server, first, second
+
+
+def _export_to(app: DiscoopApp, target: Path) -> None:
+    """Fill Folder and Name so that the export goes to `target`."""
+    app.query_one("#input-folder", Input).value = str(target.parent)
+    app.query_one("#input-name", Input).value = target.name
 
 
 def _select(app: DiscoopApp, server: Server, *channels: Channel) -> None:
@@ -1459,7 +1535,7 @@ async def test_export_reports_what_happened(tmp_path: Path) -> None:
     async with app.run_test(size=(140, 40)) as pilot:
         await started(app, pilot)
         _select(app, server, first, second)
-        app.query_one("#input-path", Input).value = str(tmp_path / "out")
+        _export_to(app, tmp_path / "out")
         await pilot.pause()
 
         await pilot.press("f5")
@@ -1489,7 +1565,7 @@ async def test_export_failure_shows_the_error(tmp_path: Path) -> None:
         await started(app, pilot)
         _select(app, server, first)
         app.query_one("#input-from", Input).value = "not-a-date"
-        app.query_one("#input-path", Input).value = str(tmp_path / "out")
+        _export_to(app, tmp_path / "out")
         await pilot.pause()
 
         await pilot.press("f5")
@@ -1510,7 +1586,7 @@ async def test_start_row_starts_with_enter(tmp_path: Path) -> None:
     async with app.run_test(size=(140, 40)) as pilot:
         await started(app, pilot)
         _select(app, server, first)
-        app.query_one("#input-path", Input).value = str(tmp_path / "out")
+        _export_to(app, tmp_path / "out")
         await pilot.pause()
 
         app.query_one("#row-start", ActionRow).focus()
@@ -1518,6 +1594,31 @@ async def test_start_row_starts_with_enter(tmp_path: Path) -> None:
         await pilot.press("enter")
         await wait_until(pilot, lambda: (tmp_path / "out" / "manifest.json").exists() and app.cancel_token is None)
         assert "Done: 1 channel, 1 message." == str(app.query_one("#run-status", Label).content)
+
+
+async def test_export_with_empty_fields_goes_to_documents_discoop(tmp_path: Path) -> None:
+    server, first, _ = _seed_export()
+    _, transport = _export_network(2)
+
+    def factory(token: str | None = None, **kw: Any) -> DiscordAPI:
+        kw["delay"] = 0.0
+        return DiscordAPI("fake-token", transport=transport, **kw)
+
+    default = tmp_path / "documents" / "discoop"
+    app = DiscoopApp(api_factory=factory)
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        _select(app, server, first)
+        assert not (tmp_path / "documents").exists(), "nothing is created before the export"
+        name = default_name()  # a minute may change while the test runs: the folder is checked by its pattern
+
+        await pilot.press("f5")
+        await wait_until(pilot, lambda: app.cancel_token is None)
+
+        exports = [path for path in default.iterdir() if path.name.startswith("discord-export-")]
+        assert len(exports) == 1 and (exports[0] / "manifest.json").is_file()
+        assert len(exports[0].name) == len(name)
+        assert f"Saving to {(default / exports[0].name).as_posix()}" in log_text(app).replace("\n", "")
 
 
 async def test_preview_target_opens_the_preview_screen() -> None:
@@ -1569,7 +1670,7 @@ async def test_escape_stops_an_export_inside_a_pause(tmp_path: Path) -> None:
     async with app.run_test(size=(140, 40)) as pilot:
         await started(app, pilot)
         _select(app, server, first)
-        app.query_one("#input-path", Input).value = str(tmp_path / "out")
+        _export_to(app, tmp_path / "out")
         await pilot.pause()
 
         await pilot.press("f5")
@@ -1656,7 +1757,7 @@ async def test_q_while_running_cancels_before_quitting(tmp_path: Path) -> None:
     async with app.run_test(size=(140, 40)) as pilot:
         await started(app, pilot)
         _select(app, server, first)
-        app.query_one("#input-path", Input).value = str(tmp_path / "out")
+        _export_to(app, tmp_path / "out")
         await pilot.pause()
         await pilot.press("f5")
         await wait_until(pilot, lambda: len(discord.channels["200"].requests) == 1)

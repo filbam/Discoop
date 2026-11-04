@@ -14,7 +14,7 @@ DEFAULT_MODE = "safe"
 DESCRIPTIONS = {
     "default-server": "server ID used when --server is not given",
     "delay": "seconds between Discord API requests",
-    "export-dir": "folder for relative --out/--zip paths (default: the current folder)",
+    "export-dir": "folder for relative --out/--zip paths (default: current folder; TUI: Documents/discoop)",
     "mode": "download mode: safe (human-like scrolling pauses) or fast",
 }
 DEFAULTS: dict[str, Any] = {"delay": 1.0, "mode": DEFAULT_MODE}

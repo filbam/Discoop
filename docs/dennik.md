@@ -45,8 +45,9 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
   - `TextView` kreslí len viditeľné riadky: zmena formátu pri 5000 správach trvá 0,1–0,4 s (`Static` 1,5–8,7 s).
     Cena: v Help a Preview nefunguje výber textu myšou.
   - Token z TUI sa ukladá až po overení na UI vlákne, Esc počas overovania nič neuloží.
-- **Názov exportu v TUI (P21):** riadok `Path` nahradil `Name`; prázdne pole dáva názov `YYYY-MMDD-HHMM` v priečinku
-  exportov, holý názov sa uloží do priečinka exportov, lomka alebo absolútna cesta funguje ako predtým.
+- **Názov exportu v TUI (P21):** riadok `Path` nahradil `Name` s predvoleným názvom `YYYY-MMDD-HHMM` (dátum a čas).
+  Prvá verzia spájala názov a cestu v jednom poli (holý názov do priečinka exportov, lomka alebo absolútna cesta ako
+  cesta) a bez `export-dir` šla do `exports` v aktuálnom priečinku. To používateľ ešte v ten deň zmenil, pozri P23 nižšie.
   Kolízia automatického názvu dostane `-2`, `-3`. Podrobnosti v `navrh-nastroja.md` (4.8).
 - **Ako prebiehala práca:** podľa [ADR 0010](rozhodnutia/0010-praca-cez-agentov.md) cez agentov, hlavný Claude výsledky
   kontroloval (diff, `uv run pytest`, SVG screenshoty vykreslené do PNG). Commity (všetky na `main`, nepushnuté):
@@ -70,6 +71,27 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
   prevzal nový commit, anonymný `git ls-remote` na GitHub funguje.
 - **Neoverené `[PREDPOKLAD]`:** samotná inštalácia z GitHubu, Linux, macOS, automatické stiahnutie Pythonu uv-čkom, beh TUI z takejto inštalácie.
 - GitHub je na `75f0310`, lokálne je 9 nepushnutých commitov.
+
+**Priečinok a názov exportu v TUI, dve polia (P23, [ADR 0016](rozhodnutia/0016-predvoleny-priecinok-exportov-v-tui.md)):**
+- Používateľ rozhodol, že `Name` nemá byť cesta a export nemá ísť podľa miesta spustenia terminálu. Formulár má teraz
+  samostatné riadky `Folder` a `Name`. Prázdny `Name` je `discord-export-<dátum a čas>`, prázdny `Folder` je `discoop`
+  v Dokumentoch používateľa (`platformdirs.user_documents_dir()`, rovnako na Windows, Linuxe aj macOS). Config `export-dir`
+  má prednosť, v Settings sa mení trvalo a v poli `Folder` pre jeden export. CLI sa nezmenilo.
+- Relatívny `Folder` leží vo vnútri predvoleného priečinka, `~` a absolútna cesta sa použijú ako sú. Zadaný `Name` sa
+  prečistí cez `safe_name` a nikdy nevyjde z priečinka. Cesty v `--out`/`--zip` sú absolútne a s lomkami, takže riadok
+  s CLI príkazom nepotrebuje citovanie ani na Windows. `export.py` vytvára aj nadradené priečinky (priečinok aj zip),
+  preto predvolený priečinok vznikne pri prvom exporte. Test to overuje.
+- Placeholder `Folder` ukazuje skutočnú cestu. Dlhá cesta (napr. Dokumenty v OneDrive) sa skráti zľava (`TailInput`),
+  aby ostal koniec.
+- Testy podmieňajú `paths.documents_dir()` v `conftest.py` na priečinok v `tmp_path`, skutočné Dokumenty sa nemenia.
+- **Opravené mimochodom:** `tests/test_attachments.py::test_retries_after_server_errors_and_network_errors` spadol
+  2026-11-04 po 07:00 UTC (08:00 miestneho času). Tri `Downloader` v ňom bežali na skutočných hodinách a pevné odkazy z testu
+  (`NOW + 20 h`) už vypršali. Doplnené `now=NOW.timestamp`. Nesúvisí s P23.
+- **Overené `[OVERENÉ]`:** `uv run pytest`: 426 testov prechádza, bez varovaní (`-W error`). Skutočný priečinok
+  `C:\Users\Filip\Documents\discoop` pred prácou ani po nej neexistuje.
+- **Neoverené `[PREDPOKLAD]`:** Linux a macOS (cesta podľa dokumentácie `platformdirs`), Dokumenty presmerované do
+  OneDrive, beh v skutočnom termináli.
+- **Mimo rozsahu:** `Save` v Preview ukladá naďalej do `export-dir`, inak `exports` v aktuálnom priečinku.
 
 **Ďalej:**
 1. Používateľ rozhodne o pushi. GitHub je na `75f0310`, takže inštalácia z GitHubu dá starú verziu bez nového TUI.

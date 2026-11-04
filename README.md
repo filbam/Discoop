@@ -75,7 +75,7 @@ discoop ui            # interaktívne terminálové rozhranie (TUI)
 discoop servers
 discoop channels -s "VUT FIT"
 discoop config set default-server "VUT FIT"
-discoop config set export-dir exports      # predvolený priečinok pre exporty
+discoop config set export-dir ~/discord-exports   # priečinok exportov (TUI: predvolený, CLI: pre relatívne cesty)
 discoop config set mode safe               # režim: safe (predvolený) alebo fast
 ```
 
@@ -85,6 +85,12 @@ Space/Enter na výber, Tab na prepnutie panelu, `F5` spustí export, Help cez `F
 ```
 discoop ui
 ```
+
+Export z TUI ide predvolene do priečinka `discoop` v Dokumentoch (Windows `C:\Users\<meno>\Documents\discoop`, Linux
+a macOS `~/Documents/discoop`) pod názvom `discord-export-<dátum a čas>`. Pole `Folder` zmení priečinok pre jeden export,
+pole `Name` názov (nikdy nie cestu). Predvolený priečinok trvalo zmeníš v Settings (`F2`, `Export folder`) alebo cez
+`discoop config set export-dir <priečinok>`. Príkaz `discoop messages --out/--zip` sa tým nemení, jeho relatívne cesty
+platia od aktuálneho priečinka (alebo od `export-dir`, ak je nastavený).
 
 Správy do konzoly (predvolene posledných 24 hodín, od najstaršej):
 

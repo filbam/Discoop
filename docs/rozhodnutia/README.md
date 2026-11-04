@@ -27,6 +27,7 @@ Rozhodnutia, ktoré ešte nie sú vyriešené, sú v [navrh-nastroja.md, sekcia 
 | [0013](0013-tui-a-spolocna-vrstva.md) | Interaktívne terminálové rozhranie (TUI) a spoločná servisná vrstva | Prijaté, rozloženie TUI nahradené ADR 0014 | 2026-11-03 |
 | [0014](0014-tui-klavesnica-jeden-strom.md) | TUI: ovládanie klávesnicou, jeden strom, farby terminálu | Prijaté | 2026-11-03 |
 | [0015](0015-verejne-repo-a-instalacia.md) | Verejné repo a inštalácia cez `uv tool` | Prijaté | 2026-11-04 |
+| [0016](0016-predvoleny-priecinok-exportov-v-tui.md) | Predvolený priečinok exportov v TUI: `Documents/discoop` | Prijaté | 2026-11-04 |
 
 ## Šablóna
 

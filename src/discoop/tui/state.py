@@ -4,18 +4,20 @@ Pure Python, decoupled from Textual widgets for fast startup and testability.
 """
 
 import glob
+import os
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from discoop import paths
 from discoop.attachments import safe_name
 from discoop.models import CATEGORY, MESSAGE_TYPES, Channel, Server
 from discoop.resolve import normalize
 from discoop.service import MessagesRequest
 
 WINDOW_PRESETS = ("24h", "7d", "30d", "all")
-EXPORT_FOLDER = "exports"  # where exports go without an export-dir in the config
+EXPORT_NAME = "discord-export"  # the automatic name is this, a dash and the date and time
 CUSTOM_WINDOW = "custom"
 
 
@@ -76,8 +78,9 @@ class ExportSettings:
     max_file_size: float | None = 50.0
     include_system: bool = False
     target: str = "folder"
-    path: str = ""  # the Name row: empty = date and time, a bare name = inside the exports folder, else a path
-    export_dir: str | None = None  # export-dir from the config
+    folder: str = ""  # the Folder row: empty = the default folder, a relative one lies inside the default folder
+    name: str = ""  # the Name row: empty = discord-export-<date and time>, else one name, never a path
+    export_dir: str | None = None  # export-dir from the config: it replaces Documents/discoop as the default folder
     preview_format: str = "text"
 
 
@@ -165,27 +168,63 @@ class PlannedJob:
 
 
 def export_stamp(now: datetime | None = None) -> str:
-    """The automatic export name: local date and time, e.g. 2026-1104-0108."""
+    """The date and time of an automatic name, local, e.g. 2026-1104-0108."""
     return (now or datetime.now()).strftime("%Y-%m%d-%H%M")
 
 
-def _export_base(settings: ExportSettings, now: datetime | None) -> str:
+def default_name(now: datetime | None = None) -> str:
+    """The name of an export when the Name row is empty, e.g. discord-export-2026-1104-0108."""
+    return f"{EXPORT_NAME}-{export_stamp(now)}"
+
+
+def _normalized(path: Path) -> Path:
+    """An absolute path without `..` and `.`. The current folder is only added to a relative one."""
+    return Path(os.path.normpath(path.absolute()))
+
+
+def default_folder(settings: ExportSettings) -> Path:
+    """Where an empty Folder row goes: export-dir from the config, else `discoop` in the user's Documents."""
+    if settings.export_dir and settings.export_dir.strip():
+        return _normalized(_expand(settings.export_dir.strip()))
+    return paths.default_export_dir()
+
+
+def _expand(raw: str) -> Path:
+    try:
+        return Path(raw).expanduser()
+    except RuntimeError:  # no home folder to expand ~ to
+        return Path(raw)
+
+
+def export_folder(settings: ExportSettings) -> Path:
+    """The folder of the export: the Folder row, or the default one.
+
+    `~` is the home folder, an absolute path is used as it is and a relative one lies inside the default folder.
+    """
+    default = default_folder(settings)
+    raw = settings.folder.strip()
+    if not raw:
+        return default
+    path = _expand(raw)
+    return _normalized(path if path.is_absolute() else default / path)
+
+
+def _export_base(settings: ExportSettings, now: datetime | None) -> Path:
     """Where the export goes, without the .zip suffix or the numbering of several jobs.
 
-    An empty name is the date and time, a bare name goes into the exports folder, a name with a separator is a path.
+    A name typed by the user is one cleaned name in the folder, so an export can be continued. The automatic name
+    gets -2, -3 when its minute is taken already.
     """
-    name = settings.path.strip()
-    folder = (settings.export_dir or EXPORT_FOLDER).rstrip("/\\") or EXPORT_FOLDER
-    if not name:
-        stamp = export_stamp(now)
-        unique, number = stamp, 1
-        while any(Path(folder).glob(f"{glob.escape(unique)}*")):  # the same minute: do not mix two exports
-            number += 1
-            unique = f"{stamp}-{number}"
-        return f"{folder}/{unique}"
-    if "/" in name or "\\" in name or Path(name).is_absolute():
-        return name
-    return f"{folder}/{safe_name(name, 'export')}"
+    folder = export_folder(settings)
+    typed = settings.name.strip()
+    if typed:
+        return folder / safe_name(typed, "export")
+    stem = default_name(now)
+    unique, number = stem, 1
+    while any(folder.glob(f"{glob.escape(unique)}*")):  # the same minute: do not mix two exports
+        number += 1
+        unique = f"{stem}-{number}"
+    return folder / unique
 
 
 def plan_jobs(selection: SelectionState, settings: ExportSettings, now: datetime | None = None) -> list[PlannedJob]:
@@ -195,7 +234,7 @@ def plan_jobs(selection: SelectionState, settings: ExportSettings, now: datetime
     """
     if not selection.selected:
         return []
-    base_path = _export_base(settings, now) if settings.target != "preview" else ""
+    base = _export_base(settings, now) if settings.target != "preview" else None
 
     groups: dict[WindowSpec, list[tuple[Server, Channel]]] = {}
     for ch_id, target in selection.selected.items():
@@ -221,23 +260,12 @@ def plan_jobs(selection: SelectionState, settings: ExportSettings, now: datetime
         if settings.target == "preview":
             out_dir = None
             zip_file = None
-        elif settings.target == "folder":
-            base = base_path
-            if total == 1:
-                out_dir = base
-            else:
-                out_dir = f"{base.rstrip('/\\')}/{idx:02d}-{window.slug()}"
-        elif settings.target == "zip":
-            base = base_path
-            if base.endswith(("/", "\\")):
-                base += "discoop-export.zip"
-            if not base.lower().endswith(".zip"):
-                base += ".zip"
-            if total == 1:
-                zip_file = base
-            else:
-                stem = base[:-4]
-                zip_file = f"{stem}-{idx:02d}-{window.slug()}.zip"
+        elif settings.target == "folder" and base is not None:
+            out_dir = (base if total == 1 else base / f"{idx:02d}-{window.slug()}").as_posix()
+        elif settings.target == "zip" and base is not None:
+            stem = base.name[:-4] if base.name.lower().endswith(".zip") else base.name
+            suffix = "" if total == 1 else f"-{idx:02d}-{window.slug()}"
+            zip_file = (base.parent / f"{stem}{suffix}.zip").as_posix()
 
         is_preview = settings.target == "preview"
         req = MessagesRequest(

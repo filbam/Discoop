@@ -25,7 +25,7 @@ from textual.screen import ModalScreen, ScreenResultType
 from textual.timer import Timer
 from textual.widgets import Footer, Input, Label, Static
 
-from discoop import login as login_flow
+from discoop import login as login_flow, paths
 from discoop.api import DiscordAPI
 from discoop.cache import clear_cache
 from discoop.cli import LOCAL_ZONE, command_help
@@ -110,10 +110,12 @@ GUIDE_SECTIONS = (
     (
         "Form",
         "The Export panel has the form below the list. ↑ ↓ walk its rows, also out of a text field, ← → change a "
-        "choice row. Target says where the export goes: a folder, a zip file or a preview on the screen. Name is the "
-        "name of that folder or zip: empty means the date and time, a bare name goes into the exports folder "
-        "(Settings changes it). The line "
-        "under the log shows the same export as a CLI command.",
+        "choice row. Target says where the export goes: a folder, a zip file or a preview on the screen. Folder and "
+        "Name say where exactly. An empty Folder is the default folder, Documents/discoop. A relative Folder lies "
+        "inside it, an absolute one or one starting with ~ is used as it is. Export folder in Settings (F2) changes "
+        "the default folder for good, the Folder row for one export. An empty Name is discord-export and the date "
+        "and time. A typed Name is only a name, never a path: slashes and characters a file name cannot have turn "
+        "into _. The line under the log shows the same export as a CLI command.",
     ),
     (
         "Time windows",
@@ -469,7 +471,7 @@ class SettingsModal(Dialog[bool]):
                     "Export folder",
                     "input-cfg-export-dir",
                     value=values.get("export-dir") or "",
-                    placeholder="exports",
+                    placeholder=str(paths.default_export_dir()),
                     label_width=width,
                 )
                 yield ActionRow(SAVE_LABEL, id="row-cfg-save")

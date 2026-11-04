@@ -239,6 +239,8 @@ Uložené v `config.toml` v konfiguračnom adresári (sekcia 10).
 - **`default-server`** sa pri `set` vyhľadá ako server (meno alebo ID) a uloží sa jeho **ID**, takže
   premenovanie servera nastavenie nerozbije.
 - **`export-dir`** (pridané v kroku 3): priečinok pre relatívne cesty `--out`/`--zip`. Ukladá sa ako absolútna cesta.
+  V TUI je to predvolený priečinok exportov, bez neho `Documents/discoop` ([ADR 0016](rozhodnutia/0016-predvoleny-priecinok-exportov-v-tui.md)).
+  CLI bez neho ostáva pri aktuálnom priečinku.
 - **Neznámy kľúč** alebo zlá hodnota skončí kódom `8`.
 
 ### 4.7 `agent-guide`
@@ -262,10 +264,13 @@ Interaktívne terminálové rozhranie (TUI) postavené na knižnici Textual (P16
 - **Vzhľad:** téma Textual `ansi-dark` (farby terminálu, Ctrl+P mení tému), CSS bez hex farieb, ovládacie prvky vysoké jeden riadok (`compact=True`), bez emoji a veľkých tlačidiel. Pri Target=preview sú skryté Attachments a Max MB. Pri QR sa formulár nahradí kódom (pod 27 riadkov zmizne rámik a Footer, aby sa QR zmestil do 80×24).
 - **Klávesy:** primárne klávesnica, myš je doplnok. Úplná tabuľka (šípky, Space, Enter, Tab, `/`, `e`, `x`/`X`, `a`, `r`, `R`, `L`, `F5`, Esc, `c`, F1–F3, `q`) je v ADR 0014.
 
-**Názov exportu (P21):**
-- Formulár má riadok `Name` (predvolene prázdny, placeholder ukazuje aktuálny názov). Prázdne pole = dátum a čas `YYYY-MMDD-HHMM` (miestny čas, napr. `2026-1104-0108`), zafixuje sa pri `F5`; placeholder a riadok s CLI príkazom sa obnovujú každých 30 s.
-- Holý názov (bez `/` a `\`) sa prečistí cez `safe_name` a uloží do priečinka exportov (`export-dir` z configu, inak `exports`). Hodnota s lomkou alebo absolútna cesta sa použije ako cesta.
-- Kolízia automatického názvu v tej istej minúte: `-2`, `-3`. Názov zadaný používateľom kolíziu nerieši, opakovaný export do neho pokračuje. Zip dostane príponu `.zip`. Pri viacerých úlohách platia podpriečinky/archívy ako vyššie. Log po štarte ukáže skutočnú cestu.
+**Priečinok a názov exportu (P21, P23, [ADR 0016](rozhodnutia/0016-predvoleny-priecinok-exportov-v-tui.md)):**
+- Formulár má pri Target=folder a zip dva samostatné riadky v tomto poradí: `Folder` a `Name` (obidva predvolene prázdne, pri preview skryté). `Name` nikdy nie je cesta.
+- **`Folder`:** prázdny = predvolený priečinok. Ten je `export-dir` z configu, inak `discoop` v Dokumentoch používateľa (`platformdirs.user_documents_dir()`, na Windows, Linuxe aj macOS rovnakým kódom, nič sa nevytvára pri zobrazení, priečinok vznikne pri exporte). `~` sa rozbalí, absolútna cesta sa použije ako je, relatívna leží vo vnútri predvoleného priečinka. Placeholder ukazuje skutočný predvolený priečinok, dlhý sa skráti zľava (`TailInput`), aby ostal jeho koniec.
+- **`Name`:** prázdny = `discord-export-<dátum a čas>` (`YYYY-MMDD-HHMM`, miestny čas, napr. `discord-export-2026-1104-0108`), zafixuje sa pri `F5`. Zadaný názov sa prečistí cez `safe_name` (lomky a neplatné znaky sa nahradia `_`), takže nikdy nevyjde z priečinka. Placeholder ukazuje aktuálny názov. Placeholdery a riadok s CLI príkazom sa obnovujú každých 30 s.
+- Kolízia automatického názvu v tej istej minúte: `-2`, `-3`. Názov zadaný používateľom kolíziu nerieši, opakovaný export do neho pokračuje. Zip dostane príponu `.zip` (nie `.zip.zip`). Pri viacerých úlohách platia podpriečinky `<názov>/01-7d` alebo archívy `<názov>-01-7d.zip` ako vyššie.
+- Cesty `--out`/`--zip` v riadku s CLI príkazom a v požiadavke sú absolútne a s lomkami (`Path.as_posix()`), takže ich Windows prijme a `shlex.join` ich nemusí citovať. Log po štarte ukáže skutočnú cestu (`Saving to ...`).
+- Predvolený priečinok mení trvalo Settings (`F2`, `Export folder` = `export-dir`), pre jeden export pole `Folder`. CLI sa nemení, relatívne `--out`/`--zip` ostávajú k aktuálnemu priečinku alebo `export-dir`.
 
 **Načítanie dát a tempovanie:**
 - Pohyb kurzorom nikdy nevolá Discord. Sieť volá len explicitná akcia: → alebo Enter na nenačítanom serveri, `r`, `R`, `L`, `F5`.

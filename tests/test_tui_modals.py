@@ -320,6 +320,18 @@ async def test_settings_mode_reaches_the_config_and_the_main_screen(tmp_path: Pa
         assert str(app.query_one("#mode-indicator", Label).content) == "fast"
 
 
+async def test_settings_export_folder_shows_the_real_default(tmp_path: Path) -> None:
+    app = make_app()
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        await pilot.press("f2")
+        await pilot.pause()
+        field = app.screen.query_one("#input-cfg-export-dir", Input)
+        assert field.value == ""
+        assert field.placeholder == str(tmp_path / "documents" / "discoop")
+        assert not (tmp_path / "documents").exists()
+
+
 async def test_settings_escape_changes_nothing() -> None:
     app = make_app()
     async with app.run_test(size=(140, 40)) as pilot:
@@ -1047,6 +1059,9 @@ async def test_help_lists_the_keys_of_the_adr() -> None:
             assert key in guide
         for topic in ("Tree", "Selection", "Form", "Time windows", "Safe and fast"):
             assert topic in guide
+        flat = " ".join(guide.split())
+        for phrase in ("Folder and Name", "Documents/discoop", "discord-export", "Export folder in Settings"):
+            assert phrase in flat
         assert "J, K" not in guide and "Arrows" not in guide
         assert not re.search("[\U0001f300-\U0001faff☀-➿]", guide)
 

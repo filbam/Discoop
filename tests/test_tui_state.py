@@ -1,17 +1,20 @@
 """Tests for TUI state management, job planning, bridge, and event dispatch."""
 
 from datetime import datetime, timedelta
+import os
 from pathlib import Path
 import threading
 import time
 from typing import Any
+import zipfile
 
 import httpx
 import pytest
 
-from discoop import service
+from discoop import paths, service
 from discoop.api import DiscordAPI
 from discoop.cache import Cache
+from discoop.config import Config
 from discoop.directory import Directory
 from discoop.errors import DiscoopError, ExitCode
 from discoop.models import CATEGORY, Channel, Server
@@ -21,6 +24,9 @@ from discoop.tui.state import (
     PlannedJob,
     SelectionState,
     WindowSpec,
+    default_folder,
+    default_name,
+    export_folder,
     export_stamp,
     filter_channels,
     plan_jobs,
@@ -202,7 +208,7 @@ def test_plan_jobs_empty_selection() -> None:
     assert plan_jobs(state, settings) == []
 
 
-def test_plan_jobs_single_job_same_server() -> None:
+def test_plan_jobs_single_job_same_server(tmp_path: Path) -> None:
     server = Server(id="srv-100", name="Guild One")
     c1 = Channel(id="ch-1", server_id="srv-100", name="general", type=0)
     c2 = Channel(id="ch-2", server_id="srv-100", name="random", type=0)
@@ -211,7 +217,7 @@ def test_plan_jobs_single_job_same_server() -> None:
     state.toggle(server, c1)
     state.toggle(server, c2)
 
-    settings = ExportSettings(target="folder", path="exports/my-test-export")
+    settings = ExportSettings(target="folder", folder=str(tmp_path / "exports"), name="my-test-export")
     jobs = plan_jobs(state, settings)
 
     assert len(jobs) == 1
@@ -223,12 +229,12 @@ def test_plan_jobs_single_job_same_server() -> None:
     assert job.targets == ((server, c1), (server, c2))
     assert job.request.server == "srv-100"
     assert job.request.channels == ("ch-1", "ch-2")
-    assert job.request.out_dir == "exports/my-test-export"
+    assert job.request.out_dir == (tmp_path / "exports" / "my-test-export").as_posix()
     assert job.request.zip_file is None
     assert not job.request.print_messages
 
 
-def test_plan_jobs_single_job_cross_servers() -> None:
+def test_plan_jobs_single_job_cross_servers(tmp_path: Path) -> None:
     s1 = Server(id="srv-1", name="Guild 1")
     s2 = Server(id="srv-2", name="Guild 2")
     c1 = Channel(id="ch-1", server_id="srv-1", name="announcements", type=0)
@@ -238,17 +244,17 @@ def test_plan_jobs_single_job_cross_servers() -> None:
     state.toggle(s1, c1)
     state.toggle(s2, c2)
 
-    settings = ExportSettings(target="folder", path="exports/cross")
+    settings = ExportSettings(target="folder", folder=str(tmp_path), name="cross")
     jobs = plan_jobs(state, settings)
 
     assert len(jobs) == 1
     job = jobs[0]
     assert job.request.server is None
     assert job.request.channels == ("ch-1", "ch-2")
-    assert job.request.out_dir == "exports/cross"
+    assert job.request.out_dir == (tmp_path / "cross").as_posix()
 
 
-def test_plan_jobs_multiple_jobs_folder_and_zip() -> None:
+def test_plan_jobs_multiple_jobs_folder_and_zip(tmp_path: Path) -> None:
     s1 = Server(id="srv-1", name="Guild 1")
     c1 = Channel(id="ch-1", server_id="srv-1", name="general", type=0)
     c2 = Channel(id="ch-2", server_id="srv-1", name="random", type=0)
@@ -264,7 +270,8 @@ def test_plan_jobs_multiple_jobs_folder_and_zip() -> None:
     state.set_custom_window("ch-3", custom_win)
 
     # 1. Folder target
-    folder_settings = ExportSettings(target="folder", path="exports/discoop-export")
+    base = (tmp_path / "exports").as_posix()
+    folder_settings = ExportSettings(target="folder", folder=str(tmp_path / "exports"), name="discoop-export")
     folder_jobs = plan_jobs(state, folder_settings)
     assert len(folder_jobs) == 2
 
@@ -273,27 +280,27 @@ def test_plan_jobs_multiple_jobs_folder_and_zip() -> None:
     assert job1.total == 2
     assert job1.window.slug() == "7d"
     assert job1.request.channels == ("ch-1", "ch-2")
-    assert job1.request.out_dir == "exports/discoop-export/01-7d"
+    assert job1.request.out_dir == f"{base}/discoop-export/01-7d"
     assert job1.request.zip_file is None
 
     assert job2.number == 2
     assert job2.total == 2
     assert job2.window.slug() == "2026-10-01_2026-10-31"
     assert job2.request.channels == ("ch-3",)
-    assert job2.request.out_dir == "exports/discoop-export/02-2026-10-01_2026-10-31"
+    assert job2.request.out_dir == f"{base}/discoop-export/02-2026-10-01_2026-10-31"
     assert job2.request.zip_file is None
 
     # 2. Zip target
-    zip_settings = ExportSettings(target="zip", path="exports/discoop-export.zip")
+    zip_settings = ExportSettings(target="zip", folder=str(tmp_path / "exports"), name="discoop-export.zip")
     zip_jobs = plan_jobs(state, zip_settings)
     assert len(zip_jobs) == 2
 
     zjob1, zjob2 = zip_jobs
     assert zjob1.request.out_dir is None
-    assert zjob1.request.zip_file == "exports/discoop-export-01-7d.zip"
+    assert zjob1.request.zip_file == f"{base}/discoop-export-01-7d.zip"
 
     assert zjob2.request.out_dir is None
-    assert zjob2.request.zip_file == "exports/discoop-export-02-2026-10-01_2026-10-31.zip"
+    assert zjob2.request.zip_file == f"{base}/discoop-export-02-2026-10-01_2026-10-31.zip"
 
 
 def _fake_api_factory(channels: dict[str, FakeChannel]):
@@ -355,34 +362,6 @@ def test_plan_jobs_preview_runs_through_service() -> None:
     assert outcome.results[0].messages
     assert emitted[0] == "channel_start"
     assert emitted[-1] == "channel_done"
-
-
-def test_plan_jobs_paths_and_suffixes() -> None:
-    s1 = Server(id="srv-1", name="Guild 1")
-    c1 = Channel(id="ch-1", server_id="srv-1", name="a", type=0)
-    c2 = Channel(id="ch-2", server_id="srv-1", name="b", type=0)
-    state = SelectionState()
-    state.toggle(s1, c1)
-    state.toggle(s1, c2)
-    state.set_custom_window("ch-2", WindowSpec(from_="30d"))
-
-    # Trailing slashes of both kinds do not double up.
-    out = [j.request.out_dir for j in plan_jobs(state, ExportSettings(target="folder", path="out\\sub\\"))]
-    assert out == ["out\\sub/01-7d", "out\\sub/02-30d"]
-    out = [j.request.out_dir for j in plan_jobs(state, ExportSettings(target="folder", path="out/"))]
-    assert out == ["out/01-7d", "out/02-30d"]
-
-    # An upper-case suffix counts as a zip name and no second .zip is added.
-    zips = [j.request.zip_file for j in plan_jobs(state, ExportSettings(target="zip", path="out/Run.ZIP"))]
-    assert zips == ["out/Run-01-7d.zip", "out/Run-02-30d.zip"]
-    single = SelectionState()
-    single.toggle(s1, c1)
-    assert plan_jobs(single, ExportSettings(target="zip", path="out/Run.ZIP"))[0].request.zip_file == "out/Run.ZIP"
-    assert plan_jobs(single, ExportSettings(target="zip", path="out/Run"))[0].request.zip_file == "out/Run.zip"
-
-    # A path that names a folder gets a file name instead of a hidden ".zip".
-    assert plan_jobs(single, ExportSettings(target="zip", path="out/"))[0].request.zip_file == "out/discoop-export.zip"
-
 
 
 def test_set_custom_window_follows_global_window_changes() -> None:
@@ -581,7 +560,8 @@ def test_cancel_between_channels_writes_nothing(tmp_path: Path) -> None:
     for channel in channels:
         state.toggle(server, channel)
     target = tmp_path / "out" / "run.zip"
-    jobs = plan_jobs(state, ExportSettings(target="zip", path=str(target)))
+    jobs = plan_jobs(state, ExportSettings(target="zip", folder=str(tmp_path / "out"), name="run"))
+    assert jobs[0].request.zip_file == target.as_posix()
 
     with Cache.default() as cache, Directory(cache, api_factory) as directory:
         with pytest.raises(Cancelled):
@@ -592,7 +572,10 @@ def test_cancel_between_channels_writes_nothing(tmp_path: Path) -> None:
     assert not list(tmp_path.rglob("*.part"))
 
 
+
+
 STAMP_NOW = datetime(2026, 11, 4, 1, 8)
+AUTO = "discord-export-2026-1104-0108"
 
 
 def _one_channel() -> SelectionState:
@@ -601,76 +584,243 @@ def _one_channel() -> SelectionState:
     return state
 
 
+def _two_windows() -> SelectionState:
+    state = _one_channel()
+    state.toggle(Server(id="srv-1", name="Guild 1"), Channel(id="ch-2", server_id="srv-1", name="b", type=0))
+    state.set_custom_window("ch-2", WindowSpec(from_="30d"))
+    return state
+
+
 def _target(settings: ExportSettings, state: SelectionState | None = None, now: datetime = STAMP_NOW) -> str | None:
     request = plan_jobs(state or _one_channel(), settings, now)[0].request
     return request.out_dir or request.zip_file
 
 
-def test_export_stamp_format() -> None:
+def _documents(tmp_path: Path) -> Path:
+    """The default folder of the tests: `discoop` in the Documents folder that conftest moved into tmp_path."""
+    return tmp_path / "documents" / "discoop"
+
+
+def test_export_stamp_and_default_name() -> None:
     assert export_stamp(STAMP_NOW) == "2026-1104-0108"
     assert export_stamp(datetime(2026, 12, 31, 23, 59)) == "2026-1231-2359"
+    assert default_name(STAMP_NOW) == AUTO
+    assert default_name().startswith("discord-export-")
 
 
-def test_empty_name_is_the_date_and_time(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    assert _target(ExportSettings(target="folder")) == "exports/2026-1104-0108"
-    assert _target(ExportSettings(target="zip")) == "exports/2026-1104-0108.zip"
-    assert _target(ExportSettings(target="folder", path="   ")) == "exports/2026-1104-0108"
+def test_default_export_dir_is_discoop_in_documents(tmp_path: Path) -> None:
+    assert paths.default_export_dir().name == "discoop"
+    assert paths.default_export_dir().parent == paths.documents_dir() == tmp_path / "documents"
+    assert not paths.documents_dir().exists(), "asking for the folder creates nothing"
 
 
-def test_bare_name_goes_into_the_exports_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    assert _target(ExportSettings(target="folder", path=" semester ")) == "exports/semester"
-    assert _target(ExportSettings(target="zip", path="semester")) == "exports/semester.zip"
-    assert _target(ExportSettings(target="zip", path="semester.ZIP")) == "exports/semester.ZIP"
-    export_dir = str(tmp_path / "mine")
-    assert _target(ExportSettings(target="folder", path="semester", export_dir=export_dir)) == f"{export_dir}/semester"
-    assert _target(ExportSettings(target="folder", export_dir=export_dir)) == f"{export_dir}/2026-1104-0108"
+def test_documents_dir_comes_from_platformdirs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.undo()  # the real functions of discoop.paths; only the folder platformdirs reports is replaced
+    moved = tmp_path / "Moved Documents"
+    monkeypatch.setattr("discoop.paths.user_documents_dir", lambda: str(moved))
+    assert paths.documents_dir() == moved
+    assert paths.default_export_dir() == moved / "discoop"
+    assert not moved.exists()
 
 
-def test_bare_name_is_cleaned_of_invalid_characters() -> None:
-    assert _target(ExportSettings(target="folder", path='a:b*c?"d')) == "exports/a_b_c__d"
-    assert _target(ExportSettings(target="folder", path="..")) == "exports/export"
-    assert _target(ExportSettings(target="folder", path="CON")) == "exports/_CON"
+def test_empty_fields_are_documents_discoop_and_the_automatic_name(tmp_path: Path) -> None:
+    assert default_folder(ExportSettings()) == _documents(tmp_path)
+    assert export_folder(ExportSettings()) == _documents(tmp_path)
+    assert _target(ExportSettings(target="folder")) == f"{_documents(tmp_path).as_posix()}/{AUTO}"
+    assert _target(ExportSettings(target="zip")) == f"{_documents(tmp_path).as_posix()}/{AUTO}.zip"
+    assert not (tmp_path / "documents").exists(), "planning creates nothing"
 
 
-def test_a_name_with_a_separator_is_a_path(tmp_path: Path) -> None:
-    assert _target(ExportSettings(target="folder", path="out/sub")) == "out/sub"
-    assert _target(ExportSettings(target="folder", path=r"out\sub")) == r"out\sub"
-    assert _target(ExportSettings(target="zip", path="out/sub")) == "out/sub.zip"
-    absolute = str(tmp_path / "x")
-    assert _target(ExportSettings(target="folder", path=absolute, export_dir="elsewhere")) == absolute
+def test_spaces_count_as_empty(tmp_path: Path) -> None:
+    documents = _documents(tmp_path).as_posix()
+    assert _target(ExportSettings(folder="   ", name="  ")) == f"{documents}/{AUTO}"
+    assert _target(ExportSettings(folder="  ", name=" semester ")) == f"{documents}/semester"
+    assert _target(ExportSettings(export_dir="   ")) == f"{documents}/{AUTO}"
 
 
-def test_several_jobs_with_the_automatic_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    state = _one_channel()
-    state.toggle(Server(id="srv-1", name="Guild 1"), Channel(id="ch-2", server_id="srv-1", name="b", type=0))
-    state.set_custom_window("ch-2", WindowSpec(from_="30d"))
-    folders = [j.request.out_dir for j in plan_jobs(state, ExportSettings(target="folder"), STAMP_NOW)]
-    assert folders == ["exports/2026-1104-0108/01-7d", "exports/2026-1104-0108/02-30d"]
-    zips = [j.request.zip_file for j in plan_jobs(state, ExportSettings(target="zip"), STAMP_NOW)]
-    assert zips == ["exports/2026-1104-0108-01-7d.zip", "exports/2026-1104-0108-02-30d.zip"]
+def test_own_name_in_the_default_folder(tmp_path: Path) -> None:
+    documents = _documents(tmp_path).as_posix()
+    assert _target(ExportSettings(target="folder", name="semester")) == f"{documents}/semester"
+    assert _target(ExportSettings(target="zip", name="semester")) == f"{documents}/semester.zip"
+
+
+def test_own_folder_with_the_automatic_name(tmp_path: Path) -> None:
+    mine = tmp_path / "mine"
+    assert _target(ExportSettings(target="folder", folder=str(mine))) == f"{mine.as_posix()}/{AUTO}"
+    assert _target(ExportSettings(target="zip", folder=str(mine))) == f"{mine.as_posix()}/{AUTO}.zip"
+    assert _target(ExportSettings(folder=f"{mine}{os.sep}")) == f"{mine.as_posix()}/{AUTO}", "a trailing separator"
+
+
+def test_relative_folder_lies_inside_the_default_folder(tmp_path: Path) -> None:
+    documents = _documents(tmp_path)
+    assert export_folder(ExportSettings(folder="semester")) == documents / "semester"
+    assert export_folder(ExportSettings(folder="semester/ws")) == documents / "semester" / "ws"
+    assert export_folder(ExportSettings(folder="./semester")) == documents / "semester"
+    assert export_folder(ExportSettings(folder="../other")) == documents.parent / "other"
+    assert _target(ExportSettings(folder="semester", name="x")) == f"{documents.as_posix()}/semester/x"
+
+
+def test_absolute_folder_is_used_as_it_is(tmp_path: Path) -> None:
+    absolute = tmp_path / "elsewhere" / "exports"
+    assert export_folder(ExportSettings(folder=str(absolute))) == absolute
+    assert export_folder(ExportSettings(folder=str(absolute), export_dir=str(tmp_path / "cfg"))) == absolute
+    assert _target(ExportSettings(folder=str(absolute), name="x")) == f"{absolute.as_posix()}/x"
+
+
+def test_tilde_is_the_home_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    assert export_folder(ExportSettings(folder="~")) == home
+    assert export_folder(ExportSettings(folder="~/semester")) == home / "semester"
+    assert _target(ExportSettings(folder="~/semester", name="x")) == f"{home.as_posix()}/semester/x"
+
+
+def test_export_dir_of_the_config_replaces_documents(tmp_path: Path) -> None:
+    configured = tmp_path / "from-config"
+    settings = ExportSettings(export_dir=str(configured))
+    assert default_folder(settings) == configured
+    assert _target(settings) == f"{configured.as_posix()}/{AUTO}"
+    assert _target(ExportSettings(export_dir=f"{configured}{os.sep}", name="x")) == f"{configured.as_posix()}/x"
+    # A relative Folder is relative to that default folder, an absolute one is not.
+    assert export_folder(ExportSettings(export_dir=str(configured), folder="sub")) == configured / "sub"
+    assert export_folder(ExportSettings(export_dir=str(configured), folder=str(tmp_path / "abs"))) == tmp_path / "abs"
+    assert not (tmp_path / "documents").exists()
+
+
+NASTY_NAMES = ["../evil", "..\\..\\evil", "a/b/c", 'a:b*c?"d', "a|b<c>d", "..", ".", "CON", "nul.txt", " . ", "/", "x" * 400]
+
+
+@pytest.mark.parametrize("name", NASTY_NAMES)
+@pytest.mark.parametrize("target", ["folder", "zip"])
+def test_a_name_is_never_a_path(tmp_path: Path, name: str, target: str) -> None:
+    out = Path(_target(ExportSettings(target=target, folder=str(tmp_path / "out"), name=name)) or "")
+    assert out.parent == tmp_path / "out", f"{name!r} left the folder"
+    assert out.name not in ("", ".", "..")
+    assert not set(out.name) & set('/\\:*?"<>|')
+
+
+def test_a_name_is_cleaned_of_invalid_characters(tmp_path: Path) -> None:
+    documents = _documents(tmp_path).as_posix()
+    assert _target(ExportSettings(name='a:b*c?"d')) == f"{documents}/a_b_c__d"
+    assert _target(ExportSettings(name="sem/ws")) == f"{documents}/sem_ws"
+    assert _target(ExportSettings(name="../evil")) == f"{documents}/_evil"
+    assert _target(ExportSettings(name="..")) == f"{documents}/export"
+    assert _target(ExportSettings(name="CON")) == f"{documents}/_CON"
+    assert _target(ExportSettings(target="zip", name="a/b")) == f"{documents}/a_b.zip"
+
+
+def test_zip_suffix_is_not_doubled(tmp_path: Path) -> None:
+    documents = _documents(tmp_path).as_posix()
+    assert _target(ExportSettings(target="zip", name="Run")) == f"{documents}/Run.zip"
+    assert _target(ExportSettings(target="zip", name="Run.zip")) == f"{documents}/Run.zip"
+    assert _target(ExportSettings(target="zip", name="Run.ZIP")) == f"{documents}/Run.zip"
+    assert _target(ExportSettings(target="zip", name="v1.2")) == f"{documents}/v1.2.zip"
+
+
+def test_several_jobs_with_the_automatic_name(tmp_path: Path) -> None:
+    documents = _documents(tmp_path).as_posix()
+    folders = [j.request.out_dir for j in plan_jobs(_two_windows(), ExportSettings(target="folder"), STAMP_NOW)]
+    assert folders == [f"{documents}/{AUTO}/01-7d", f"{documents}/{AUTO}/02-30d"]
+    zips = [j.request.zip_file for j in plan_jobs(_two_windows(), ExportSettings(target="zip"), STAMP_NOW)]
+    assert zips == [f"{documents}/{AUTO}-01-7d.zip", f"{documents}/{AUTO}-02-30d.zip"]
+
+
+def test_several_jobs_with_an_own_name_and_folder(tmp_path: Path) -> None:
+    mine = tmp_path / "mine"
+    settings = ExportSettings(target="folder", folder=str(mine), name="semester")
+    assert [j.request.out_dir for j in plan_jobs(_two_windows(), settings)] == [
+        f"{mine.as_posix()}/semester/01-7d",
+        f"{mine.as_posix()}/semester/02-30d",
+    ]
+    for name in ("semester", "semester.ZIP"):
+        settings = ExportSettings(target="zip", folder=str(mine), name=name)
+        assert [j.request.zip_file for j in plan_jobs(_two_windows(), settings)] == [
+            f"{mine.as_posix()}/semester-01-7d.zip",
+            f"{mine.as_posix()}/semester-02-30d.zip",
+        ]
+
+
+def test_preview_has_no_target(tmp_path: Path) -> None:
+    request = plan_jobs(_one_channel(), ExportSettings(target="preview", folder="x", name="y"), STAMP_NOW)[0].request
+    assert request.out_dir is None and request.zip_file is None
+    assert not (tmp_path / "documents").exists()
 
 
 def test_automatic_name_does_not_reuse_the_minute(tmp_path: Path) -> None:
-    settings = ExportSettings(target="folder", export_dir=str(tmp_path))
-    base = f"{tmp_path}/2026-1104-0108"
+    settings = ExportSettings(target="folder", folder=str(tmp_path))
+    base = f"{tmp_path.as_posix()}/{AUTO}"
     assert _target(settings) == base
-    (tmp_path / "2026-1104-0108").mkdir()
+    (tmp_path / AUTO).mkdir()
     assert _target(settings) == f"{base}-2"
-    (tmp_path / "2026-1104-0108-2").mkdir()
+    (tmp_path / f"{AUTO}-2").mkdir()
     assert _target(settings) == f"{base}-3"
 
     # A zip of several jobs from the same minute counts too.
-    zip_settings = ExportSettings(target="zip", export_dir=str(tmp_path / "z"))
+    zip_settings = ExportSettings(target="zip", folder=str(tmp_path / "z"))
     (tmp_path / "z").mkdir()
-    (tmp_path / "z" / "2026-1104-0108-01-7d.zip").write_bytes(b"")
-    assert _target(zip_settings) == f"{tmp_path / 'z'}/2026-1104-0108-2.zip"
+    (tmp_path / "z" / f"{AUTO}-01-7d.zip").write_bytes(b"")
+    assert _target(zip_settings) == f"{(tmp_path / 'z').as_posix()}/{AUTO}-2.zip"
 
 
 def test_a_name_typed_by_the_user_continues_the_export(tmp_path: Path) -> None:
     (tmp_path / "semester").mkdir()
     (tmp_path / "semester.zip").write_bytes(b"")
-    assert _target(ExportSettings(target="folder", path="semester", export_dir=str(tmp_path))) == f"{tmp_path}/semester"
-    assert _target(ExportSettings(target="zip", path="semester", export_dir=str(tmp_path))) == f"{tmp_path}/semester.zip"
+    folder = tmp_path.as_posix()
+    assert _target(ExportSettings(target="folder", folder=str(tmp_path), name="semester")) == f"{folder}/semester"
+    assert _target(ExportSettings(target="zip", folder=str(tmp_path), name="semester")) == f"{folder}/semester.zip"
+
+
+def test_paths_are_absolute_with_slashes_and_survive_the_command_line() -> None:
+    for settings in (ExportSettings(), ExportSettings(folder="sub", name="x"), ExportSettings(target="zip")):
+        request = plan_jobs(_one_channel(), settings, STAMP_NOW)[0].request
+        out = request.out_dir or request.zip_file or ""
+        assert Path(out).is_absolute()
+        assert "\\" not in out
+        command = request.to_command_str()
+        assert "\\" not in command
+        assert f" {out} " in f"{command} ", "no quoting is needed, so it also works in cmd and PowerShell"
+
+
+def test_planned_paths_are_accepted_by_the_service_without_doubling_export_dir(tmp_path: Path) -> None:
+    configured = tmp_path / "from-config"
+    Config.default().set("export-dir", str(configured))
+    export_dir = Config.default().get("export-dir")
+    for folder, expected in (("", configured), ("sub", configured / "sub"), (str(tmp_path / "abs"), tmp_path / "abs")):
+        as_folder = ExportSettings(target="folder", export_dir=export_dir, folder=folder)
+        request = plan_jobs(_one_channel(), as_folder, STAMP_NOW)[0].request
+        # The way the service reads --out: an absolute path is not joined with the export-dir of the config.
+        resolved, as_zip = service.validate_export_target(request.out_dir, None, False, False, None) or (None, None)
+        assert resolved == (expected / AUTO).resolve()
+        assert as_zip is False
+
+        as_zip_settings = ExportSettings(target="zip", export_dir=export_dir, folder=folder)
+        request = plan_jobs(_one_channel(), as_zip_settings, STAMP_NOW)[0].request
+        resolved, as_zip = service.validate_export_target(None, request.zip_file, False, False, None) or (None, None)
+        assert resolved == (expected / f"{AUTO}.zip").resolve()
+        assert as_zip is True
+
+
+@pytest.mark.parametrize("target", ["folder", "zip"])
+def test_export_creates_the_missing_default_folder(tmp_path: Path, target: str) -> None:
+    server = Server(FIT, "VUT FIT", 5000)
+    channel = Channel("200", FIT, "2bit-general", 0, None, 0)
+    api_factory = _fake_api_factory({"200": FakeChannel(series(3, newest=NOW, step=timedelta(minutes=5)))})
+    with Cache.default() as cache:
+        cache.replace_servers([server])
+        cache.replace_channels(FIT, [channel])
+    state = SelectionState()
+    state.toggle(server, channel)
+    job = plan_jobs(state, ExportSettings(target=target, files=False), STAMP_NOW)[0]
+    assert not (tmp_path / "documents").exists()
+
+    with Cache.default() as cache, Directory(cache, api_factory) as directory:
+        outcome = service.run_messages(job.request, directory=directory, now=NOW, tz=CET)
+
+    assert outcome.exported is not None
+    suffix = ".zip" if target == "zip" else ""
+    assert outcome.exported.path == (_documents(tmp_path) / f"{AUTO}{suffix}").resolve()
+    if target == "zip":
+        assert zipfile.is_zipfile(outcome.exported.path)
+    else:
+        assert (outcome.exported.path / "manifest.json").is_file()

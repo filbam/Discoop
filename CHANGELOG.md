@@ -7,11 +7,14 @@ verzie podľa [SemVer](https://semver.org/).
 
 ### Pridané
 - **Inštalácia z GitHubu (P22, [ADR 0015](docs/rozhodnutia/0015-verejne-repo-a-instalacia.md)):** `uv tool install git+https://github.com/filbam/Discoop` dá príkaz `discoop` bez `uv run`. README má návod pre Windows, Linux a macOS (inštalácia, aktualizácia, odinštalovanie) a sekciu Vývoj. Repo `filbam/Discoop` je verejné.
-- **Názov exportu v TUI (P21):** riadok formulára `Path` je nahradený riadkom `Name` (predvolene prázdny).
-  - Prázdne pole: názov z miestneho dátumu a času v tvare `2026-1104-0108` (`YYYY-MMDD-HHMM`) v priečinku exportov (`export-dir` z configu, inak `exports`). Názov sa zafixuje pri `F5`.
-  - Holý názov bez `/` a `\` sa uloží do priečinka exportov (prečistený cez `safe_name`), hodnota s lomkou alebo absolútna cesta sa použije ako cesta.
-  - Kolízia automatického názvu v tej istej minúte pridá `-2`, `-3`. Názov zadaný používateľom kolíziu nerieši.
-  - Placeholder a riadok s CLI príkazom sa obnovujú každých 30 s. Log ukáže skutočnú cestu (`Saving to ...`). CLI sa nezmenilo.
+- **Priečinok a názov exportu v TUI (P21, P23, [ADR 0016](docs/rozhodnutia/0016-predvoleny-priecinok-exportov-v-tui.md)):** riadok formulára `Path` je nahradený dvoma samostatnými riadkami `Folder` a `Name` (v tomto poradí, obidva predvolene prázdne, pri Target=preview skryté).
+  - Prázdny `Name`: `discord-export-<dátum a čas>` v miestnom čase, napr. `discord-export-2026-1104-0108` (`YYYY-MMDD-HHMM`). Názov sa zafixuje pri `F5`. Kolízia automatického názvu v tej istej minúte pridá `-2`, `-3`.
+  - Zadaný `Name` je vždy len názov, nikdy cesta: prečistí sa cez `safe_name` (lomky a neplatné znaky sa nahradia `_`). Kolíziu nerieši, opakovaný export do neho pokračuje. Zip dostane príponu `.zip` (nikdy `.zip.zip`).
+  - Prázdny `Folder`: predvolený priečinok `discoop` v Dokumentoch používateľa (`platformdirs.user_documents_dir()`), rovnako na Windows, Linuxe aj macOS. Config `export-dir`, ak je nastavený, má prednosť. Priečinok vznikne až pri prvom exporte.
+  - Neprázdny `Folder`: `~` je domovský priečinok, absolútna cesta sa použije ako je, relatívna leží vo vnútri predvoleného priečinka. Trvalo sa predvolený priečinok mení v Settings (`F2`, `Export folder`), v poli `Folder` len pre jeden export.
+  - Placeholdery ukazujú skutočný predvolený priečinok (dlhá cesta sa skráti zľava, aby ostal koniec) a názov. Obnovujú sa spolu s riadkom s CLI príkazom každých 30 s. Cesty v `--out`/`--zip` sú absolútne a s lomkami. Log ukáže skutočnú cestu (`Saving to ...`).
+  - CLI sa nezmenilo: `discoop messages --out/--zip` ostáva relatívne k aktuálnemu priečinku alebo `export-dir`. Popis kľúča `export-dir` spomína predvolený priečinok TUI.
+  - Nová `paths.documents_dir()` a `paths.default_export_dir()`, nový `TailInput` v `widgets.py`.
 - **Interaktívne terminálové rozhranie (`discoop ui`, TUI) a spoločná servisná vrstva ([ADR 0013](docs/rozhodnutia/0013-tui-a-spolocna-vrstva.md)):**
   - **Príkaz `discoop ui` a prepínač `--ui`:**
     - Plnohodnotné vizuálne terminálové prostredie postavené na knižnici Textual pre pohodlné interaktívne ovládanie klávesnicou (šípky, Enter, Space).

@@ -24,12 +24,13 @@ class MemoryKeyring(KeyringBackend):
 
 @pytest.fixture(autouse=True)
 def isolated_env(tmp_path, monkeypatch):
-    """Never touch the real keyring, data dir or environment of the machine running the tests."""
+    """Never touch the real keyring, data dir, Documents folder or environment of the machine running the tests."""
     previous = keyring.get_keyring()
     memory = MemoryKeyring()
     keyring.set_keyring(memory)
     monkeypatch.setattr("discoop.paths.data_dir", lambda: tmp_path / "data")
     monkeypatch.setattr("discoop.paths.config_dir", lambda: tmp_path / "config")
+    monkeypatch.setattr("discoop.paths.documents_dir", lambda: tmp_path / "documents")
     monkeypatch.delenv("DISCOOP_AGENT", raising=False)
     yield memory
     keyring.set_keyring(previous)

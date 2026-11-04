@@ -61,7 +61,8 @@ from discoop.tui.state import (
     PlannedJob,
     SelectionState,
     WindowSpec,
-    export_stamp,
+    default_folder,
+    default_name,
     filter_channels,
     plan_jobs,
     window_preset,
@@ -74,6 +75,7 @@ from discoop.tui.widgets import (
     FormPanel,
     InputRow,
     SelectedList,
+    TailInput,
     display_name,
 )
 
@@ -205,7 +207,14 @@ class DiscoopApp(App[None]):
                     )
                     yield ChoiceRow("System msgs", ("no", "yes"), id="row-system")
                     yield ChoiceRow("Target", TARGETS, id="row-target")
-                    yield InputRow("Name", "input-path", placeholder=export_stamp(), id="row-path")
+                    yield InputRow(
+                        "Folder",
+                        "input-folder",
+                        placeholder=str(default_folder(self.settings)),
+                        tail_placeholder=True,
+                        id="row-folder",
+                    )
+                    yield InputRow("Name", "input-name", placeholder=default_name(), id="row-name")
                     yield ChoiceRow("Format", FORMATS, id="row-format")
                     yield self._start_row
 
@@ -274,7 +283,8 @@ class DiscoopApp(App[None]):
         self.query_one("#row-delay").display = settings.mode == "fast"
         self.query_one("#row-files").display = not preview
         self.query_one("#row-max-mb").display = settings.files and not preview
-        self.query_one("#row-path").display = not preview
+        self.query_one("#row-folder").display = not preview
+        self.query_one("#row-name").display = not preview
         self.query_one("#row-format").display = preview
 
     def _sync_mode_indicator(self) -> None:
@@ -323,8 +333,11 @@ class DiscoopApp(App[None]):
         elif input_id == "input-max-file-size":
             self.settings.max_file_size = self._parse(float, raw, self.settings.max_file_size)
             self._update_command_preview()
-        elif input_id == "input-path":
-            self.settings.path = raw
+        elif input_id == "input-folder":
+            self.settings.folder = raw
+            self._update_command_preview()
+        elif input_id == "input-name":
+            self.settings.name = raw
             self._update_command_preview()
 
     @staticmethod
@@ -354,7 +367,8 @@ class DiscoopApp(App[None]):
         self._update_command_preview()
 
     def _update_command_preview(self) -> None:
-        self.query_one("#input-path", Input).placeholder = export_stamp()
+        self.query_one("#input-folder", TailInput).set_placeholder(str(default_folder(self.settings)))
+        self.query_one("#input-name", Input).placeholder = default_name()
         commands = [job.request.to_command_str() for job in plan_jobs(self.selection, self.settings)]
         self.query_one("#command-preview", Static).update(" && ".join(commands) or NO_COMMAND)
 

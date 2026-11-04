@@ -3,6 +3,7 @@
 Every control here is exactly one line high and has no border. The dialogs in modals.py can use them too:
 - `ChoiceRow`: a value picked with ←/→ (`Mode       < safe >`),
 - `InputRow`: a label and a compact `Input`,
+- `TailInput`: an `Input` whose too long placeholder (a path) loses its beginning, not its end,
 - `ActionRow`: a focusable one-line button,
 - `ConfirmRow`: an `ActionRow` that asks before it acts,
 - `FormPanel`: a scrolling column of rows; ↑/↓ move between them, also out of an `Input`,
@@ -135,6 +136,32 @@ class ChoiceRow(Widget, can_focus=True):
             self.action_step(-1 if event.x <= self.label_width + 1 else 1)
 
 
+class TailInput(Input):
+    """An `Input` whose placeholder, when it does not fit the line, loses its beginning: a path ends in what matters.
+
+    The text to show is `full_placeholder`; `placeholder` is what the line has room for. Use `set_placeholder`.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.full_placeholder = self.placeholder
+
+    def set_placeholder(self, text: str) -> None:
+        self.full_placeholder = text
+        self._fit_placeholder(self.size.width)
+
+    def on_resize(self, event: events.Resize) -> None:
+        self._fit_placeholder(event.size.width)
+
+    def _fit_placeholder(self, width: int) -> None:
+        text = self.full_placeholder
+        if width > 0 and cell_len(text) > width:
+            while text and cell_len(text) > width - 1:
+                text = text[1:]
+            text = f"…{text}"
+        self.placeholder = text
+
+
 class InputRow(Horizontal):
     """One line with a label and a compact `Input`. An empty value is always valid."""
 
@@ -166,6 +193,7 @@ class InputRow(Horizontal):
         placeholder: str = "",
         input_type: str = "text",
         password: bool = False,
+        tail_placeholder: bool = False,
         label_width: int = LABEL_WIDTH,
         id: str | None = None,
         classes: str | None = None,
@@ -177,11 +205,12 @@ class InputRow(Horizontal):
         self.placeholder = placeholder
         self.input_type = input_type
         self.password = password
+        self.tail_placeholder = tail_placeholder
         self.label_width = label_width
 
     def compose(self) -> ComposeResult:
         yield Label(f"{self.label:<{self.label_width}}", markup=False)
-        yield Input(
+        yield (TailInput if self.tail_placeholder else Input)(
             value=self.value,
             placeholder=self.placeholder,
             type=self.input_type,  # type: ignore[arg-type]
