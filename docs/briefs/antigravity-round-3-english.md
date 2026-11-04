@@ -43,7 +43,8 @@ The rule is recorded as ADR 0021 (package T8) and stated at the top of `CLAUDE.m
   The ADR files are now `docs/decisions/0001-record-everything-and-version-it.md` and so on (`ls docs/decisions`).
 - Tool texts (help, messages, errors) are already English (ADR 0007). Code is mostly English already. Slovak is in: all of `docs/`, `CLAUDE.md`, `README.md`,
   `CHANGELOG.md`, `prototype/README.md`, a few comments and the evidence markers `[OVERENÉ]` / `[PREDPOKLAD]` in `src/`, and sample message texts in `tests/`.
-- The project folder on disk is called `Discoop` (it was `Scoop`; the owner renamed it on 2026-11-04). Docs must say so (see T3 and T8).
+- The project folder on disk is still called `Scoop` while you work (do not rename it, do not move it). The owner renames it to `Discoop` on 2026-11-04, right after this round.
+  The docs must already say that the local folder is `Discoop` (see T3 and T8). Work in the folder you were opened in.
 - Conventions you must keep: uv (`export PATH="$PATH:/c/Users/Filip/AppData/Local/Microsoft/WinGet/Packages/astral-sh.uv_Microsoft.Winget.Source_8wekyb3d8bbwe"` if
   `uv` is missing in Git Bash), `uv run pytest` (about 3 minutes), `.py` files with LF line endings, git has `core.autocrlf=true` so markdown line endings do not matter
   (do not mix them inside one file if you can avoid it).
