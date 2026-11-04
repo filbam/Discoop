@@ -1,100 +1,100 @@
-# 0014: TUI ovládané klávesnicou, jeden strom, farby terminálu
+# 0014: Keyboard-driven TUI, single tree, terminal colours
 
-- **Stav:** Prijaté
-- **Dátum:** 2026-11-03
-- **Rozhodol:** používateľ
+- **Status:** Accepted
+- **Date:** 2026-11-03
+- **Decided by:** the user
 
-## Kontext
+## Context
 
-Používateľ 2026-11-03 vyskúšal `discoop ui` (ADR 0013) a nahlásil:
-- veľa tlačidiel nemá viditeľný text,
-- navigácia šípkami nefunguje,
-- rozhranie zadrháva.
+The user tested `discoop ui` on 2026-11-03 (ADR 0013) and reported:
+- many buttons have no visible text,
+- arrow key navigation does not work,
+- the interface stutters.
 
-Príčina prázdnych tlačidiel: v CSS mali `height: 1`, ale Textual im predvolene dáva vysoký rámik. Rámik zabral celý
-riadok a pre text nezostalo miesto.
+The cause of empty buttons: in CSS they had `height: 1`, but Textual gives them a tall border by default. The border consumed the entire
+row and left no room for text.
 
-Používateľ požaduje (P18, P19, P20): primárne ovládanie klávesnicou (šípky) s myšou ako doplnkom, predvolene
-zbalené zoznamy kanálov a krajšie, jednoduchšie, viac terminálové a uhladené rozhranie.
+The user requests (P18, P19, P20): primary keyboard navigation (arrows) with mouse as a secondary option, channels
+collapsed by default, and a prettier, simpler, more terminal-like and polished interface.
 
-## Možnosti
+## Options
 
-1. **Tri panely** (servery | kanály | export) s pevnou tmavou témou. Zamietnuté.
-2. **Jeden strom** (servery, kategórie, kanály) s témou podľa farieb terminálu. Zvolil používateľ.
+1. **Three panels** (servers | channels | export) with a fixed dark theme. Rejected.
+2. **Single tree** (servers, categories, channels) with a theme based on terminal colours. Chosen by the user.
 
-## Rozhodnutie
+## Decision
 
-### Rozloženie
-- Servery, kategórie a kanály sú v **jednom strome** ako v správcovi súborov. Všetko je predvolene zbalené.
-- Vpravo je panel **Export** (zoznam výberu a formulár).
-- Dole je log, pod ním riadok s ekvivalentným CLI príkazom a riadok s klávesmi (Footer, klikateľný myšou).
-- V úzkom okne sa ukazuje jeden panel naraz.
+### Layout
+- Servers, categories, and channels are in a **single tree** like in a file manager. Everything is collapsed by default.
+- On the right is the **Export** panel (selection list and form).
+- At the bottom is the log, below it a line with the equivalent CLI command and a row with keybindings (Footer, clickable by mouse).
+- In a narrow window, only one panel is shown at a time.
 
-### Farby a vzhľad
-- Téma Textual `ansi-dark` používa farby a pozadie terminálu. Inú tému možno zvoliť cez Ctrl+P.
-- Bez emoji a bez veľkých tlačidiel. Ovládacie prvky majú výšku jeden riadok.
+### Colours and appearance
+- Textual's `ansi-dark` theme uses the terminal's colours and background. Another theme can be selected via Ctrl+P.
+- No emojis and no large buttons. Controls have a height of one line.
 
-### Klávesy
+### Keybindings
 
-| Kláves | Kde | Akcia |
+| Key | Where | Action |
 |---|---|---|
-| ↑ ↓ | všade | pohyb v strome, zozname a formulári (medzi riadkami) |
-| → | strom | rozbalí uzol. Na nenačítanom serveri načíta kanály. Na rozbalenom uzle skočí na prvé dieťa |
-| ← | strom | zbalí uzol. Na zbalenom uzle skočí na rodiča |
-| ← → | výberový riadok formulára | zmení hodnotu (`safe/fast`, `folder/zip/preview`, formát, prílohy, systémové správy, predvoľba okna) |
-| Space | strom | vyberie kanál alebo všetky vyberateľné kanály kategórie |
-| Enter | strom | kategória/server: rozbalí/zbalí. Kanál: vyberie |
-| Enter | formulár | potvrdí pole. Na riadku Start spustí export |
-| Tab / Shift+Tab, 1 2 3 | globálne | prepne panel |
-| / | globálne | filter stromu |
-| e | strom alebo zoznam výberu | vlastné časové okno kanála |
-| x / Delete | zoznam výberu | odoberie kanál z výberu |
-| X | zoznam výberu | vymaže celý výber |
-| a | strom | vyberie všetky zobrazené kanály servera |
-| r | strom | znova načíta kanály servera z Discordu |
-| R | globálne | znova načíta zoznam serverov |
-| L | globálne | načíta kanály všetkých serverov (safe tempo, Esc zastaví) |
-| F5 | globálne | spustí export |
-| Esc | globálne | zastaví bežiacu operáciu, opustí filter, zavrie dialóg |
-| c | globálne | skopíruje CLI príkaz |
-| F1 / ? | globálne | Help |
-| F2 | globálne | Nastavenia |
-| F3 | globálne | Login |
-| Ctrl+P | globálne | príkazová paleta (zmena témy) |
-| q | globálne | koniec. Počas behu najprv zastaví prácu |
+| ↑ ↓ | everywhere | move in tree, list, and form (between rows) |
+| → | tree | expand node. On an unloaded server loads channels. On an expanded node jumps to first child |
+| ← | tree | collapse node. On a collapsed node jumps to parent |
+| ← → | form select row | change value (`safe/fast`, `folder/zip/preview`, format, attachments, system messages, window preset) |
+| Space | tree | select channel or all selectable channels in category |
+| Enter | tree | category/server: expand/collapse. Channel: select |
+| Enter | form | confirm field. On Start row launches export |
+| Tab / Shift+Tab, 1 2 3 | global | switch panel |
+| / | global | filter tree |
+| e | tree or selection list | custom channel time window |
+| x / Delete | selection list | remove channel from selection |
+| X | selection list | clear entire selection |
+| a | tree | select all visible channels of the server |
+| r | tree | reload server channels from Discord |
+| R | global | reload server list |
+| L | global | load channels of all servers (safe pacing, Esc cancels) |
+| F5 | global | launch export |
+| Esc | global | cancel running operation, leave filter, close dialog |
+| c | global | copy CLI command |
+| F1 / ? | global | Help |
+| F2 | global | Settings |
+| F3 | global | Login |
+| Ctrl+P | global | command palette (change theme) |
+| q | global | quit. During execution, stops work first |
 
-Kláves `X` bol doplnený 2026-11-04 po kontrole, lebo hromadné zrušenie výberu zmizlo spolu s tlačidlami.
+Key `X` was added 2026-11-04 after a review, because clearing the entire selection disappeared along with the buttons.
 
-### Pravidlá správania
-- Pohyb kurzorom nikdy nevolá Discord. Sieť volá len explicitná akcia: →/Enter na nenačítanom serveri, r, R, L a F5.
-- Naraz beží najviac jedna sieťová operácia.
-- Pauzy safe režimu sa dajú prerušiť cez Esc.
+### Behavioural rules
+- Cursor navigation never calls Discord. Network calls are triggered only by explicit actions: →/Enter on an unloaded server, r, R, L, and F5.
+- At most one network operation runs at a time.
+- Safe mode pauses can be cancelled with Esc.
 
-## Dôsledky
+## Consequences
 
-- ADR 0013 ostáva platné pre spoločnú servisnú vrstvu (`service.py`), lazy import, spúšťanie a zoskupovanie úloh.
-  Rozloženie TUI z neho nahrádza tento ADR.
-- Help v TUI (F1 / ?) sa riadi tabuľkou klávesov z tohto ADR.
-- Ovládacie prvky sa robia cez `compact=True` (bez rámika, výška jeden riadok), nie cez `height: 1`, aby text nezmizol.
-- Dlhé operácie musia bežať vo workeroch a pohyb kurzorom nesmie spúšťať sieťové volania, čo rieši zadrhávanie.
+- ADR 0013 remains valid for the shared service layer (`service.py`), lazy import, job launching and grouping.
+  TUI layout from it is superseded by this ADR.
+- TUI Help (F1 / ?) is governed by the keybinding table from this ADR.
+- Controls are implemented with `compact=True` (no border, height of one line), not via `height: 1`, so text does not disappear.
+- Long operations must run in background workers and cursor movement must not trigger network calls, resolving UI stutter.
 
-## Doplnenie 2026-11-04
+## Addendum 2026-11-04
 
-Pôvodné rozhodnutie sa nemení. Doplnenie opisuje, čo pribudlo v 2. kole (P30) popri tabuľke klávesov vyššie. Tabuľka v Helpe (`GUIDE_KEYS` v `tui/modals.py`) tieto klávesy už obsahuje.
+The original decision does not change. The addendum describes additions in round 2 (P30) alongside the keybinding table above. The table in Help (`GUIDE_KEYS` in `tui/modals.py`) already contains these keys.
 
-### Ďalšie klávesy
+### Additional keybindings
 
-| Kláves | Kde | Akcia |
+| Key | Where | Action |
 |---|---|---|
-| P | globálne | uloží aktuálny výber, časové okno a režim ako pomenovaný profil (`profiles.json` v konfiguračnom priečinku, rovnaký súbor ako `discoop messages --save-profile`) |
-| p | globálne | načíta uložený profil: nahradí výber, časové okno a režim. Ručne upravený profil so zlými typmi hodnôt TUI toleruje |
-| o | globálne | otvorí priečinok posledného exportu v správcovi súborov (pri zipe priečinok, v ktorom leží). Je aktívny až po dokončenom exporte a nie počas behu úlohy. Náhľad (Target=preview) nič neukladá, preto nie je „posledným exportom“ |
+| P | global | save current selection, time window, and mode as a named profile (`profiles.json` in config folder, same file as `discoop messages --save-profile`) |
+| p | global | load saved profile: replaces selection, time window, and mode. TUI tolerates manually edited profiles with invalid value types |
+| o | global | open folder of last export in file manager (for zip, folder containing it). Active only after a finished export and not during running task. Preview (Target=preview) saves nothing, thus is not a "last export" |
 
-- `L` ostáva „načíta kanály všetkých serverov“. Na profily nie je.
-- `P`, `p` a `o` nevolajú Discord, pravidlá správania vyššie sa nemenia.
+- `L` remains "load channels of all servers". Not used for profiles.
+- `P`, `p`, and `o` do not call Discord; behavioural rules above remain unchanged.
 
-### Pripony riadkov kanálov v strome
+### Channel row suffixes in tree
 
-- Každý riadok kanála má stlmenú príponu zarovnanú doprava: čas od poslednej aktivity (`now`, `5m`, `3h`, `2d`, `4mo`, `1y`, podľa `Channel.last_message_id`) a pri kanáli, ktorý sa z tohto účtu už exportoval, dátum posledného exportu (`exp 11-03`, miestny dátum, s rokom, ak je z iného roka). Kategórie a servery ju nemajú (server má vpravo počet kanálov, `not loaded` alebo `no access`).
-- Ak je riadok príliš úzky, vypadne najprv dátum exportu, potom aj aktivita. Názov kanála sa kvôli prípone nikdy nekráti.
-- Pripony sa obnovia po exporte, po obnovení uloženého stavu a každých 60 s. Dátum posledného exportu sa ukladá v `tui-state.json` (podľa ID kanála a účtu) a pri náhľade sa nezapisuje.
+- Every channel row has a dimmed suffix aligned to the right: time since last activity (`now`, `5m`, `3h`, `2d`, `4mo`, `1y`, according to `Channel.last_message_id`) and for a channel already exported from this account, date of last export (`exp 11-03`, local date, with year if from another year). Categories and servers do not have it (server has channel count on the right, `not loaded` or `no access`).
+- If the row is too narrow, the export date is dropped first, then activity. The channel name is never truncated for the suffix.
+- Suffixes refresh after export, after restoring saved state, and every 60 s. Date of last export is saved in `tui-state.json` (keyed by channel ID and account) and is not written for preview.

@@ -1,35 +1,35 @@
-# 0011: Predvolené správanie `messages`: vlákna, časové okno, formát
+# 0011: Default behaviour of `messages`: threads, time window, format
 
-- **Stav:** Prijaté
-- **Dátum:** 2026-11-03
-- **Rozhodol:** používateľ
+- **Status:** Accepted
+- **Date:** 2026-11-03
+- **Decided by:** the user
 
-## Kontext
+## Context
 
-Návrh nechal pri príkaze `messages` tri otvorené rozhodnutia (sekcia 15, body 4 až 6). Treba ich mať uzavreté
-pred implementáciou `messages` (návrh, sekcia 14, krok 2). Predvolené hodnoty určujú, čo dostane agent alebo
-človek, keď prepínače nezadá:
-- či sa stiahnu aj vlákna,
-- aké staré správy sa stiahnu,
-- v akom tvare príde výstup v agent režime.
+The design left three open decisions for the `messages` command (section 15, points 4 to 6). They need to be resolved
+before implementing `messages` (design, section 14, step 2). Default values determine what an agent or
+a human receives when options are omitted:
+- whether threads are also downloaded,
+- how old messages are downloaded,
+- what format the output takes in agent mode.
 
-## Možnosti
+## Options
 
-1. **Vlákna:** predvolene sťahovať (`--no-threads` ich vypne), alebo predvolene nie (`--threads` ich zapne).
-   Na serveri VUT FIT je veľa študijných informácií vo vláknach a vo fórach.
-2. **Časové okno:** krátke predvolené okno (24 h), dlhšie (napr. 7 dní), alebo celá história. Celá história
-   veľkého kanála znamená tisíce správ, veľa requestov a obrovský výstup pre agenta.
-3. **Formát v agent režime:** `text` (úsporný na tokeny) alebo `json` (pre programy).
+1. **Threads:** download by default (`--no-threads` disables them), or not by default (`--threads` enables them).
+   On the VUT FIT server, a lot of study information is in threads and forums.
+2. **Time window:** short default window (24 h), longer (e.g. 7 days), or full history. Full history
+   of a large channel means thousands of messages, many requests, and a massive output for an agent.
+3. **Format in agent mode:** `text` (token-efficient) or `json` (for programs).
 
-## Rozhodnutie
+## Decision
 
-- **Vlákna sa predvolene sťahujú.** Vypnúť sa dajú cez `--no-threads`, okrem fóra, ktoré obsahuje len vlákna.
-- **Predvolené časové okno je 24 h** (`--from 24h --to now`). Celá história sa stiahne len cez `--from all`.
-- **Predvolený formát v agent režime je `text`.** JSON sa zapína cez `--format json`.
+- **Threads are downloaded by default.** They can be disabled via `--no-threads`, except for a forum, which contains only threads.
+- **The default time window is 24 h** (`--from 24h --to now`). Full history is only downloaded via `--from all`.
+- **The default format in agent mode is `text`.** JSON is enabled via `--format json`.
 
-## Dôsledky
+## Consequences
 
-- Agent, ktorý zabudne zadať okno, dostane malý výstup. Celú históriu nestiahne omylom.
-- Vlákna pribudnú v kroku 4 (návrh, sekcia 14). Kým nie sú implementované, `messages` vlákna nesťahuje
-  a prepínač `--no-threads` ešte neexistuje.
-- Programy, ktoré chcú štruktúrované dáta, musia zadať `--format json`.
+- An agent that forgets to specify a window receives a small output. It will not download the entire history by accident.
+- Threads will be added in step 4 (design, section 14). Until implemented, `messages` does not download threads
+  and the `--no-threads` flag does not yet exist.
+- Programs that want structured data must specify `--format json`.

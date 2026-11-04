@@ -1,90 +1,90 @@
-# 0019: Vlákna a príspevky na fórach
+# 0019: Threads and forum posts
 
-- **Stav:** Prijaté
-- **Dátum:** 2026-11-04
-- **Rozhodol:** používateľ
+- **Status:** Accepted
+- **Date:** 2026-11-04
+- **Decided by:** the user
 
-## Kontext
+## Context
 
-V Discorde existujú dva hlavné druhy kanálov obsahujúcich diskusie:
-1. Bežné kanály (textové typ 0, oznamovacie typ 5), ktoré obsahujú vlastný lineárny prúd správ a popri tom voliteľné nadväzujúce vlákna (threads).
-2. Fórumové kanály (typ 15) a mediálne kanály (typ 16), ktoré nemajú vlastný prúd správ – všetok ich obsah je organizovaný výhradne do príspevkov (threads), pričom každý príspevok je samostatným vláknom so štartovacou správou a prípadnými odpoveďami.
+In Discord, there are two main types of channels containing discussions:
+1. Standard channels (text type 0, announcement type 5), which contain their own linear stream of messages along with optional child threads.
+2. Forum channels (type 15) and media channels (type 16), which have no message stream of their own – all their content is organized exclusively into posts (threads), where each post is an independent thread with a starter message and possible replies.
 
-V pôvodnej verzii Discoop nepodporoval čítanie vlákien; fóra a media kanály boli odmietané ako nečitateľné (hláška „threads come in a later version“). Na serveroch ako VUT FIT je však veľká časť kľúčových študijných informácií, otázok a odpovedí sústredená práve v príspevkoch na fórach a vo vláknach kanálov.
+In the initial version, Discoop did not support reading threads; forums and media channels were rejected as unreadable (message "threads come in a later version"). On servers like VUT FIT, however, a large part of key study information, questions, and answers is concentrated precisely in forum posts and channel threads.
 
-ADR 0011 stanovilo, že vlákna sa majú sťahovať predvolene. Merania cez probe skript (`docs/analyses/thread-probe-2026-11-04.md`) overili správanie Discord API pre používateľský účet:
-- Botovský endpoint `GET /guilds/{id}/threads/active` používateľský účet nemôže použiť (403, kód 20002).
-- Kanálový endpoint `GET /channels/{id}/threads/search` funguje pre používateľský účet na fórach aj v bežných textových kanáloch s `limit=25`.
-- Správy jednotlivých vlákien sa čítajú štandardnou cestou `GET /channels/{thread_id}/messages`.
+ADR 0011 established that threads should be downloaded by default. Measurements via a probe script (`docs/analyses/thread-probe-2026-11-04.md`) verified the behaviour of the Discord API for a user account:
+- The bot endpoint `GET /guilds/{id}/threads/active` cannot be used by a user account (403, code 20002).
+- The channel endpoint `GET /channels/{id}/threads/search` works for a user account on forums as well as in standard text channels with `limit=25`.
+- Messages of individual threads are read via the standard route `GET /channels/{thread_id}/messages`.
 
-Bolo potrebné dobudovať plnú podporu sťahovania vlákien do servisnej vrstvy (`service.py`), do príkazu `discoop messages`, pridať samostatný prehľadový príkaz `discoop threads` a doriešiť ošetrenie chýb pri výpadku prístupu k vláknam.
+It was necessary to implement full support for downloading threads in the service layer (`service.py`), in the `discoop messages` command, add a standalone overview command `discoop threads`, and resolve error handling when access to threads fails.
 
-## Možnosti
+## Options
 
-1. **Nestahovať vlákna vôbec alebo ich vyžadovať explicitným prepínačom `--threads`.**
-   Zamietnuté: Podľa ADR 0011 majú byť vlákna prirodzenou súčasťou exportovanej histórie, aby používateľ neprišiel o dôležitý kontext.
-2. **Považovať fórum za obyčajný kanál a volať `fetch_messages` na ID fóra.**
-   Zamietnuté: Fórum nemá vlastné správy; volanie na jeho ID zbytočne plytvá HTTP požiadavkami a môže zlyhať. Fórum sťahuje výlučne svoje vlákna.
-3. **Zastaviť celý export pri chybe jedného vlákna (fail-fast).**
-   Zamietnuté: Ak jedno vlákno vráti 403 (napr. súkromné vlákno) alebo 404, nie je dôvod zahodiť správy celého kanála ani ostatných vlákien. Riešením je čiastočný úspech (kód 9) podľa ADR 0017.
+1. **Do not download threads at all or require them via an explicit `--threads` flag.**
+   Rejected: According to ADR 0011, threads should be a natural part of exported history so that the user does not lose important context.
+2. **Treat a forum as an ordinary channel and call `fetch_messages` on the forum ID.**
+   Rejected: A forum has no messages of its own; calling its ID wastes HTTP requests unnecessarily and can fail. A forum exclusively downloads its threads.
+3. **Stop the entire export on an error in a single thread (fail-fast).**
+   Rejected: If one thread returns 403 (e.g. a private thread) or 404, there is no reason to discard messages of the entire channel or other threads. The solution is partial success (code 9) according to ADR 0017.
 
-## Rozhodnutie
+## Decision
 
-- **Sťahovanie vlákien v `messages` a prepínač `--threads / --no-threads`:**
-  - V súlade s ADR 0011 sú vlákna predvolene zapnuté (`request.threads = True`).
-  - Používateľ a skripty môžu vlákna vypnúť prepínačom `--no-threads`. V popise príkazu a prepínača je uvedené upozornenie, že vlákna generujú dodatočné požiadavky a pri rozsiahlych fórach (stovky príspevkov) v režime `safe` trvá sťahovanie dlhšie.
-  - Pre bežné kanály (textové typ 0, oznamovacie typ 5) sa najprv stiahnu správy samotného kanála a následne vlákna.
-  - Pre fóra (typ 15) a mediálne kanály (typ 16) sa sťahujú výlučne vlákna (`items = ()`, žiadne volanie `fetch_messages` na samotný kanál).
-  - Ak používateľ zadá fórum alebo media kanál spolu s `--no-threads`, Discoop to odmietne s `ExitCode.BAD_ARGS` (kód 8) a radou: *"A forum only has threads: drop --no-threads."*.
+- **Downloading threads in `messages` and the `--threads / --no-threads` flag:**
+  - In accordance with ADR 0011, threads are enabled by default (`request.threads = True`).
+  - The user and scripts can disable threads with the `--no-threads` flag. The command and flag descriptions include a warning that threads generate additional requests and with large forums (hundreds of posts) downloading takes longer in `safe` mode.
+  - For standard channels (text type 0, announcement type 5), channel messages are downloaded first, followed by threads.
+  - For forums (type 15) and media channels (type 16), exclusively threads are downloaded (`items = ()`, no call to `fetch_messages` on the channel itself).
+  - If the user provides a forum or media channel together with `--no-threads`, Discoop rejects it with `ExitCode.BAD_ARGS` (code 8) and advice: *"A forum only has threads: drop --no-threads."*.
 
-- **Časové okno a poradie vlákien:**
-  - Sťahujú sa aktívne aj archivované vlákna (`threads.fetch_all_threads`), ktorých existencia zasahuje do zadaného časového okna (`threads.in_window`).
-  - Vlákna sa spracovávajú a ukladajú zoradené chronologicky od najstaršieho (podľa `thread.created` a číselného `thread.id`).
-  - Vlákno, ktoré v danom časovom okne nemá žiadne správy, sa do výsledku nezaraďuje.
+- **Time window and thread ordering:**
+  - Both active and archived threads are downloaded (`threads.fetch_all_threads`) whose existence overlaps the specified time window (`threads.in_window`).
+  - Threads are processed and stored sorted chronologically from oldest (by `thread.created` and numeric `thread.id`).
+  - A thread that has no messages within the given time window is excluded from the result.
 
-- **Limity správ (`--max-messages`, `--last`):**
-  - Parametre `--max-messages` a `--last N` platia nezávisle pre každý kanál aj pre každé jedno vlákno (každé vlákno dostane rovnaký limit).
-  - Pri orezaní vlákna limitom sa zaznamená `truncated = True` a vyvolá sa varovanie `events.warning(...)`.
+- **Message limits (`--max-messages`, `--last`):**
+  - The `--max-messages` and `--last N` parameters apply independently to each channel and each individual thread (every thread gets the same limit).
+  - When a thread is truncated by a limit, `truncated = True` is recorded and warning `events.warning(...)` is emitted.
 
-- **Jednotka ukladania a export:**
-  - Kanál a jeho vlákna tvoria nedeliteľnú jednotku: `ChannelMessages(..., threads=tuple(nested_threads))`.
-  - Do `writer.add_channel(...)` a `events.channel_done(...)` vstupujú spoločne.
-  - Nastavenie vlákien je súčasťou odtlačku požiadavky, podľa ktorého sa prerušený export obnovuje (ADR 0017): export prerušený s vláknami nepokračuje beh s `--no-threads` (uložené kanály by vlákna nemali) ani opačne, takýto beh začne odznova.
-  - V textovom a markdown exporte má každé vlákno vlastnú sekciu za správami kanála (`--- thread "názov" ---` v čistom texte, `## thread "názov"` v markdowne). V JSON/JSONL exporte sú správy vlákien súčasťou plochého zoznamu správ s vyplneným atribútom `"thread"`.
+- **Unit of storage and export:**
+  - A channel and its threads form an indivisible unit: `ChannelMessages(..., threads=tuple(nested_threads))`.
+  - They enter `writer.add_channel(...)` and `events.channel_done(...)` together.
+  - Thread settings are part of the request fingerprint used to resume an interrupted export (ADR 0017): an export interrupted with threads does not continue a run with `--no-threads` (saved channels would lack threads) nor vice versa; such a run restarts from scratch.
+  - In plain text and markdown export, each thread has its own section following the channel messages (`--- thread "name" ---` in plain text, `## thread "name"` in markdown). In JSON/JSONL export, thread messages are part of a flat list of messages with a populated `"thread"` attribute.
 
-- **Nový príkaz `discoop threads`:**
-  - Poskytuje rýchly zoznam vlákien kanála bez nutnosti sťahovať správy.
-  - Signatúra: `discoop threads -s SERVER -c CHANNEL [--from ...] [--to ...] [--refresh] [--format text|json]`.
-  - Predvolené časové okno pre zoznam vlákien je 30 dní (`--from 30d`). Celá história sa vypíše cez `--from all`.
-  - Ak zadaný kanál nepodporuje vlákna (`not threads.is_thread_container(channel)`), príkaz skončí s `ExitCode.BAD_ARGS` (kód 8).
-  - Podporuje režimy `human` (Rich tabuľka: id, archived, messages, last_activity, tags, name), `plain` (TSV formát s hlavičkou) a `--format json` (strojovo čitateľný JSON so zoznamom tagov).
+- **New command `discoop threads`:**
+  - Provides a quick overview of a channel's threads without having to download messages.
+  - Signature: `discoop threads -s SERVER -c CHANNEL [--from ...] [--to ...] [--refresh] [--format text|json]`.
+  - The default time window for listing threads is 30 days (`--from 30d`). Full history is printed via `--from all`.
+  - If the specified channel does not support threads (`not threads.is_thread_container(channel)`), the command exits with `ExitCode.BAD_ARGS` (code 8).
+  - Supports `human` mode (Rich table: id, archived, messages, last_activity, tags, name), `plain` mode (TSV format with header), and `--format json` (machine-readable JSON with tag list).
 
-- **Ošetrenie chýb a kód `ExitCode.PARTIAL = 9`:**
-  - Chyba HTTP 403 (`NO_ACCESS`) alebo HTTP 404 (`NOT_FOUND`) pri sťahovaní správ jedného vlákna vlákno preskočí s varovaním (`events.warning(...)`). Kanál a ostatné vlákna sa uložia a celkový výsledok je čiastočný (`partial = True`, kód 9).
-  - Chyba pri načítaní zoznamu vlákien kanála (403/404) alebo neúplný zoznam (`FetchedThreads.problem` nie je `None`, napr. pri HTTP 202 neindexovaných vláknach) vyvolá varovanie a výsledok je čiastočný (kód 9). Správy samotného kanála ostanú zachované.
-  - `MessagesOutcome.partial` aj `ExportWriter` zohľadňujú chyby vlákien (`thread_problems > 0`) a CLI v záverečnej rade (`_partial_advice`) presne informuje používateľa o problémoch s vláknami.
+- **Error handling and exit code `ExitCode.PARTIAL = 9`:**
+  - An HTTP 403 (`NO_ACCESS`) or HTTP 404 (`NOT_FOUND`) error when downloading messages of a single thread skips the thread with a warning (`events.warning(...)`). The channel and remaining threads are saved, and the overall outcome is partial (`partial = True`, code 9).
+  - An error when fetching the thread list of a channel (403/404) or an incomplete list (`FetchedThreads.problem` is not `None`, e.g. on HTTP 202 unindexed threads) emits a warning and yields a partial result (code 9). The messages of the channel itself are preserved.
+  - Both `MessagesOutcome.partial` and `ExportWriter` account for thread errors (`thread_problems > 0`), and the CLI in final advice (`_partial_advice`) accurately informs the user of thread issues.
 
-- **Súkromie v priebehu (`Events.thread`):**
-  - Pri `--progress-json` udalosť `thread` emituje výlučne technické identifikátory (`channel_id`, `thread_id`) a počty (`index`, `total`). Žiadne názvy kanálov, názvy vlákien ani texty správ sa v strojovom JSON progress výstupe neobjavujú.
+- **Privacy during progress (`Events.thread`):**
+  - Under `--progress-json`, the `thread` event emits exclusively technical identifiers (`channel_id`, `thread_id`) and counts (`index`, `total`). No channel names, thread names, or message texts appear in machine JSON progress output.
 
-## Vzťah k zisteniam z probe (`docs/analyses/thread-probe-2026-11-04.md`)
+## Relation to probe findings (`docs/analyses/thread-probe-2026-11-04.md`)
 
-- **[OVERENÉ]**
-  - Používateľský účet nemôže pristupovať na `/guilds/{id}/threads/active` (403, kód 20002). Aktívne vlákna sa preto získavajú cez kanálový endpoint `/channels/{id}/threads/search?archived=false`.
-  - Stránkovanie `threads/search` akceptuje `limit=25`; limit 50 Discord odmieta kódom 400 (`Invalid Form Body`).
-  - Polia `has_more` a `total_results` na `threads/search` sú nespoľahlivé (falošné `has_more: true` na poslednej strane, nezrovnalosti v `total_results`). Koniec stránkovania preto spoľahlivo určuje iba prázdna alebo neúplná strana (< 25 položiek).
-  - Správy vlákien sa čítajú štandardným volaním `GET /channels/{thread_id}/messages`. Štartovacia správa fórumového postu má ID zhodné s ID vlákna.
-  - Kanály a vlákna bez oprávnení vracajú HTTP 403 `Missing Access`. Discoop ich zachytáva a bezpečne hlási ako čiastočný výsledok (kód 9).
-  - Na reálnom účte (2026-11-04, [analýza](../analyses/real-account-check-2026-11-04.md)): `discoop threads` na fóre vypísalo pri `--from 3d` 2 vlákna (5,9 s) a pri `--from 90d --refresh --format json` 61 unikátnych vlákien (50 archivovaných) zoradených podľa poslednej aktivity zostupne, na 4 stránky `threads/search` (1 aktívna + 3 archivované po 25), za 17 s. `has_more` bolo na poslednej archivovanej strane znova `true`, koniec našlo okno (`reached_start`), čo potvrdzuje nespoľahlivosť `has_more`. Vlákno, ktoré je ešte aktívne, ale staršie než okno, vypadlo vo filtri okna.
-  - Na reálnom účte (2026-11-04): export fóra (`messages -c <fórum> --from 3d --no-files --out DIR`) dal 2 príspevky a 22 správ za 11,6 s s úplným manifestom (`messages 0, threads 2, thread_messages 22`). Markdown má sekcie `## thread "..."` s riadkami hlavičky (vytvorenie, posledná aktivita, správy, súbory, tagy) a správy v `messages.jsonl` majú pole `thread: {id, name, parent_id, tags}` s názvami tagov fóra.
-  - Na reálnom účte (2026-11-04): `message_count` v zozname vlákien nezahŕňa štartovaciu správu príspevku fóra. Zoznam ukázal 9 a 11, stiahnutie vrátilo 10 a 12 správ (pozorované na 2 príspevkoch).
+- **[VERIFIED]**
+  - A user account cannot access `/guilds/{id}/threads/active` (403, code 20002). Active threads are therefore retrieved via the channel endpoint `/channels/{id}/threads/search?archived=false`.
+  - Pagination of `threads/search` accepts `limit=25`; a limit of 50 is rejected by Discord with code 400 (`Invalid Form Body`).
+  - Fields `has_more` and `total_results` on `threads/search` are unreliable (false `has_more: true` on the final page, inconsistencies in `total_results`). The end of pagination is therefore reliably determined only by an empty or incomplete page (< 25 items).
+  - Thread messages are read via standard call `GET /channels/{thread_id}/messages`. The starter message of a forum post has an ID identical to the thread ID.
+  - Channels and threads without permissions return HTTP 403 `Missing Access`. Discoop catches them and safely reports them as a partial result (code 9).
+  - On a real account (2026-11-04, [analysis](../analyses/real-account-check-2026-11-04.md)): `discoop threads` on a forum returned 2 threads (5.9 s) with `--from 3d`, and 61 unique threads (50 archived) sorted by last activity descending over 4 `threads/search` pages (1 active + 3 archived at 25 each) in 17 s with `--from 90d --refresh --format json`. `has_more` was again `true` on the last archived page; the end was detected by window (`reached_start`), confirming the unreliability of `has_more`. A thread that is still active but older than the window was dropped by the window filter.
+  - On a real account (2026-11-04): forum export (`messages -c <forum> --from 3d --no-files --out DIR`) yielded 2 posts and 22 messages in 11.6 s with a complete manifest (`messages 0, threads 2, thread_messages 22`). Markdown has `## thread "..."` sections with header lines (creation, last activity, messages, files, tags), and messages in `messages.jsonl` contain a `thread: {id, name, parent_id, tags}` field with forum tag names.
+  - On a real account (2026-11-04): `message_count` in the thread list does not include the starter message of a forum post. The list showed 9 and 11, while downloading returned 10 and 12 messages (observed across 2 posts).
 
-- **[PREDPOKLAD]**
-  - Predpokladá sa, že všetky bežné textové kanály (typ 0) a oznamovacie kanály (typ 5) podporujú `threads/search` pre používateľský účet rovnako ako fórum a skúmaný vzorový textový kanál.
-  - Pri neindexovaných vláknach môže nastať stavový kód HTTP 202 (na reálnom účte 2026-11-04 sa neobjavil, rovnako ako súkromné vlákna typu 12). Implementácia naň reaguje zaznamenaním problému `Stop.NOT_INDEXED` a čiastočným úspechom (kód 9).
+- **[ASSUMPTION]**
+  - All standard text channels (type 0) and announcement channels (type 5) are assumed to support `threads/search` for a user account identically to the forum and sampled reference text channel.
+  - Unindexed threads may return HTTP status code 202 (not encountered on real account 2026-11-04, nor were private threads of type 12). The implementation responds by recording the problem `Stop.NOT_INDEXED` and returning a partial result (code 9).
 
-## Dôsledky
+## Consequences
 
-- Používatelia a AI agenti majú plný prístup k obsahu fór a vlákien bez manuálnych zásahov.
-- Výpadok prístupu k jednému vláknu nezničí celý export (kód 9 zaručuje transparentnosť a bezpečnosť automatizácií).
-- Príkaz `discoop threads` poskytuje rýchlu a prehľadnú orientáciu v obsahu kanálov bez zbytočného sťahovania správ.
+- Users and AI agents have full access to forum and thread content without manual intervention.
+- Loss of access to a single thread does not ruin the entire export (code 9 guarantees transparency and safety for automation).
+- The `discoop threads` command provides quick and clear navigation across channel contents without unnecessary message downloads.

@@ -1,47 +1,47 @@
-# 0018: Voliteľné diagnostické logovanie (--debug, --log)
+# 0018: Optional diagnostic logging (`--debug`, `--log`)
 
-- **Stav:** Prijaté
-- **Dátum:** 2026-11-04
-- **Rozhodol:** používateľ
+- **Status:** Accepted
+- **Date:** 2026-11-04
+- **Decided by:** the user
 
-## Kontext
+## Context
 
-Pri sťahovaní veľkých objemov správ a príloh dochádza k rôznym hraničným stavom (rate limity HTTP 429, prechodné chyby siete alebo 5xx, expirované podpísané CDN URL, odmietnutie prístupu 403). Doteraz nástroj buď ticho čakal, alebo vyhodil chybu bez detailného záznamu časovania a priebehu. Používateľ aj vývojár potrebujú diagnostický záznam na odladenie problémov.
+When downloading large volumes of messages and attachments, various edge cases occur (HTTP 429 rate limits, transient network or 5xx errors, expired signed CDN URLs, 403 access denied). Until now, the tool either waited silently or threw an error without a detailed trace of timing and progress. Both the user and developer need a diagnostic log to debug issues.
 
-Zároveň však Discoop pracuje s citlivými údajmi: Discord autentifikačný token, podpísané URL príloh s expiračnými tokenmi a kryptografickými podpismi (`ex`, `is`, `hm`), súkromné texty správ a mená používateľov či kanálov. Akékoľvek logovanie musí garantovať, že tieto údaje nikdy neuniknú do logov.
+At the same time, Discoop handles sensitive data: Discord authentication token, signed attachment URLs with expiration tokens and cryptographic signatures (`ex`, `is`, `hm`), private message texts, and user or channel names. Any logging must guarantee that these data points never leak into logs.
 
-## Možnosti
+## Options
 
-1. **Použiť štandardné `logging.basicConfig` na root logger.** Zamietnuté: knižnice tretieho rádu (`httpx`, `httpcore`, `websockets`) by na úrovni DEBUG logovali celé požiadavky vrátane hlavičiek `Authorization` a kompletných URL s podpismi príloh.
-2. **Logovať všetko vrátane tiel odpovedí.** Zamietnuté: v tele odpovedí sa nachádzajú citlivé texty správ, mená používateľov a tokeny.
-3. **Štruktúrované diagnostické logovanie s prísnym allowlistom polí.** Zvolené: logger `discoop` je predvolene vypnutý (`propagate = False`), zapína sa explicitne cez `--debug` (stderr) alebo `--log FILE`. Logujú sa iba bezpečné diagnostické metadáta.
+1. **Use standard `logging.basicConfig` on the root logger.** Rejected: third-party libraries (`httpx`, `httpcore`, `websockets`) at DEBUG level would log full requests including `Authorization` headers and complete URLs with attachment signatures.
+2. **Log everything including response bodies.** Rejected: response bodies contain sensitive message texts, user names, and tokens.
+3. **Structured diagnostic logging with a strict field allowlist.** Chosen: the `discoop` logger is disabled by default (`propagate = False`), explicitly enabled via `--debug` (stderr) or `--log FILE`. Only safe diagnostic metadata is logged.
 
-## Rozhodnutie
+## Decision
 
-- Logovanie je **predvolene vypnuté**. Ak nie je zadané `--debug` ani `--log FILE`, nepripájajú sa žiadne handlery a nič sa nezapisuje ani nevypisuje.
-- Spustenie a ukončenie riadia funkcie `setup_logging(debug: bool, log_file: Path | None)` a `teardown_logging()` v `src/discoop/logs.py`.
-- Handlery sa pripájajú výhradne na logger `logging.getLogger("discoop")` s `propagate = False` a úrovňou `DEBUG`. Root logger ani `logging.basicConfig` sa nepoužívajú.
-- `--debug` pridá `StreamHandler(sys.stderr)`. `--log FILE` pridá `FileHandler` v režime append s kódovaním UTF-8 (s automatickým vytvorením nadradených priečinkov).
-- Loggery tretích strán (`httpx`, `httpcore`, `websockets`) sa v `setup_logging` explicitne stíšia na úroveň `WARNING`.
-- `teardown_logging()` je idempotentné: zatvorí a odstráni všetky vytvorené handlery a vráti stav loggerov do pôvodného stavu.
-- **Hlavička logu:** pri inicializácii s aktívnym handlerom sa zapíše hlavička s verziou nástroja (`discoop.__version__`), OS, verziou Pythonu a povinným bezpečnostným upozornením:
+- Logging is **disabled by default**. If neither `--debug` nor `--log FILE` is provided, no handlers are attached and nothing is written or printed.
+- Startup and teardown are controlled by `setup_logging(debug: bool, log_file: Path | None)` and `teardown_logging()` functions in `src/discoop/logs.py`.
+- Handlers are attached exclusively to the logger `logging.getLogger("discoop")` with `propagate = False` and `DEBUG` level. The root logger and `logging.basicConfig` are not used.
+- `--debug` attaches a `StreamHandler(sys.stderr)`. `--log FILE` attaches a `FileHandler` in append mode with UTF-8 encoding (automatically creating parent directories).
+- Third-party loggers (`httpx`, `httpcore`, `websockets`) are explicitly quieted to `WARNING` level in `setup_logging`.
+- `teardown_logging()` is idempotent: it closes and removes all created handlers and resets loggers to their original state.
+- **Log header:** on initialisation with an active handler, a header is written with the tool version (`discoop.__version__`), OS, Python version, and a mandatory security notice:
   `IDs in this log identify private servers and channels. Do not publish it.`
-- **Formát riadkov:** ISO 8601 čas s milisekundami v UTC, úroveň, skrátený názov loggera (`api`, `scrape`, `attachments`, `discoop`), správa s kľúč=hodnota pármi:
-  - `discoop.api`: metóda, cesta bez query reťazca (`path.split("?", 1)[0]`), názvy parametrov (`params=...`) a hodnoty výhradne pre povolené kľúče (`before`, `after`, `limit`, `archived`, `offset`, `with_counts`), číslo pokusu `attempt` (od 1), HTTP status kód, trvanie v milisekundách merané cez `time.perf_counter()`, dĺžka odpovede v bajtoch a prípadne počet položiek `items`. Pri 429 sa loguje `retry_after`, `global` a zdvojnásobený delay; pri pauzách sekundy a dôvod; pri tichých opakovaniach backoff a dôvod. Chyby >= 400 logujú top-level `code` a `message` (nie podobjekt `errors`). Transportné chyby logujú iba `type(e).__name__`, nikdy `str(e)`.
-  - `discoop.scrape`: jeden riadok na stranu správ: ID kanála (`channel_id`), počet správ na strane, ID najstaršej a najnovšej správy a príznak `last=True/False`.
-  - `discoop.attachments`: iba v `_download` a `_fetch`: ID prílohy, veľkosť, status, číslo pokusu, počet zapísaných bajtov a iba host z URL (`httpx.URL(url).host`).
-- **Prísne zakázané (nikdy sa neloguje):**
-  - Hlavičky requestu ani response (`Authorization` token).
-  - Všetky ostatné `kwargs` z `request()` (napr. JSON body, tickety).
-  - Celé telá odpovedí (`response.text`, `response.json()`).
-  - Texty správ a mená používateľov.
-  - Mená súborov, cesty súborov a query parametre podpísaných CDN URL (`ex`, `is`, `hm`).
-  - Názvy kanálov a serverov (iba číselné ID).
-  - Reprezentácie dataclassov (`FileJob`, `Attachment`, `Message`, `ChannelMessages`, `StoredToken`).
+- **Line format:** ISO 8601 timestamp with milliseconds in UTC, level, shortened logger name (`api`, `scrape`, `attachments`, `discoop`), message with key=value pairs:
+  - `discoop.api`: method, path without query string (`path.split("?", 1)[0]`), parameter names (`params=...`) and values strictly for allowed keys (`before`, `after`, `limit`, `archived`, `offset`, `with_counts`), attempt number `attempt` (from 1), HTTP status code, duration in milliseconds measured via `time.perf_counter()`, response length in bytes, and optional item count `items`. On 429 it logs `retry_after`, `global`, and doubled delay; on pauses seconds and reason; on silent retries backoff and reason. Errors >= 400 log top-level `code` and `message` (not the nested `errors` object). Transport errors log only `type(e).__name__`, never `str(e)`.
+  - `discoop.scrape`: one line per message page: channel ID (`channel_id`), message count on the page, ID of oldest and newest message, and flag `last=True/False`.
+  - `discoop.attachments`: only in `_download` and `_fetch`: attachment ID, size, status, attempt number, written byte count, and only the host from the URL (`httpx.URL(url).host`).
+- **Strictly forbidden (never logged):**
+  - Request and response headers (`Authorization` token).
+  - All other `kwargs` from `request()` (e.g. JSON bodies, tickets).
+  - Full response bodies (`response.text`, `response.json()`).
+  - Message texts and user names.
+  - File names, file paths, and query parameters of signed CDN URLs (`ex`, `is`, `hm`).
+  - Channel and server names (only numeric IDs).
+  - Dataclass representations (`FileJob`, `Attachment`, `Message`, `ChannelMessages`, `StoredToken`).
 
-## Dôsledky
+## Consequences
 
-- `[OVERENÉ]` Diagnostické logovanie neovplyvňuje predvolený chod CLI ani existujúce správanie `DiscordAPI`.
-- `[OVERENÉ]` Testy v `tests/test_logs.py` overujú, že token, podpisy príloh, mená súborov, parametre expirácie, texty správ ani názvy kanálov sa v logu nenachádzajú ani pri chybových stavoch (429, 500, 403).
-- `[OVERENÉ]` Z logu je odstránený query reťazec URL, čím sa zabránilo úniku jednorazových podpisov.
-- Záznam logu obsahuje číselné identifikátory (snowflake ID) serverov, kanálov a správ. Hoci neobsahuje texty správ, samotné ID identifikujú privátne servery a štruktúru kanálov, preto log nesmie byť zverejňovaný (na čo explicitne upozorňuje hlavička každého logu).
+- `[VERIFIED]` Diagnostic logging does not affect default CLI execution or existing `DiscordAPI` behaviour.
+- `[VERIFIED]` Tests in `tests/test_logs.py` verify that token, attachment signatures, file names, expiration parameters, message texts, and channel names are absent from the log even during error conditions (429, 500, 403).
+- `[VERIFIED]` The URL query string is stripped from the log, preventing leakage of single-use signatures.
+- The log contains numeric identifiers (snowflake IDs) of servers, channels, and messages. Although it contains no message texts, the IDs themselves identify private servers and channel structure; therefore, the log must not be published (as explicitly warned in the header of each log).

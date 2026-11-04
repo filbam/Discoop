@@ -1,55 +1,55 @@
-# 0013: Interaktívne terminálové rozhranie (TUI) a spoločná servisná vrstva
+# 0013: Interactive terminal user interface (TUI) and shared service layer
 
-- **Stav:** Prijaté, rozloženie TUI nahradené ADR 0014
-- **Dátum:** 2026-11-03
-- **Rozhodol:** používateľ
+- **Status:** Accepted, TUI layout superseded by ADR 0014
+- **Date:** 2026-11-03
+- **Decided by:** the user
 
-> **Poznámka (2026-11-03):** Spoločná servisná vrstva (`service.py`), lazy import Textualu, spúšťanie a zoskupovanie úloh
-> ostávajú platné. Rozloženie TUI (tri stĺpce, záložky), ovládanie a Help sa riadia
+> **Note (2026-11-03):** The shared service layer (`service.py`), lazy import of Textual, job launching and grouping
+> remain valid. TUI layout (three columns, tabs), controls, and Help are governed by
 > [ADR 0014](0014-tui-keyboard-one-tree.md).
 
-## Kontext
+## Context
 
-Nástroj `discoop` disponuje bohatým príkazovým rozhraním (CLI) s podporou `--human` a `--plain` režimov. Používateľ však pre `--human` režim chcel vizuálne prostredie v termináli ovládané klávesnicou (šípky, Enter, Space) v štýle Discordu / prieskumníka, s:
-- tlačidlami na načítanie serverov a kanálov (jednotlivo aj všetkých naraz s bezpečným tempovaním a možnosťou prerušenia),
-- výberom kanálov na export naprieč rôznymi servermi,
-- nastavením časového okna (globálne pre všetky kanály aj individuálne per-kanál),
-- voľbou režimu sťahovania (`safe` / `fast`) a cieľa exportu (priečinok alebo ZIP archív),
-- responzívnym layoutom pri zmene veľkosti okna terminálu,
-- vstavanou obrazovkou Help (kláves `F1` / `?`), ktorá okrem vysvetlenia ovládania TUI obsahuje aj kompletný živý výpis `discoop --help` vrátane podpríkazov.
+The `discoop` tool has a rich command-line interface (CLI) with support for `--human` and `--plain` modes. For `--human` mode, however, the user wanted a visual environment in the terminal controlled by keyboard (arrows, Enter, Space) in the style of Discord / file explorer, with:
+- buttons to load servers and channels (individually as well as all at once with safe pacing and cancellation support),
+- channel selection for export across different servers,
+- time window configuration (globally for all channels and individually per channel),
+- choice of download mode (`safe` / `fast`) and export target (folder or ZIP archive),
+- responsive layout when resizing the terminal window,
+- built-in Help screen (`F1` / `?` key), which in addition to explaining TUI controls also contains complete live `discoop --help` output including subcommands.
 
-Zároveň bolo kľúčovou požiadavkou, aby TUI nevytváralo duplicitu v aplikačnej logike a bolo postavené ako tenká nadstavba nad jadrom nástroja.
+At the same time, a key requirement was that the TUI should not duplicate application logic and should be built as a thin layer on top of the tool's core.
 
-## Rozhodnutie
+## Decision
 
-1. **Knižnica `Textual`:**
-   - Pre TUI bola zvolená knižnica `Textual` (od autorov `Rich`), ktorá poskytuje moderný reaktívny komponentový model, flexbox/grid layout, CSS štýlovanie (`discoop.tcss`), responzívny layout (3 stĺpce v širokom okne, záložkový systém v úzkom okne), stromové komponenty (`Tree`), formuláre a background workery pre asynchrónne operácie bez zamŕzania používateľského rozhrania.
-   - Textual sa načítava výhradne pri spustení TUI (`lazy import`), aby nepredlžoval štart bežných CLI príkazov.
+1. **`Textual` library:**
+   - The `Textual` library (from the authors of `Rich`) was chosen for the TUI, providing a modern reactive component model, flexbox/grid layout, CSS styling (`discoop.tcss`), responsive layout (3 columns in wide window, tab system in narrow window), tree widgets (`Tree`), forms, and background workers for asynchronous operations without freezing the user interface.
+   - Textual is loaded strictly upon launching the TUI (`lazy import`), so that it does not slow down the startup of standard CLI commands.
 
-2. **Spúšťanie:**
-   - TUI sa spúšťa príkazom `discoop ui` alebo prepínačom `discoop --ui`.
-   - Samotné spustenie `discoop` bez argumentov naďalej vypisuje nápovedu (`--help`), čím sa zachováva predvídateľné CLI správanie.
-   - V `--plain` režime alebo pri spustení v prostredí bez interaktívneho terminálu (`not sys.stdout.isatty()`) príkaz `discoop ui` skončí s chybou a návratovým kódom `8` (`BAD_ARGS`).
+2. **Invocation:**
+   - The TUI is launched with the command `discoop ui` or the flag `discoop --ui`.
+   - Running `discoop` by itself without arguments continues to display help (`--help`), preserving predictable CLI behaviour.
+   - In `--plain` mode or when launched in an environment without an interactive terminal (`not sys.stdout.isatty()`), the command `discoop ui` exits with an error and exit code `8` (`BAD_ARGS`).
 
-3. **Spoločná servisná vrstva (`service.py`):**
-   - Orchestrácia biznis logiky nástroja (`list_servers`, `list_channels`, `load_all`, `run_messages`) je vyčlenená do samostatného modulu `src/discoop/service.py`.
-   - CLI aj TUI volajú tie isté funkcie a zdieľajú rovnaké dátové štruktúry, validácie a prácu s cache/API.
-   - Každá naplánovaná úloha v TUI priamo zodpovedá jednému CLI príkazu `discoop messages ...`. Tento ekvivalentný príkaz sa naživo zobrazuje v spodnej lište TUI, čím používateľa učí používať aj priame CLI rozhranie.
+3. **Shared service layer (`service.py`):**
+   - Orchestration of the tool's business logic (`list_servers`, `list_channels`, `load_all`, `run_messages`) is factored out into a dedicated module `src/discoop/service.py`.
+   - Both CLI and TUI call the same functions and share the same data structures, validations, and cache/API handling.
+   - Every scheduled job in the TUI corresponds directly to one CLI command `discoop messages ...`. This equivalent command is displayed live in the TUI bottom bar, teaching the user how to use the direct CLI interface.
 
-4. **Zoskupovanie úloh podľa časového okna:**
-   - Kanály so zhodným časovým oknom tvoria jednu exportnú úlohu (jedno volanie sťahovania).
-   - Ak existuje len jedna úloha, export sa uloží priamo do zvolenej cieľovej cesty (priečinok alebo ZIP).
-   - Ak je úloh viac (napr. niektoré vybrané kanály majú nastavené vlastné časové okno), každá úloha sa exportuje do očíslovaného podpriečinka (`cieľ/01-7d/`, `cieľ/02-...`) alebo samostatného ZIP archívu (`cieľ-01-7d.zip`), aby nedochádzalo ku kolíziám manifestov a dát.
+4. **Grouping jobs by time window:**
+   - Channels with identical time windows form a single export job (one download call).
+   - If there is only one job, the export is saved directly into the chosen destination path (folder or ZIP).
+   - If there are multiple jobs (e.g. some selected channels have custom time windows configured), each job is exported into a numbered subfolder (`dest/01-7d/`, `dest/02-...`) or separate ZIP archive (`dest-01-7d.zip`), preventing collisions of manifests and data.
 
-5. **Vstavaný Help:**
-   - Stlačenie `F1` alebo `?` otvorí modálne okno s pomocníkom.
-   - Okno obsahuje dve záložky:
-     1. *Ovládanie TUI:* prehľad klávesových skratiek, navigácie v stromoch a formulároch, význam ikon a stavov.
-     2. *CLI referencia (`discoop --help`):* dynamicky generovaný výstup hlavného helpu a helpu všetkých podpríkazov priamo z Typer aplikácie, zhodný s výstupom v konzole.
+5. **Built-in Help:**
+   - Pressing `F1` or `?` opens a modal dialog with help.
+   - The window contains two tabs:
+     1. *TUI Controls:* overview of keyboard shortcuts, navigation in trees and forms, meaning of icons and states.
+     2. *CLI Reference (`discoop --help`):* dynamically generated output of the main help and all subcommand helps directly from the Typer application, identical to console output.
 
-## Dôsledky
+## Consequences
 
-- **Čistá architektúra:** Servisná vrstva `service.py` oddeľuje prezentačnú logiku (CLI formátovače, TUI widgety) od práce s Discord API, SQLite cache a exportným subsystémom.
-- **Nulová duplicita:** CLI aj TUI používajú rovnaké funkcie pre načítanie serverov, kanálov aj samotné sťahovanie správ.
-- **Rýchly štart CLI:** Vďaka lazy importu `Textual` nie je bežné volanie `discoop` zaťažené réžiou inicializácie TUI frameworku.
-- **Vysoký používateľský komfort:** Používateľ nemusí manuálne kopírovať alebo hľadať ID kanálov v konzole – v TUI stačí vybrať servery a kanály interaktívne, nakonfigurovať parametre a spustiť export s prehľadným živým progressom.
+- **Clean architecture:** The service layer `service.py` separates presentation logic (CLI formatters, TUI widgets) from Discord API interactions, SQLite cache, and the export subsystem.
+- **Zero duplication:** CLI and TUI use the same functions for fetching servers, channels, and downloading messages.
+- **Fast CLI startup:** Thanks to the lazy import of `Textual`, standard `discoop` invocations carry no overhead from TUI framework initialisation.
+- **High user convenience:** The user does not need to manually copy or search for channel IDs in the console – in the TUI they simply select servers and channels interactively, configure parameters, and launch export with clear live progress.

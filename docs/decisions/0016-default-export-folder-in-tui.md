@@ -1,54 +1,54 @@
-# 0016: Predvolený priečinok exportov v TUI
+# 0016: Default export folder in TUI
 
-- **Stav:** Prijaté
-- **Dátum:** 2026-11-04
-- **Rozhodol:** používateľ
+- **Status:** Accepted
+- **Date:** 2026-11-04
+- **Decided by:** the user
 
-## Kontext
+## Context
 
-Export z TUI šiel bez `export-dir` v configu do priečinka `exports` v aktuálnom priečinku. Kam export skončil, záviselo
-od toho, kde používateľ spustil terminál, a nedalo sa to predvídať. Riadok formulára `Name` (P21) navyše spájal názov
-a cestu v jednom poli. Používateľ chce (P23) samostatné polia `Folder` a `Name`, predvolený názov
-`discord-export-<dátum a čas>` a predvolený priečinok, ktorý je na každom OS na rovnakom, predvídateľnom mieste.
+Without `export-dir` in config, export from TUI went into an `exports` directory in the current working directory. Where the export ended up depended
+on where the user launched the terminal, which was unpredictable. In addition, the form row `Name` (P21) combined name
+and path in a single field. The user wants (P23) separate fields `Folder` and `Name`, default name
+`discord-export-<date and time>`, and a default folder that is at the same predictable location on every OS.
 
-## Možnosti
+## Options
 
-1. **Aktuálny priečinok** (doterajšie `exports`). Zamietnuté: výsledok závisí od miesta spustenia terminálu.
-2. **Priečinok Stiahnuté (Downloads).** Zamietnuté: export nie je stiahnutý súbor a priečinok je plný iných vecí.
-3. **Dátový priečinok nástroja** (`AppData\Local\discoop`, `~/.local/share/discoop`). Zamietnuté: je skrytý a používateľ
-   by export ťažko našiel. Je tam aj `cache.db`.
-4. **Domovský priečinok.** Zamietnuté: export by zasorili hlavný priečinok.
-5. **`discoop` v Dokumentoch používateľa.** Zvolené.
+1. **Current directory** (previous `exports`). Rejected: outcome depends on where the terminal was launched.
+2. **Downloads directory.** Rejected: an export is not a downloaded file and the folder is cluttered with other things.
+3. **Application data directory** (`AppData\Local\discoop`, `~/.local/share/discoop`). Rejected: it is hidden and the user
+   would struggle to find the export. `cache.db` is also stored there.
+4. **Home directory.** Rejected: exports would clutter the home directory.
+5. **`discoop` in user Documents.** Chosen.
 
-## Rozhodnutie
+## Decision
 
-- Predvolený priečinok exportov v TUI je `discoop` v Dokumentoch používateľa. Nájde ho `platformdirs.user_documents_dir()`
-  (`paths.default_export_dir()`), rovnakým kódom na Windows, Linuxe aj macOS. Pri hľadaní sa nič nevytvára, priečinok
-  vznikne až pri prvom exporte.
-- Config `export-dir`, ak je nastavený, má prednosť. V Settings (`F2`, riadok `Export folder`) sa priečinok mení trvalo,
-  v poli `Folder` len pre jeden export.
-- Formulár má dve polia: `Folder` a `Name`.
-  - Prázdny `Folder` je predvolený priečinok. Cesta s `~` alebo absolútna sa použije tak, ako je. Relatívna cesta leží
-    vo vnútri predvoleného priečinka.
-  - Prázdny `Name` je `discord-export-<dátum a čas>` (`discord-export-2026-1104-0108`). Zadaný `Name` je vždy len názov,
-    nikdy cesta: prečistí sa cez `safe_name` (lomky a neplatné znaky sa nahradia `_`).
-  - Kolízia v tej istej minúte (`-2`, `-3`) sa rieši len pri automatickom názve. Zadaný názov sa nemení, opakovaný export
-    do neho pokračuje.
-- Cesty v `--out` a `--zip` riadku TUI sú absolútne a s lomkami (`/`). Windows ich prijme a riadok s CLI príkazom sa
-  nemusí citovať.
-- CLI sa nemení. `discoop messages --out/--zip` ostáva relatívne k aktuálnemu priečinku alebo k `export-dir`.
-  Nový predvolený priečinok platí len v TUI.
+- The default export folder in TUI is `discoop` in the user's Documents. It is located by `platformdirs.user_documents_dir()`
+  (`paths.default_export_dir()`), using identical code on Windows, Linux, and macOS. Discovery creates nothing; the folder
+  is created on first export.
+- Config `export-dir`, if set, takes precedence. In Settings (`F2`, row `Export folder`) the folder is changed permanently;
+  in the `Folder` field only for that single export.
+- The form has two fields: `Folder` and `Name`.
+  - Empty `Folder` means the default directory. A path with `~` or an absolute path is used as-is. A relative path is resolved
+    inside the default directory.
+  - Empty `Name` produces `discord-export-<date and time>` (`discord-export-2026-1104-0108`). A provided `Name` is always just a name,
+    never a path: it is sanitized via `safe_name` (slashes and invalid characters replaced with `_`).
+  - Collision within the same minute (`-2`, `-3`) is handled only for automatically generated names. A specified name is not modified; a repeated export
+    continues into it.
+- Paths in the `--out` and `--zip` line of the TUI are absolute and use slashes (`/`). Windows accepts them and the CLI command line
+  does not require quoting.
+- CLI is unchanged. `discoop messages --out/--zip` remains relative to the current directory or `export-dir`.
+  The new default folder applies only in the TUI.
 
-## Dôsledky
+## Consequences
 
-- `[OVERENÉ]` na Windows (platformdirs 4.14.3): `user_documents_dir()` vráti `C:\Users\Filip\Documents`, takže predvolený
-  priečinok je `C:\Users\Filip\Documents\discoop`.
-- `[PREDPOKLAD]`: Linux a macOS podľa dokumentácie `platformdirs` (Linux číta XDG `XDG_DOCUMENTS_DIR`, inak `~/Documents`,
-  macOS `~/Documents`). Nevyskúšané. Na Linuxe bez priečinka Documents vráti `platformdirs` aj tak cestu `~/Documents`
-  a export si ju vytvorí (`export.py` vytvára aj nadradené priečinky).
-- `[PREDPOKLAD]`: Dokumenty presmerované do OneDrive. Windows vtedy hlási presmerovanú cestu a export pôjde do OneDrive,
-  teda sa môže synchronizovať do cloudu. Kto to nechce, nastaví `Export folder` v Settings.
-- Export obsahuje cudzie správy. Priečinok v Dokumentoch je mimo repa, takže ho git nezahrnie.
-- Uloženie náhľadu (`Save` v Preview) ostáva pri doterajšom správaní (`export-dir`, inak `exports` v aktuálnom priečinku).
-  Zmena je zatiaľ mimo tohto rozhodnutia.
-- Testy podmieňajú `paths.documents_dir()` na priečinok v `tmp_path`, takže sa nikdy nedotknú skutočných Dokumentov.
+- `[VERIFIED]` on Windows (platformdirs 4.14.3): `user_documents_dir()` returns `C:\Users\Filip\Documents`, so the default
+  directory is `C:\Users\Filip\Documents\discoop`.
+- `[ASSUMPTION]`: Linux and macOS according to `platformdirs` documentation (Linux reads XDG `XDG_DOCUMENTS_DIR`, otherwise `~/Documents`;
+  macOS `~/Documents`). Untested. On Linux without a Documents folder, `platformdirs` returns `~/Documents` anyway,
+  and export creates it (`export.py` also creates parent directories).
+- `[ASSUMPTION]`: Documents redirected to OneDrive. Windows reports the redirected path and export will go to OneDrive,
+  which may sync to the cloud. Users who do not want this can set `Export folder` in Settings.
+- Export contains other people's messages. The folder in Documents is outside the repo, so git does not track it.
+- Saving a preview (`Save` in Preview) keeps existing behaviour (`export-dir`, otherwise `exports` in current directory).
+  Any change is out of scope for this decision.
+- Tests mock `paths.documents_dir()` to a directory in `tmp_path`, so they never touch real Documents.

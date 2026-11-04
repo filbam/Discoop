@@ -1,31 +1,31 @@
-# 0012: Premenovanie „agent mode“ na „plain mode“ (`--plain`)
+# 0012: Rename "agent mode" to "plain mode" (`--plain`)
 
-- **Stav:** Prijaté
-- **Dátum:** 2026-11-03
-- **Rozhodol:** používateľ
+- **Status:** Accepted
+- **Date:** 2026-11-03
+- **Decided by:** the user
 
-## Kontext
+## Context
 
-Nástroj `discoop` od začiatku obsahoval dva režimy výstupu (P7):
-- **Human mode:** interaktívny výstup s farbami (Rich), tabuľkami, stromami kategórií a progress barmi.
-- **Agent mode:** textový výstup bez farieb, s tabulátormi a štruktúrovanými chybami na stderr.
+The `discoop` tool included two output modes from the beginning (P7):
+- **Human mode:** interactive output with colours (Rich), tables, category trees, and progress bars.
+- **Agent mode:** plain text output without colours, with tabs, and structured errors on stderr.
 
-Pomenovanie „agent mode“ (`--agent`) však evokovalo, že režim je určený výlučne pre AI agentov. V skutočnosti je rovnaký režim potrebný pre akékoľvek iné programy, skripty (bash, Python subprocess) alebo presmerovanie do súboru či rúry (`|`), pretože odstraňuje ANSI escape kódy a grafické prvky.
+However, the naming "agent mode" (`--agent`) evoked that the mode was intended exclusively for AI agents. In reality, the same mode is needed for any other programs, scripts (bash, Python subprocess), or redirection to a file or pipe (`|`), because it strips ANSI escape codes and graphical elements.
 
-## Rozhodnutie
+## Decision
 
-1. **Nový primárny názov:** Režim sa premenúva na **Plain mode** s prepínačom **`--plain`**.
-   - Názov jasne vyjadruje, že ide o prostý text bez farieb, terminálových efektov a grafického formátovania.
-2. **AI agenti v dokumentácii a helpe:**
-   - V texte helpu ostáva explicitne uvedené, že `--plain` je ideálny pre AI agentov a automatizované skripty (menej tokenov, jednoduchý parsing).
-   - Poznámka `NOTE FOR AI AGENTS` v helpe zostáva a odporúča agentom použiť `--plain` (alebo `--agent`).
-3. **Spätná kompatibilita:**
-   - Prepínač `--agent` zostáva funkčný ako skrytý alias pre `--plain`.
-   - Podporované sú premenné prostredia `DISCOOP_PLAIN` aj `DISCOOP_AGENT`.
-   - Pri presmerovaní výstupu mimo terminálu (`not sys.stdout.isatty()`) sa plain mode naďalej aktivuje automaticky.
+1. **New primary name:** The mode is renamed to **Plain mode** with the flag **`--plain`**.
+   - The name clearly expresses that it is plain text without colours, terminal effects, and graphical formatting.
+2. **AI agents in documentation and help:**
+   - The help text still explicitly states that `--plain` is ideal for AI agents and automated scripts (fewer tokens, easy parsing).
+   - The `NOTE FOR AI AGENTS` notice in the help remains and recommends agents use `--plain` (or `--agent`).
+3. **Backward compatibility:**
+   - The `--agent` flag remains functional as a hidden alias for `--plain`.
+   - Both environment variables `DISCOOP_PLAIN` and `DISCOOP_AGENT` are supported.
+   - When output is redirected outside a terminal (`not sys.stdout.isatty()`), plain mode continues to activate automatically.
 
-## Dôsledky
+## Consequences
 
-- Zrozumiteľnejšie rozhranie pre používateľov aj programátorov: `--plain` je štandardné pomenovanie v moderných CLI nástrojoch.
-- Spätná kompatibilita pre existujúce skripty a testy, ktoré odovzdávajú `--agent`.
-- V kóde vzniká alias `detect_plain_mode` a `Output(plain=...)` so zachovaním atribútu `Output.agent`.
+- Clearer interface for users and developers: `--plain` is standard naming in modern CLI tools.
+- Backward compatibility for existing scripts and tests that pass `--agent`.
+- Code gains the alias `detect_plain_mode` and `Output(plain=...)` while preserving the attribute `Output.agent`.
