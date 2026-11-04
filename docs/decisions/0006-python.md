@@ -1,33 +1,30 @@
-# 0006: Implementácia v Pythone
+# 0006: Implementation in Python
 
-- **Stav:** Prijaté
-- **Dátum:** 2026-11-03
-- **Rozhodol:** používateľ
+- **Status:** Accepted
+- **Date:** 2026-11-03
+- **Decided by:** the user
 
-## Kontext
+## Context
 
-Nástroj musí mať pekné CLI pre človeka aj plain režim pre agentov (P7), QR login cez WebSocket a RSA (ADR 0005)
-a musí bežať na Windows, Linuxe aj macOS (P13). Starý skript bol v JavaScripte.
+The tool must have a nice CLI for humans and plain mode for agents (P7), QR login via WebSocket and RSA ([ADR 0005](0005-qr-login-without-a-browser.md)), and must run on Windows, Linux, and macOS (P13). The old script was in JavaScript.
 
-## Možnosti
+## Options
 
-- **Python:** Typer + Rich na CLI, `websockets` + `cryptography` na QR login, `segno` na QR v termináli.
-  Python 3.12 je u používateľa nainštalovaný.
-- **TypeScript/Node:** nadväzuje na starý skript, ale knižnice na QR, RSA a pekné CLI by bolo treba najprv preveriť.
+- **Python:** Typer + Rich for CLI, `websockets` + `cryptography` for QR login, `segno` for QR in the terminal. Python 3.12 is installed on the user's machine.
+- **TypeScript/Node:** builds on the old script, but libraries for QR, RSA, and nice CLI would need to be evaluated first.
 
-## Rozhodnutie
+## Decision
 
-- **Jazyk:** Python 3.12+.
-- **Balíky a prostredie:** uv (nainštalované cez `winget install --id astral-sh.uv -e`), projekt v `src/` layoute
-  s `pyproject.toml` a commitnutým `uv.lock`.
-- **Knižnice:**
-  - `typer`, `rich` (CLI a výstup),
+- **Language:** Python 3.12+.
+- **Packages and environment:** uv (installed via `winget install --id astral-sh.uv -e`), project in a `src/` layout with `pyproject.toml` and a committed `uv.lock`.
+- **Libraries:**
+  - `typer`, `rich` (CLI and output),
   - `httpx` (HTTP),
   - `websockets`, `cryptography`, `segno` (QR login),
-  - `keyring`, `platformdirs` (token a cesty k dátam).
-- **Testy:** `pytest` + `pytest-asyncio`.
+  - `keyring`, `platformdirs` (token and data paths).
+- **Tests:** `pytest` + `pytest-asyncio`.
 
-## Dôsledky
+## Consequences
 
-- Inštalácia pre používateľa: `uv tool install .` alebo pri vývoji `uv run discoop`.
-- Na Windows môže byť uv po inštalácii mimo PATH v starých shelloch. Platí to aj pre Claude, pozri `CLAUDE.md`.
+- Installation for the user: `uv tool install .` or during development `uv run discoop`.
+- On Windows, uv may be outside PATH in old shells after installation. This also applies to Claude, see `CLAUDE.md`.

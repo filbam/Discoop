@@ -1,31 +1,32 @@
-# 0001: Zaznamenávať všetko a verzovať v gite
+# 0001: Record everything and version it in git
 
-- **Stav:** Prijaté
-- **Dátum:** 2026-11-03
-- **Rozhodol:** používateľ (požiadavka P12)
+- **Status:** Accepted
+- **Date:** 2026-11-03
+- **Decided by:** the user (requirement P12)
 
-## Kontext
+> **Note (2026-11-04):** The documentation language is now English ([ADR 0021](0021-english-only-repository.md)).
 
-Projekt sa rozbieha cez brainstorming, analýzy a návrhy v konverzácii s AI. Bez zápisu by sa zistenia,
-rozhodnutia a ich dôvody stratili. Ďalšie sedenie by ich musela AI zisťovať odznova.
+## Context
 
-## Rozhodnutie
+The project is starting through brainstorming, analyses, and proposals in conversation with AI. Without recording them, findings, decisions, and their rationale would be lost. In the next session, AI would have to rediscover them from scratch.
 
-Všetko podstatné sa zapisuje do repa a verzuje v gite:
+## Decision
 
-| Čo | Kam |
+Everything essential is recorded in the repository and versioned in git:
+
+| What | Where |
 |---|---|
-| Požiadavky | `docs/requirements.md` |
-| Návrh | `docs/design.md` |
-| Analýzy | `docs/analyses/<tema>.md` |
-| Rozhodnutia | `docs/decisions/NNNN-nazov.md` |
-| Zmeny projektu | `CHANGELOG.md` |
-| Priebeh práce a incidenty | `docs/journal.md` |
+| Requirements | `docs/requirements.md` |
+| Design | `docs/design.md` |
+| Analyses | `docs/analyses/<topic>.md` |
+| Decisions (ADR) | `docs/decisions/NNNN-name.md` |
+| Project changes | `CHANGELOG.md` |
+| Work progress and incidents | `docs/journal.md` |
 
-Pravidlá pre AI sú v `CLAUDE.md`, ktorý sa načíta pri každom sedení v tomto repe.
+Rules for AI are in `CLAUDE.md`, which is loaded in every session in this repo.
 
-## Dôsledky
+## Consequences
 
-- Záznam sa aktualizuje v tom istom kroku ako zmena.
-- Dokumenty nesmú obsahovať token, cookies ani mená a texty správ iných ľudí.
-- Analýza Discordu sa presunula do `docs/analyses/`.
+- The record is updated in the same step as the change itself.
+- Documents must not contain tokens, cookies, or names and message contents of other people.
+- The Discord analysis was moved to `docs/analyses/`.

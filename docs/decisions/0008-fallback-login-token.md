@@ -1,32 +1,31 @@
-# 0008: Záložný login `discoop login --token`
+# 0008: Fallback login `discoop login --token`
 
-- **Stav:** Prijaté
-- **Dátum:** 2026-11-03
-- **Rozhodol:** používateľ
+- **Status:** Accepted
+- **Date:** 2026-11-03
+- **Decided by:** the user
 
-## Kontext
+## Context
 
-QR login (ADR 0005) závisí od neoficiálneho protokolu. Discord ho môže zmeniť alebo začať od klienta mimo
-prehliadača pýtať captchu. Vtedy treba inú cestu prihlásenia.
+QR login ([ADR 0005](0005-qr-login-without-a-browser.md)) depends on an unofficial protocol. Discord may change it or start requiring a captcha from clients outside the browser. In that case, an alternative login path is needed.
 
-## Možnosti
+## Options
 
-1. **Ručné vloženie tokenu:** funguje vždy a všade a je jednoduché.
-2. **Prihlásenie cez prehliadač (Playwright):** je to ťažká závislosť na každom OS a na Windows ho sprevádza passkey dialóg.
-3. **Email/heslo + TOTP cez API:** pravdepodobne často skončí captchou a nástroj by musel pracovať s heslom.
+1. **Manual token entry:** works always and everywhere, and is simple.
+2. **Browser-based login (Playwright):** heavy dependency on every OS, accompanied by a passkey dialog on Windows.
+3. **Email/password + TOTP via API:** likely to hit captcha frequently, and the tool would have to handle passwords.
 
-## Rozhodnutie
+## Decision
 
 `discoop login --token`:
-- **Odkiaľ sa token číta:**
-  - v termináli zo skrytého promptu (`getpass`),
-  - keď vstup nie je terminál, zo stdin.
-- **Nikdy nie z argumentu príkazového riadku**, aby neostal v histórii shellu.
-- **Overenie a uloženie:** token sa overí cez `GET /users/@me` a uloží rovnako ako po QR logine.
+- **Where the token is read from:**
+  - in a terminal, from a hidden prompt (`getpass`),
+  - when input is not a terminal, from stdin.
+- **Never from a command-line argument**, so it does not remain in shell history.
+- **Verification and storage:** the token is verified via `GET /users/@me` and stored in the same way as after QR login.
 
-Možnosti 2 a 3 nie sú vo v1.
+Options 2 and 3 are not in v1.
 
-## Dôsledky
+## Consequences
 
-- Ak QR login zlyhá na captche alebo neznámej odpovedi, chybová hláška odporučí `--token`.
-- Používateľ musí vedieť token získať (DevTools prehliadača). Postup sa doplní do helpu alebo README.
+- If QR login fails on captcha or an unknown response, the error message recommends `--token`.
+- The user must know how to obtain the token (browser DevTools). The procedure will be added to the help or README.

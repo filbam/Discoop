@@ -1,19 +1,21 @@
-# 0007: Help a hlášky nástroja po anglicky
+# 0007: English help and tool messages
 
-- **Stav:** Prijaté
-- **Dátum:** 2026-11-03
-- **Rozhodol:** používateľ
+- **Status:** Superseded by ADR 0021
+- **Date:** 2026-11-03
+- **Decided by:** the user
 
-## Kontext
+> **Note (2026-11-04):** Only the "documentation in Slovak" part is superseded by [ADR 0021](0021-english-only-repository.md); tool texts remain English.
 
-Nástroj používajú AI agenti a prípadne ďalší ľudia. Dokumentácia projektu je po slovensky (ADR 0001).
+## Context
 
-## Rozhodnutie
+The tool is used by AI agents and potentially other people. Project documentation was originally in Slovak ([ADR 0001](0001-record-everything-and-version-it.md)).
 
-- **Po anglicky:** help, hlášky, chybové kódy a výstupy nástroja.
-- **V pôvodnom jazyku:** obsah stiahnutých správ.
-- **Po slovensky:** dokumentácia v repe (`docs/`, `CLAUDE.md`).
+## Decision
 
-## Dôsledky
+- **In English:** help, messages, error codes, and tool outputs.
+- **In the original language:** content of downloaded messages.
+- **In Slovak:** documentation in the repo (`docs/`, `CLAUDE.md`). *(Superseded by [ADR 0021](0021-english-only-repository.md): documentation is now in English.)*
 
-- Text poznámky pre AI agentov v helpe je po anglicky (návrh, sekcia 11).
+## Consequences
+
+- The note text for AI agents in the help is in English (design, section 11).

@@ -1,27 +1,28 @@
-# 0004: Názov nástroja `discoop`
+# 0004: Tool name `discoop`
 
-- **Stav:** Prijaté
-- **Dátum:** 2026-11-03
-- **Rozhodol:** používateľ (repo pomenoval `Discoop`)
+- **Status:** Accepted
+- **Date:** 2026-11-03
+- **Decided by:** the user (named the repo `Discoop`)
 
-## Kontext
+## Context
 
-Pracovný názov projektu bol `Scoop`. Príkaz `scoop` však koliduje s rozšíreným Windows package managerom
-Scoop (scoop.sh). Ak by bol nainštalovaný, príkazy by sa bili.
+The working title of the project was `Scoop`. However, the `scoop` command collides with the widespread Windows package manager Scoop (scoop.sh). If it were installed, the commands would clash.
 
-## Možnosti
+## Options
 
-- `scoop`: koliduje.
-- `fitseeker`: názov starého skriptu, ale viaže sa na FIT, hoci nástroj má fungovať pre ľubovoľný server.
-- `discoop` (Discord + scoop): bez kolízie, nadväzuje na pôvodný názov.
+- `scoop`: collides.
+- `fitseeker`: name of the old script, but tied to FIT, whereas the tool must work for any server.
+- `discoop` (Discord + scoop): no collision, builds on the original name.
 
-## Rozhodnutie
+## Decision
 
-Nástroj, Python balík aj príkaz sa volajú **`discoop`**. GitHub repo je `filbam/Discoop`.
-Lokálny priečinok projektu môže ostať `Scoop`.
+The tool, Python package, and command are called **`discoop`**. The GitHub repo is `filbam/Discoop`.
+The local project folder can remain `Scoop`.
 
-## Dôsledky
+2026-11-04: the local project folder was renamed from `Scoop` to `Discoop`.
 
-- Premenná prostredia pre agent režim: `DISCOOP_AGENT`.
-- Lokálne dáta: adresár `discoop` v dátovom adresári OS (pozri návrh, sekcia 10).
-- Kľúč v keyringu: `discoop`.
+## Consequences
+
+- Environment variable for agent mode: `DISCOOP_AGENT`.
+- Local data: `discoop` directory in the OS data directory (see design, section 10).
+- Key in keyring: `discoop`.

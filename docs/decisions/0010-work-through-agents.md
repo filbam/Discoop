@@ -1,43 +1,41 @@
-# 0010: Práca cez agentov
+# 0010: Work through agents
 
-- **Stav:** Prijaté
-- **Dátum:** 2026-11-03
-- **Rozhodol:** používateľ
+- **Status:** Accepted
+- **Date:** 2026-11-03
+- **Decided by:** the user
 
-## Kontext
+## Context
 
-Hlavná konverzácia pri implementácii minula kontext a musela sa zhrnúť ([denník 2026-11-03](../journal.md)).
-Používateľ chce, aby prácu robili agenti (subagenti) a hlavný Claude ich riadil.
+The main conversation ran out of context during implementation and had to be summarized ([journal 2026-11-03](../journal.md#2026-11-03)).
+The user wants the work to be done by agents (subagents) and managed by the main Claude.
 
-## Rozhodnutie
+## Decision
 
-**Hlavný Claude (orchestrátor):**
-- hovorí s používateľom a pýta sa ho na rozhodnutia,
-- delí prácu na kroky,
-- píše agentom samostatné zadania: čo je hotové, ktoré súbory, čo má byť výsledkom, ako to overiť,
-- výsledok kontroluje sám (diff, `uv run pytest`), lebo správa agenta nie je dôkaz,
-- po kontrole commituje, pushuje len na pokyn používateľa.
-- Sám nepíše kód ani dokumenty a chyby vracia agentovi. Výnimka: triviálna oprava pri kontrole, napr. preklep.
+**The main Claude (orchestrator):**
+- talks to the user and asks for decisions,
+- breaks down work into steps,
+- writes separate briefs for agents: what is completed, which files, what the expected output is, how to verify it,
+- checks the result personally (diff, `uv run pytest`), because an agent's report is not proof,
+- commits after checking; pushes only on user instruction,
+- does not write code or documents directly and sends errors back to the agent. Exception: trivial fix during verification, e.g. a typo.
 
-**Agenti:**
-- robia celý krok vrátane testov a záznamov podľa `CLAUDE.md` (CHANGELOG, návrh, analýzy, ADR, denník),
-- necommitujú a nepushujú,
-- na konci vrátia stručnú správu: čo zmenili, ako to overili, čo ostalo otvorené.
+**Agents:**
+- perform the entire step including tests and records according to `CLAUDE.md` (CHANGELOG, design, analyses, ADR, journal),
+- do not commit and do not push,
+- return a concise report at the end: what they changed, how they verified it, what remains open.
 
-**Súbežnosť:**
-- Agenti, ktorí iba čítajú (prieskum, kontrola), môžu bežať naraz.
-- Agenti, ktorí píšu, nikdy nemenia rovnaké súbory. Keď by sa prekrývali, idú za sebou.
-- Denník v jednom bloku práce píše vždy len jeden agent.
+**Concurrency:**
+- Agents that only read (research, inspection) can run simultaneously.
+- Agents that write never modify the same files. If they would overlap, they run sequentially.
+- The journal is written by only one agent at a time in a given work block.
 
-**Discord:** pravidlá z `CLAUDE.md` platia pre agentov rovnako:
-- Discord API volá len nástroj alebo prototyp, ktorý spúšťa používateľ (výnimka `login --handshake-only`).
-- Agent v prehliadači používateľa smie pracovať len podľa [ADR 0003](0003-rules-for-agents-in-the-users-browser.md)
-  a len keď o to používateľ požiada.
+**Discord:** rules from `CLAUDE.md` apply equally to agents:
+- Discord API is only called by the tool or a prototype run by the user (exception: `login --handshake-only`).
+- An agent in the user's browser may only work according to [ADR 0003](0003-rules-for-agents-in-the-users-browser.md) and only when the user requests it.
 
-## Dôsledky
+## Consequences
 
-- Hlavná konverzácia šetrí kontext.
-- Práca trvá dlhšie a stojí viac tokenov.
-- Po každom kroku je kontrola.
-- Agent začína bez kontextu konverzácie. Všetko podstatné preto musí byť zapísané v repe
-  (`CLAUDE.md`, denník, návrh).
+- The main conversation saves context.
+- Work takes longer and costs more tokens.
+- Every step is followed by verification.
+- An agent starts without conversation context. Therefore, everything essential must be recorded in the repository (`CLAUDE.md`, journal, design).

@@ -1,24 +1,23 @@
-# 0009: `login` v agent režime odmietne
+# 0009: `login` refuses in agent mode
 
-- **Stav:** Prijaté
-- **Dátum:** 2026-11-03
-- **Rozhodol:** používateľ
+- **Status:** Accepted
+- **Date:** 2026-11-03
+- **Decided by:** the user
 
-## Kontext
+## Context
 
-Prihlásenie potrebuje človeka: naskenovanie QR mobilom, alebo vloženie tokenu. QR je de facto prihlasovací odkaz
-a token je plný prístup k účtu. Keby `login` bežal v agent režime, dostali by sa do kontextu AI.
+Login requires a human: scanning a QR code with a phone, or entering a token. The QR code is effectively a login link and the token gives full access to the account. If `login` ran in agent mode, they would enter the AI context.
 
-## Rozhodnutie
+## Decision
 
-V agent režime (`--agent`, `DISCOOP_AGENT=1`, alebo keď stdout nie je terminál) `discoop login` skončí:
-- exit kódom `2`,
-- hláškou, že prihlásenie musí spraviť človek,
-- radou `ask the user to run discoop login in their own terminal`.
+In agent mode (`--agent`, `DISCOOP_AGENT=1`, or when stdout is not a terminal), `discoop login` exits:
+- with exit code `2`,
+- with a message that login must be performed by a human,
+- with the advice `ask the user to run discoop login in their own terminal`.
 
-Platí to aj pre `login --token`.
+This also applies to `login --token`.
 
-## Dôsledky
+## Consequences
 
-- **Človek môže vynútiť human režim** cez `--human` aj tam, kde stdout nie je terminál.
-- **Ostatné príkazy v agent režime** pri chýbajúcom alebo neplatnom tokene tiež vracajú kód `2` s rovnakou radou.
+- **A human can force human mode** via `--human` even when stdout is not a terminal.
+- **Other commands in agent mode** on missing or invalid token also return code `2` with the same advice.

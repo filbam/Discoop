@@ -1,46 +1,41 @@
-# 0005: QR login v termináli bez prehliadača
+# 0005: QR login in the terminal without a browser
 
-- **Stav:** Prijaté
-- **Dátum:** 2026-11-03
-- **Rozhodol:** používateľ (požiadavky P13 a P14), technické riešenie podľa [analyzy/discord-login.md](../analyses/discord-login.md)
+- **Status:** Accepted
+- **Date:** 2026-11-03
+- **Decided by:** the user (requirements P13 and P14), technical solution based on [analyses/discord-login.md](../analyses/discord-login.md)
 
-## Kontext
+## Context
 
-Pôvodný návrh prihlasoval cez Chrome ovládaný Playwrightom. Používateľ chce prihlásenie naskenovaním QR kódu
-v termináli (P14) a nástroj musí bežať na Windows, Linuxe aj macOS (P13). Prehliadač ako závislosť je na
-každom OS iný a ťažký.
+The original design logged in via Chrome controlled by Playwright. The user wants login by scanning a QR code in the terminal (P14) and the tool must run on Windows, Linux, and macOS (P13). A browser as a dependency differs on each OS and is heavy.
 
-Analýza ukázala, že Discord QR login je obyčajný protokol:
-- WebSocket `wss://remote-auth-gateway.discord.gg/?v=2` s JSON správami,
+Analysis showed that Discord QR login is a straightforward protocol:
+- WebSocket `wss://remote-auth-gateway.discord.gg/?v=2` with JSON messages,
 - RSA-OAEP-SHA256,
-- jeden REST POST `/users/@me/remote-auth/login`.
+- one REST POST `/users/@me/remote-auth/login`.
 
-Nepotrebuje nič, čo vie iba prehliadač.
+It needs nothing that only a browser can do.
 
-## Možnosti
+## Options
 
-1. **QR login cez remote auth gateway priamo z nástroja.** Nepotrebuje prehliadač, 2FA rieši potvrdenie na mobile.
-2. **Prihlásenie cez prehliadač (Playwright).** Zvládne captchu aj passkey, ale potrebuje Chrome alebo Chromium
-   na každom OS. Na Windows navyše `discord.com/login` sám vyvolá systémový passkey dialóg.
-3. **Email/heslo + TOTP cez API.** Nástroj by pracoval s heslom a pravdepodobne by často dostával captchu.
+1. **QR login via remote auth gateway directly from the tool.** Does not need a browser, 2FA is handled by confirmation on mobile.
+2. **Browser-based login (Playwright).** Can handle captcha and passkey, but requires Chrome or Chromium on each OS. On Windows, `discord.com/login` also directly triggers a system passkey dialog.
+3. **Email/password + TOTP via API.** The tool would handle passwords and likely face frequent captchas.
 
-## Rozhodnutie
+## Decision
 
-Hlavná cesta prihlásenia je **možnosť 1**:
-- **Knižnice:** `websockets`, `cryptography`, `httpx`, `segno` (QR v termináli).
-- **Pripojenie:** s hlavičkou `Origin: https://discord.com`.
-- **Uloženie tokenu:** keyring.
+The primary login path is **option 1**:
+- **Libraries:** `websockets`, `cryptography`, `httpx`, `segno` (QR in terminal).
+- **Connection:** with header `Origin: https://discord.com`.
+- **Token storage:** keyring.
 
-Playwright z hlavnej cesty vypadáva. Záložné cesty sú otvorené rozhodnutie
-([design.md, sekcia 15](../design.md#15-otvorené-rozhodnutia), body 7 a 8).
+Playwright is dropped from the primary path. Fallback paths are an open decision ([design.md, section 15](../design.md#open-decisions), items 7 and 8).
 
-## Dôsledky
+## Consequences
 
-- **Prototyp musí overiť:**
-  - či gateway vyžaduje `Origin`,
-  - či `remote-auth/login` od ne-prehliadačového klienta nepýta captchu,
-  - reálne rámce po naskenovaní.
-- **Riziko zmeny protokolu:** Discord ho môže zmeniť, `v=2` je už druhá verzia. Nástroj musí pri neznámej správe
-  alebo close kóde skončiť zrozumiteľnou chybou a ponúknuť záložnú cestu.
-- **QR je de facto prihlasovací odkaz.** QR ani token sa nesmú dostať do logov.
-- **Menej závislostí:** odpadá Playwright aj profil prehliadača.
+- **The prototype must verify:**
+  - whether the gateway requires `Origin`,
+  - whether `remote-auth/login` from a non-browser client requests captcha,
+  - real frames after scanning.
+- **Protocol change risk:** Discord may change it; `v=2` is already the second version. On an unknown message or close code, the tool must exit with a clear error and offer a fallback path.
+- **The QR code is effectively a login link.** Neither the QR code nor the token may enter the logs.
+- **Fewer dependencies:** both Playwright and browser profile are eliminated.

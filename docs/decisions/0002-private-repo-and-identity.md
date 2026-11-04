@@ -1,25 +1,25 @@
-# 0002: Súkromné repo `filbam/Discoop` a git identita
+# 0002: Private repo `filbam/Discoop` and git identity
 
-- **Stav:** Prijaté, súkromné repo nahradené ADR 0015
-- **Dátum:** 2026-11-03
-- **Rozhodol:** používateľ
+- **Status:** Accepted, private repo superseded by ADR 0015
+- **Date:** 2026-11-03
+- **Decided by:** the user
 
-> **Poznámka (2026-11-04):** Repo je odteraz verejné ([ADR 0015](0015-public-repo-and-installation.md)). Git identita
-> `filbam` a prihlásenie na GitHub ako `filbam` ostávajú platné.
+> **Note (2026-11-04):** The repo is now public ([ADR 0015](0015-public-repo-and-installation.md)). The git identity
+> `filbam` and GitHub login as `filbam` remain valid.
 
-## Kontext
+## Context
 
-Projekt potrebuje vzdialené repo. Dokumentácia obsahuje ID servera a kanálov VUT FIT a popis incidentov.
-Samotný nástroj je scraper, ktorý porušuje podmienky Discordu.
+The project needs a remote repo. The documentation contains the VUT FIT server and channel IDs and descriptions of incidents.
+The tool itself is a scraper that violates Discord Terms of Service.
 
-## Rozhodnutie
+## Decision
 
-- **Repo:** `https://github.com/filbam/Discoop`, **súkromné**, vetva `main`.
-- **Autor commitov:** `filbam <f.bambura@gmail.com>`, nastavený len lokálne (`git config` v repe).
-- **Prihlásenie na GitHub:** pre toto repo ako `filbam` (`credential.https://github.com.username = filbam`).
+- **Repo:** `https://github.com/filbam/Discoop`, **private**, `main` branch.
+- **Commit author:** `filbam <f.bambura@gmail.com>`, configured only locally (`git config` in the repo).
+- **GitHub login:** for this repo as `filbam` (`credential.https://github.com.username = filbam`).
 
-## Dôsledky
+## Consequences
 
-- Verejné zverejnenie by vyžadovalo nové rozhodnutie a kontrolu dokumentov, ktoré obsahujú ID a incidenty.
-- Git Credential Manager má ako predvolený účet `FilipBambura`, ktorý súkromné repo nevidí (`Repository not found`).
-  Preto je v repe nastavené prihlásenie ako `filbam`.
+- Making it public would require a new decision and a review of documents containing IDs and incidents.
+- Git Credential Manager has `FilipBambura` as its default account, which cannot see the private repo (`Repository not found`).
+  Therefore, login as `filbam` is configured in the repo.

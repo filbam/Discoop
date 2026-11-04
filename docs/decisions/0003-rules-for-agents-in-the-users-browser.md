@@ -1,33 +1,27 @@
-# 0003: Pravidlá pre agentov v prehliadači používateľa
+# 0003: Rules for agents in the user's browser
 
-- **Stav:** Prijaté
-- **Dátum:** 2026-11-03
-- **Rozhodol:** zavedené po incidentoch, používateľ pod týmito pravidlami nechal analýzu pokračovať
+- **Status:** Accepted
+- **Date:** 2026-11-03
+- **Decided by:** introduced after incidents, the user let the analysis continue under these rules
 
-## Kontext
+## Context
 
-Analýzu Discordu robil AI agent v reálnom Chrome používateľa, prihlásenom do Discordu ([denník 2026-11-03](../journal.md)).
+The Discord analysis was performed by an AI agent in the user's real Chrome, logged into Discord ([journal 2026-11-03](../journal.md#2026-11-03)).
 
-1. **Odoslaná správa:** agent mal povolené písať do vyhľadávania. Klik trafil pole na písanie správy a Enter
-   odoslal správu z účtu používateľa.
-2. **Zavretý Chrome:** zatvorenie karty agenta (`tabs_close_mcp`) dvakrát zhodilo celý Chrome.
+1. **Sent message:** the agent was allowed to type into search. A click hit the message composer field and Enter sent a message from the user's account.
+2. **Closed Chrome:** closing the agent's tab (`tabs_close_mcp`) crashed all of Chrome twice.
 
-## Rozhodnutie
+## Decision
 
-Agent v prehliadači používateľa na Discorde:
-- **nepíše a nestláča žiadne klávesy** (ani vyhľadávanie),
-- **kliká len na navigáciu**: kanály v sidebare, tlačidlá v hlavičke kanála, zatvorenie panelov.
-  Nikdy nie na zoznam správ, reakcie, composer, Follow ani Join.
-- **nezatvára karty ani okná.** Kartu nechá otvorenú a zavrie ju používateľ.
-- **iba číta.** Uprednostňuje sledovanie network requestov, token ani cookies nečíta a nerobí vlastné API volania.
-- **pri čomkoľvek nečakanom okamžite zastaví** a ohlási to.
+An agent in the user's browser on Discord:
+- **does not type and presses no keys** (not even search),
+- **clicks only on navigation**: channels in the sidebar, buttons in the channel header, closing panels. Never on the message list, reactions, composer, Follow, or Join.
+- **does not close tabs or windows.** Leaves the tab open and the user closes it.
+- **only reads.** Prefers monitoring network requests; does not read token or cookies and does not make its own API calls.
+- **stops immediately upon anything unexpected** and reports it.
 
-## Dôsledky
+## Consequences
 
-- Veci, ktoré vyžadujú vlastné API volania (limity, REST endpointy, tvar `429`), sa overujú prototypom,
-  ktorý spúšťa používateľ.
-- Pri analýze sa niektoré kanály vždy označia ako prečítané. Je to vedľajší účinok otvorenia kanála
-  a pred analýzou treba používateľa upozorniť.
-- **Doplnené 2026-11-03:** `discord.com/login` pri každom zobrazení formulára sám volá passkey autofill
-  (`navigator.credentials.get`). Vstavaný prehliadač na Windows z toho spraví systémové okno Windows Security.
-  Pred otvorením login stránky treba používateľa upozorniť, aby okno zrušil.
+- Things that require custom API calls (rate limits, REST endpoints, `429` responses) are verified by a prototype run by the user.
+- During analysis, some channels will always be marked as read. This is a side effect of opening a channel, and the user must be warned before analysis.
+- **Added 2026-11-03:** `discord.com/login` invokes passkey autofill (`navigator.credentials.get`) each time the form is rendered. The embedded browser on Windows turns this into a system Windows Security dialog. Before opening the login page, the user must be warned to dismiss the dialog.
