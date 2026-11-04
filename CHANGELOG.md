@@ -1,275 +1,273 @@
 # Changelog
 
-Všetky podstatné zmeny projektu. Formát podľa [Keep a Changelog](https://keepachangelog.com/sk/1.1.0/),
-verzie podľa [SemVer](https://semver.org/).
+All notable changes to this project. Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+versions adhere to [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
-### Pridané
-- **Overenie na reálnom účte (2026-11-04, [analýza](docs/analyses/real-account-check-2026-11-04.md)):** funkcie kola 2 sa vyskúšali na reálnom účte (server VUT FIT, režim `safe`, malé okná, exporty v dočasnom priečinku zmazanom po behu).
-  - `[OVERENÉ]`: `doctor` (6 kontrol OK), `status`, `servers`, `channels`, `threads` a export fóra, prerušenie vyvolané skriptom (kód 130) a obnova z `.partial`, `--since-last`, `--zip` s `--max-tokens`, logy `--debug --log` bez únikov, `--progress-json`. Používateľ potvrdil `discoop ui` a QR prihlásenie v TUI.
-  - Nové zistenia: `message_count` v zozname vlákien nezahŕňa štartovaciu správu príspevku fóra. `has_more` bolo na poslednej archivovanej strane znova `true` (koniec našlo okno).
-  - **Známe obmedzenie (neopravené):** príloha, ktorú API popíše inak než CDN (iná veľkosť a typ obsahu), sa pri opakovanom exporte do toho istého priečinka stiahne znova, lebo opätovné použitie podľa ID a veľkosti ju nepozná. Pozorované na jedinej prílohe, neškodné.
-  - Neoverené: skutočné Ctrl+C z konzoly, Ctrl+C a výber fór v TUI, export veľkého fóra, nová odpoveď vo vlákne medzi dvoma behmi `--since-last`, súkromné vlákna a HTTP 202, export s množstvom príloh, Linux a macOS.
-- **Odolný export po kanáloch, staging priečinok a automatická obnova (P26, [ADR 0017](docs/decisions/0017-reliable-export-and-partial-success.md)):**
-  - Trieda `ExportWriter` (`src/discoop/export.py`) zapisuje exportované dáta po kanáloch do staging umiestnenia `<cieľ>.partial` (pri zip archíve `<názov>.zip.partial`), bez držania celej histórie v pamäti.
-  - Atomické publikovanie na cieľovú cestu po úplnom a úspešnom dokončení (`close(complete=True)`). Predchádzajúci hotový export sa nikdy neprepíše ani nepoškodí prerušeným behom.
-  - Automatická obnova (resume) bez nového prepínača: ak cieľový `.partial` zodpovedá požiadavke (`request_fingerprint`), beh automaticky nadviaže na rozpracovaný export a hotové kanály a ich prílohy sa znova nesťahujú. Odtlačok zahŕňa aj voľby `threads` (`--no-threads`) a `since_last` (`--since-last`): prerušený export s vláknami teda nepokračuje beh s `--no-threads` a beh `--since-last` nenadviaže na normálny (a opačne), začne odznova.
-  - Relatívne časové okno (napr. `--from 1d`) sa pri obnove počíta od času vytvorenia pôvodného behu (`Resume.created`), aby sa nezmenil obsah okna.
-  - Kombinácia `--print` s obnovou čiastočného exportu, kde už sú hotové kanály, sa odmietne s kódom 8 ešte pred sťahovaním správ.
-  - Nový kód ukončenia `9` (`ExitCode.PARTIAL`) v CLI pri preskočení nedostupného kanála (403 `NO_ACCESS`, 404 `NOT_FOUND`), chybe sťahovania prílohy alebo preskočení vlákna. Súbory vynechané používateľom cez `--no-files` alebo `--max-file-size` kód 9 nevyvolávajú.
-  - Rozšírenie `manifest.json` o polia `request`, `targets`, `skipped_channels`, `interrupted`, `partial` a `complete`.
-- **Plná podpora vlákien a fórum postov v exporte a CLI (P27, [ADR 0019](docs/decisions/0019-threads.md)):**
-  - Vlákna sú v `discoop messages` predvolene zapnuté (`request.threads = True`), možnosť ich vypnúť prepínačom `--no-threads`.
-  - Podpora fórumových kanálov (typ 15) a mediálnych kanálov (typ 16) ako plnohodnotných cieľov pre `messages`; fórum s `--no-threads` sa odmietne s kódom 8 a radou.
-  - Sťahovanie aktívnych aj archivovaných vlákien cez `threads/search` s `limit=25`, stránkovaním podľa offsetu a detekciou konca prázdnou alebo neúplnou stranou (podľa analýzy [thread-probe-2026-11-04.md](docs/analyses/thread-probe-2026-11-04.md)).
-  - Vnorenie vlákien v exporte: `channels/<kanál>.md` obsahuje podsekcie jednotlivých vlákien s tagmi fóra, `messages.md` a `messages.jsonl` sú ploché s identifikáciou vlákna, prílohy vlákien smerujú do `files/<rodič>/`.
-  - Limity `--max-messages` a `--last N` sa uplatňujú nezávisle na rodičovský kanál aj na každé jedno vlákno.
-  - Nový príkaz `discoop threads -s SERVER -c CHANNEL [--from ...] [--to ...] [--refresh] [--format text|json]` na rýchly výpis vlákien a fórum postov (id, archived, messages, last_activity, tags, name) v human, plain aj JSON formáte.
-  - Udalosť `thread` pre `--progress-json` obsahujúca číselné identifikátory a počty bez úniku mien a textov.
-- **Prírastkové sťahovanie `--since-last` a kontrola miesta na disku (P28, [ADR 0020](docs/decisions/0020-since-last.md)):**
-  - Nový prepínač `discoop messages --since-last` (vylučuje sa s `--from`, `--to`, `--last`), ktorý sťahuje len správy novšie ako posledný úspešný export každého kanála a vlákna.
-  - Perzistentný súbor `sync-state.json` v `paths.data_dir()` oddelený od SQLite cache (prežije `clear_cache`), kľúčovaný ID používateľského účtu.
-  - Exkluzívna spodná hranica snowflake `saved_id + 1` pre zamedzenie duplicitného stiahnutia poslednej videné správy.
-  - Posun stavu nastáva až po kompletnom a úspešnom exporte kanála (nie pri chybe ani pri `truncated`).
-  - Preskakovanie neaktívnych kanálov, keď je `Channel.last_message_id <= saved_id` (zoznam kanálov servera sa pri `--since-last` obnoví, aby `last_message_id` bolo aktuálne):
-    - kanál, ktorý nemôže mať vlákna, alebo akýkoľvek kanál pri `--no-threads`: preskočí sa úplne (0 requestov),
-    - textový alebo oznamovací kanál so zapnutými vláknami: jeho vlastné správy sa nesťahujú, ale zoznam jeho vlákien sa načíta a vlákna sa stiahnu ako inak,
-    - fórum a media kanál sa nepreskakujú nikdy.
-    - `[PREDPOKLAD]` `last_message_id` textového kanála je spoľahlivé: potvrdené na dvoch vzorkách z probe vlákien a v kontrole na reálnom účte 2026-11-04 (20 z 25 čitateľných kanálov sedelo).
-  - Po prerušenom a obnovenom behu `--since-last` si kanály uložené prerušeným behom ponechajú starý stav a nabudúce sa stiahnu znova (duplicity, nič sa nestratí). Beh na to upozorní poznámkou.
-  - Preventívna kontrola voľného miesta na disku pred stiahnutím príloh každého kanála (`ExportWriter.bytes_to_download` + `shutil.disk_usage`): počíta len súbory, ktoré sa naozaj stiahnu (nie tie, ktoré už v exporte sú, ani vynechané cez `--no-files` či `--max-file-size`). Odmietnutie s kódom 1, ak nezostane aspoň 50 MB bezpečnostná rezerva.
-- **Delenie exportu na tokeny, odhad tokenov v súhrne a profily v CLI (P29):**
-  - Nový modul `src/discoop/split.py` a CLI prepínač `--max-tokens N` (s `--out` aj `--zip`, bez nich sa odmietne s kódom 8 pred volaním API): rozdelí `messages.md` do častí `parts/part-NNN.md` s hlavičkami `<!-- discoop part X of Y -->`. Delí sa len na hraniciach správ a nadpisov kanálov a vlákien (správa s riadkom `# Nadpis` ostane celá). Obmedzenie: riadok v tele správy, ktorý presne vyzerá ako `[2026-01-01 10:00] x` hneď za prázdnym riadkom, sa od hlavičky správy odlíšiť nedá.
-  - Časti vznikajú až pri dokončení exportu v staging priečinku a publikujú sa spolu s ním (do priečinka aj do zipu), takže pád pred koncom nenechá v cieli žiadne `parts/`. Pri opakovanom exporte do priečinka sa staré `parts/part-*.md` nahradia novými (alebo zmažú, ak nové nie sú). Časti nie sú v manifeste.
-  - Zobrazenie riadku s odhadom tokenov `tokens: ~... (estimate, about 4 characters per token)` v súhrne exportu.
-  - Pomenované profily nastavení: prepínače `--profile NAME` (načítanie hodnôt s možnosťou prebitia) a `--save-profile NAME` (uloženie nastavení pred sťahovaním), a nové príkazy `discoop profiles` (zoznam profilov, podpora `--format json`) a `discoop profiles delete NAME`.
-- **Príručka pre AI agentov a vylepšenia TUI (P30):**
-  - Nový príkaz `discoop agent-guide` (modul `src/discoop/agent_guide.py`): čistý nestylovaný text pre AI s presným postupom `status` → `servers` → `channels` → `messages`, dynamicky generovaným zoznamom všetkých príkazov z Typer aplikácie a tabuľkou kódov ukončenia priamo z `ExitCode`. Odkaz na `agent-guide` doplnený do sekcie `NOTE FOR AI AGENTS` v `--help`.
-  - Vylepšenia TUI (`discoop ui`):
-    - Perzistentný stav rozhrania v `<config_dir>/tui-state.json` (modul `tui/tuistate.py`): ukladanie a obnova výberu kanálov podľa serverov, globálnych a vlastných časových okien, režimu `safe`/`fast`, polí `Folder`/`Name`, prepínača vlákien a dátumov posledných exportov kanálov. Stav sa ukladá až po tom, čo sa uložený stav účtu načítal (skorší zápis by ho prepísal predvolenými hodnotami). Zlyhanie disku TUI nezhodí, do logu príde varovanie. Dátum posledného exportu sa pri náhľade (preview) nezapisuje.
-    - Prepínač Threads vo formulári exportu.
-    - Modálne okná pre správu profilov: `P` uloží aktuálny výber, časové okno a režim ako profil, `p` uložený profil načíta. (`L` je „načítať kanály všetkých serverov“.) Ručne upravený profil so zlými typmi hodnôt TUI toleruje.
-    - Klávesová skratka `o` otvorí priečinok posledného exportu v prieskumníkovi systému (`os.startfile` / `xdg-open` / `open`). Je aktívna po dokončenom exporte a nie počas behu úlohy.
-    - Pri každom kanáli v strome stlmená prípona zarovnaná doprava: čas od poslednej aktivity (`now`, `5m`, `3h`, `2d`, `4mo`, `1y`, z `Channel.last_message_id`) a pri kanáli exportovanom z tohto účtu dátum posledného exportu (`exp 11-03`, s rokom, ak je z iného roka). V úzkom riadku vypadne najprv dátum exportu, potom aktivita, názov kanála sa nikdy nekráti. Pripony sa obnovia po exporte, po obnovení stavu a každých 60 s.
-    - Zobrazenie percent dokončenia a odhadu času (ETA) pri sťahovaní podľa `progress.py`.
-- **Voliteľné diagnostické logovanie (P24, [ADR 0018](docs/decisions/0018-logging.md)):**
-  - Nový modul `src/discoop/logs.py` s funkciami `setup_logging`, `teardown_logging` a `DiscoopFormatter`. Predvolene je logovanie vypnuté (na logger `discoop` nie je pripojený žiadny handler), po zapnutí sa pripája výhradne naň (`propagate=False`).
-  - Globálne CLI prepínače `--debug` (štruktúrovaný log na `stderr`) a `--log FILE` (append do súboru v UTF-8), ktoré fungujú pred aj za podpríkazom (`_hoist_mode_flags`).
-  - Podpora premenných prostredia `DISCOOP_DEBUG=1` a `DISCOOP_LOG=cesta` (prepínač má prednosť).
-  - Prísny bezpečnostný filter: nikdy sa neloguje token `Authorization`, podpísané URL príloh (`?ex=&is=&hm=`), texty správ, telá odpovedí, mená používateľov ani názvy serverov/kanálov (iba číselné ID).
-  - Tretie strany (`httpx`, `httpcore`, `websockets`) sú stíšené na úroveň `WARNING`.
-  - Logovanie v `api.py` (metóda, cesta bez query, povolené parametre, HTTP stav, latencia v ms, veľkosť odpovede, 429 pauzy a sieťové opakovania), `scrape.py` (stránky správ, počty, ID najstaršej/najnovšej správy) a `attachments.py` (len host z URL, status, zapísané bajty).
-  - Automatické vypnutie animovaného spinnera pri `--debug`. `discoop ui --debug` je odmietnuté s kódom 8 a nápovedou (UI ovláda obrazovku), zatiaľ čo `discoop ui --log FILE` je povolené.
-- **Diagnostika systému príkazom `discoop doctor` (P25):**
-  - Nový príkaz `discoop doctor` na kontrolu 6 kľúčových bodov: prihlásenie (`login` cez `GET /users/@me`), dostupnosť Discord API (`network`, rozlíši chybu siete od neplatného tokenu; pri neprihlásení `skipped`), zapisovateľnosť priečinka exportov (`export_dir` z configu alebo aktuálneho priečinka cez `os.access` najbližšieho existujúceho rodiča), voľné miesto na disku cez `disk_usage` (`disk_space`, FAIL pod 100 MB), vek cache serverov (`cache`) a verzia nástroja (`version`).
-  - Výstup v plain režime vo formáte `check<TAB>OK|FAIL<TAB>detail`, v human režime tabuľka (`check`, `status`, `detail`). Exit kód podľa prvého zlyhaného bodu (`AUTH_REQUIRED` 2, `NETWORK` 7, inak `ERROR` 1), pri úspechu 0.
-- **Strojovo čitateľné zoznamy a formát JSON (P25):**
-  - Prepínač `--format text|json` pre príkazy `servers`, `channels`, `status` a `config list`.
-  - Pomocná metóda `Output.json(data)` pre unifikovaný JSON výstup na `stdout`. Diagnostické správy (napr. vek cache) idú na `stderr`.
-  - `servers` vracia zoznam objektov `[{"id": "...", "name": "...", "member_count": ...}]`.
-  - `channels` vracia plochý zoznam `{id, name, type, type_name, category, position}` rešpektujúci filter `--type`.
-- **JSONL priebeh a odhad času pri sťahovaní správ (P25):**
-  - Prepínač `--progress-json` pre `discoop messages`: emituje štruktúrované JSONL riadky na `stderr` pre udalosti `channel_start`, `page`, `pause`, `channel_done`, `skipped`, `warning`.
-  - Výpočet percent dokončenia (`~42%`) a odhadu zostávajúceho času (ETA, napr. `about 3 min left`) v spinneri human režimu aj vo verbose textovom výstupe (`messages -v`).
-- **Nové pomocné moduly a inteligentné správanie CLI (P25):**
-  - `src/discoop/progress.py`: výpočet percent a odhadu času (`fraction_done`, `window_start_id`, `eta_seconds`, `format_eta`) na základe Discord snowflake ID.
-  - `src/discoop/profiles.py`: správa pomenovaných profilov v `<config_dir>/profiles.json` (`load`, `save`, `delete`, `names`) s atomickým zápisom a validáciou.
-  - `src/discoop/tokens.py`: odhad počtu tokenov textu `estimate_tokens` a formátovanie `format_tokens`.
-  - `src/discoop/resolve.py`: automatické návrhy pri preklepe v názve servera alebo kanála (`Did you mean: ...?`) cez `difflib.get_close_matches` pri `NotFoundError`.
-- **Výskumný probe skript pre vlákna a fóra (`prototype/probe_threads.py`):**
-  - Read-only probe skript a sekcia 4 v `prototype/README.md` pre overenie správania Discord API pri vláknach a fórach (`threads/search`, offsety, typy vlákien, porovnanie `last_message_id`).
-- **Inštalácia z GitHubu (P22, [ADR 0015](docs/decisions/0015-public-repo-and-installation.md)):** `uv tool install git+https://github.com/filbam/Discoop` dá príkaz `discoop` bez `uv run`. README má návod pre Windows, Linux a macOS (inštalácia, aktualizácia, odinštalovanie) a sekciu Vývoj. Repo `filbam/Discoop` je verejné.
-- **Priečinok a názov exportu v TUI (P21, P23, [ADR 0016](docs/decisions/0016-default-export-folder-in-tui.md)):** riadok formulára `Path` je nahradený dvoma samostatnými riadkami `Folder` a `Name` (v tomto poradí, obidva predvolene prázdne, pri Target=preview skryté).
-  - Prázdny `Name`: `discord-export-<dátum a čas>` v miestnom čase, napr. `discord-export-2026-1104-0108` (`YYYY-MMDD-HHMM`). Názov sa zafixuje pri `F5`. Kolízia automatického názvu v tej istej minúte pridá `-2`, `-3`.
-  - Zadaný `Name` je vždy len názov, nikdy cesta: prečistí sa cez `safe_name` (lomky a neplatné znaky sa nahradia `_`). Kolíziu nerieši, opakovaný export do neho pokračuje. Zip dostane príponu `.zip` (nikdy `.zip.zip`).
-  - Prázdny `Folder`: predvolený priečinok `discoop` v Dokumentoch používateľa (`platformdirs.user_documents_dir()`), rovnako na Windows, Linuxe aj macOS. Config `export-dir`, ak je nastavený, má prednosť. Priečinok vznikne až pri prvom exporte.
-  - Neprázdny `Folder`: `~` je domovský priečinok, absolútna cesta sa použije ako je, relatívna leží vo vnútri predvoleného priečinka. Trvalo sa predvolený priečinok mení v Settings (`F2`, `Export folder`), v poli `Folder` len pre jeden export.
-  - Placeholdery ukazujú skutočný predvolený priečinok (dlhá cesta sa skráti zľava, aby ostal koniec) a názov. Obnovujú sa spolu s riadkom s CLI príkazom každých 30 s. Cesty v `--out`/`--zip` sú absolútne a s lomkami. Log ukáže skutočnú cestu (`Saving to ...`).
-  - CLI sa nezmenilo: `discoop messages --out/--zip` ostáva relatívne k aktuálnemu priečinku alebo `export-dir`. Popis kľúča `export-dir` spomína predvolený priečinok TUI.
-  - Nová `paths.documents_dir()` a `paths.default_export_dir()`, nový `TailInput` v `widgets.py`.
-- **Interaktívne terminálové rozhranie (`discoop ui`, TUI) a spoločná servisná vrstva ([ADR 0013](docs/decisions/0013-tui-and-shared-service-layer.md)):**
-  - **Príkaz `discoop ui` a prepínač `--ui`:**
-    - Plnohodnotné vizuálne terminálové prostredie postavené na knižnici Textual pre pohodlné interaktívne ovládanie klávesnicou (šípky, Enter, Space).
-    - V `--plain` režime alebo mimo interaktívneho terminálu skončí kódom 8 (`BAD_ARGS`). Samotné `discoop` bez argumentov naďalej vypisuje help.
-    - Lazy import knižnice `Textual`: bežné CLI príkazy neplatia žiadnu réžiu inicializácie TUI frameworku.
-  - **Rozloženie ([ADR 0014](docs/decisions/0014-tui-keyboard-one-tree.md)):**
-    - Jeden strom (servery, kategórie, kanály; všetko predvolene zbalené), vpravo panel Export (zoznam výberu a formulár), dole log, riadok s CLI príkazom a Footer s klávesmi.
-    - V úzkom okne (< 95 stĺpcov) sa ukazuje jeden panel naraz.
-    - Ovládanie primárne klávesnicou (šípky, Space, Enter, Tab, `/` filter), myš je doplnok. Tabuľka klávesov je v ADR 0014.
-    - Tlačidlá na načítanie serverov a kanálov jednotlivo aj hromadne (`R`, `r`, `L`) s `safe` tempom a okamžitým zastavením cez Esc.
-  - **Pokročilá správa exportu a plánovanie úloh:**
-    - Nastavenie globálneho časového okna (`--from`/`--to`), režimu sťahovania (`safe`/`fast`) a cieľa exportu (priečinok alebo ZIP).
-    - Možnosť nastavenia individuálneho časového okna pre konkrétny vybraný kanál (per-channel custom window).
-    - Automatické zoskupovanie kanálov podľa rovnakého časového okna: kanály so zhodným oknom tvoria jednu úlohu; pri viacerých úlohách sa exporty ukladajú do podpriečinkov (`cieľ/01-7d/`, ...) alebo očíslovaných archívov (`cieľ-01-7d.zip`).
-    - Živý CLI príkazový riadok v spodnej lište TUI zobrazujúci presný ekvivalentný príkaz `discoop messages ...`.
-    - Vstavaný náhľad správ vybraného kanála priamo v rozhraní.
-  - **Vstavaný Help (`F1` / `?`):**
-    - Modálna nápoveda s dvoma záložkami: návod na ovládanie TUI a kompletný živý výpis `discoop --help` vrátane podpríkazov generovaný z Typer aplikácie.
-  - **Spoločná servisná vrstva (`src/discoop/service.py`):**
-    - Zjednotená orchestrácia biznis logiky (`list_servers`, `list_channels`, `load_all`, `run_messages`) pre CLI aj TUI. Žiadna duplicita pri práci s Discord API, cache a exportom.
-  - Nový balík `src/discoop/tui/` (`app.py`, `state.py`, `bridge.py`, `modals.py`, `widgets.py`, `discoop.tcss`).
-- **Dva režimy sťahovania (`safe` a `fast`):**
-  - **`safe` režim (predvolený):**
-    - Imituje prirodzené ľudské správanie a scrollovanie v prehliadači na zníženie rizika blokovania účtu.
-    - Stránkuje správy po menších dávkach (25 správ na požiadavku namiesto 100).
-    - Náhodný interval (jitter) 2,0 až 4,5 s medzi požiadavkami.
-    - Dlhšia „čítacia“ pauza 8,0 až 15,0 s každých 5 až 8 stránok s notifikáciou v progress bare a vo verbose výstupe.
-    - Náhodná pauza 3,0 až 6,0 s pri prechode na ďalší kanál.
-    - Náhodná pauza 1,0 až 3,0 s medzi sťahovaním jednotlivých príloh z Discord CDN.
-    - Pri `429 Rate Limit` automaticky počká `retry_after` a zdvojnásobí intervaly pre zvyšok behu.
-  - **`fast` režim:**
-    - Pôvodný rýchly režim: 100 správ na požiadavku, pevný interval z `delay` (predvolene 1,0 s), bez čítacích pauz a bez čakania medzi súbormi z CDN.
-  - **Nové CLI prepínače pre `discoop messages`:**
-    - `--safe`: vynúti bezpečný režim s náhodnými intervalmi.
-    - `--fast`: vynúti rýchly režim.
-    - `--delay SEC`: nastavenie základného intervalu požiadaviek (v safe režime škáluje náhodné intervaly).
-  - **Nové konfiguračné nastavenie:**
-    - `discoop config set mode safe|fast`: trvalá zmena predvoleného režimu.
-  - Použitý režim (`safe` / `fast`) sa zaznamenáva do `manifest.json` v exporte (`query.mode`).
-- **Krok 3 implementácie: sťahovanie príloh, export do priečinka a zipu, manifest.**
-  - **Export do priečinka a zipu:** `discoop messages --out DIR` a `--zip FILE`.
-    - Štruktúra: `manifest.json`, `messages.md`, `messages.jsonl`, `channels/<kanál>.md` a `files/<kanál>/<attachment_id>_<meno>`.
-    - Cesty v `messages.md` a `messages.jsonl` sú relatívne k priečinku exportu (`files/...`), v `channels/*.md` k danému súboru (`../files/...`). Obrázky (`image/*`) sa v Markdown vkladajú priamo ako `![meno](cesta) veľkosť`.
-    - Opakovaný export do existujúceho priečinka alebo zipu opätovne použije už stiahnuté kompletné prílohy (`present`) a znova ich nesťahuje.
-    - Sťahovanie prebieha cez dočasné súbory `.part` a `.zip` sa stavia v staging priečinku a nahradí starší archív až po kompletnom dokončení.
-    - Ochrana pred prepísaním iných dát: neprázdny priečinok alebo súbor, ktorý nie je exportom discoop (chýba manifest s `"tool": "discoop"`), nástroj odmietne kódom 8 ešte pred volaním API.
-  - **Sťahovanie príloh z CDN:**
-    - Sťahovanie prebieha samostatným HTTP klientom **bez tokenu** (Discord CDN nevyžaduje autentifikáciu). `DiscordAPI` odmietne volania mimo API base.
-    - Obnova exspirovaných podpisov (`ex` v minulosti alebo do 60 s) a URL odmietnutých CDN (403, 404, 410) cez `POST /attachments/refresh-urls` v dávkach po 50 v tempe nastavenom v konfigurácii (`delay`).
-    - Zlyhaná príloha (chyba siete, zlyhané obnovenie URL, limit presmerovaní) nezastaví export, zaznamená sa v manifeste ako `failed` a súhrn chýb sa vypíše na stderr.
-    - Bezpečné mená súborov pre Windows, Linux a macOS: skrátenie na 100 znakov a 200 bajtov, zachovanie prípony, orezanie bodiek a medzier, prefix `_` pre rezervované mená Windows (`CON`, `NUL`, ...), deduplikácia a bezpečné priečinky kanálov (max 50 znakov, pri kolízii `_<id>`).
-  - **Nové prepínače a formáty:**
-    - `--print`: popri exporte vypíše správy aj do konzoly (s lokálnymi cestami k stiahnutým súborom); bez neho sa pri exporte vypíše len súhrn.
-    - `--no-files`: export bez sťahovania príloh (v manifeste ako `skipped`).
-    - `--max-file-size`: vynechanie príloh nad zadanú veľkosť v MB (predvolene 50 MB, `0` = bez limitu).
-    - `--format md` a `--format jsonl` v konzole aj s `--print`.
-    - `discoop config set export-dir <priečinok>`: predvolený priečinok pre relatívne cesty `--out`/`--zip`.
-  - Nové moduly `attachments.py`, `export.py`, testy `test_attachments.py`, `test_export.py` (spolu 223 testov).
-- `discoop messages`: super reakcie sú pri počte reakcie (`🔥5 (2 super)`), v JSON pole `reactions[].super`.
-- **Krok 2 implementácie: `discoop messages`** vypíše správy kanálov do konzoly.
-  - **Výber:** `-c` meno, ID alebo vzor (`isc-*`), dá sa opakovať. Server cez `-s` alebo `default-server`,
-    holé ID kanála server nepotrebuje.
-  - **Časové okno:** `--from`/`--to` (dátum, dátum a čas, `48h`/`7d`/`2w`, `now`, `--from all`), predvolene 24 h.
-    `--last N` vráti N najnovších správ. Hranice okna sa prepočítajú na snowflake, stránkuje sa po 100 cez `before`.
-  - **Formáty:** `text` (úsporný pre agentov, farebný v human režime) a `json`. Mentions, custom emoji
-    a časové značky sú prepísané na čitateľný text. Prílohy sú vo výstupe len ako meno, veľkosť a URL.
-  - `--max-messages` (predvolene 5000 na kanál, potom varovanie a `truncated`) a `--include-system`.
-  - **Chyby:** `403` s kódom 50001/50013 → kód 5, iný `403` (anti-abuse, Cloudflare) → kód 1, `404` → kód 4,
-    zlé vstupy → kód 8 ešte pred volaním API. Pri viacerých kanáloch sa nedostupný kanál preskočí s varovaním.
-  - Nové moduly `snowflake.py`, `scrape.py`, `normalize.py`, `render/text.py`, `render/jsonout.py`.
-  - 161 testov (90 nových), Discord je v nich nahradený `httpx.MockTransport` s anonymizovanými správami.
-- ADR 0011: vlákna predvolene zapnuté, predvolené okno 24 h, predvolený formát v agent režime `text`
-  (rozhodnutia 4 až 6 z návrhu).
-- ADR 0010: prácu robia agenti, hlavný Claude ich riadi, kontroluje a commituje. Pravidlá v `CLAUDE.md`,
-  sekcia „Práca cez agentov“.
-- **Krok 1 implementácie:** `discoop servers`, `discoop channels`, `discoop config`.
-  - Zoznamy sa ukladajú do lokálnej SQLite cache a obnovujú cez `--refresh`, pri prvom použití,
-    alebo raz automaticky, keď sa meno nenájde.
-  - **Vyhľadávanie podľa mena:** najprv ID, potom presné meno, potom meno bez rozdielu veľkosti písmen,
-    diakritiky a emoji. Glob vzory sú pripravené pre `messages`. Nejednoznačné meno skončí kódom 3 so zoznamom kandidátov.
-  - **`channels`:** strom podľa kategórií v poradí ako v Discorde, `--flat`, `--type`. V agent režime riadky
-    oddelené tabulátorom.
-  - **`config`:** kľúče `default-server` (uloží sa ID servera) a `delay`.
-  - **Login a logout** mažú cache.
-  - 71 testov.
-- **Prvý prototyp:** Python balík `discoop` (uv, Typer, Rich).
-  - `discoop login`: QR kód v termináli cez remote auth gateway, alebo `--token` zo skrytého promptu/stdin.
-    Voliteľný anonymizovaný `--trace`. V agent režime login odmietne.
-  - `discoop status` a `discoop logout`.
-  - Režimy `--agent`/`--human`:
-    - help s poznámkou pre AI agentov,
-    - chyby `ERROR <CODE>` / `HINT` a stabilné exit kódy.
-  - Token sa ukladá do keyringu OS, na Linuxe bez Secret Service do súboru `0600`.
-  - REST klient s tempom, retry pri 429 a 5xx a 401 → kód 2.
-  - Testy (42): kryptografia, celý QR tok proti falošnému gatewayu, trace bez tajomstiev, CLI, token store.
-- `prototype/probe.py`: jednorazové overenie otvorených bodov API.
-- ADR 0006–0009: Python, angličtina v nástroji, záložný `login --token`, login v agent režime.
-- Analýza dát Discord web klienta: [docs/analyses/discord-analysis.md](docs/analyses/discord-analysis.md).
-- Návrh nástroja `discoop`: [docs/design.md](docs/design.md).
-- Štruktúra dokumentácie:
-  - pravidlá v `CLAUDE.md`,
-  - `CHANGELOG.md` a `README.md`,
-  - požiadavky (`docs/requirements.md`) a denník (`docs/journal.md`),
-  - rozhodnutia ADR 0001–0004 v `docs/decisions/`.
-- `.gitignore` (Python, lokálne nastavenia, exporty z Discordu).
-- Požiadavky P13 (Windows, Linux, macOS) a P14 (QR login v termináli).
-- Analýza prihlásenia (QR remote auth, email/heslo, MFA, passkey): [docs/analyses/discord-login.md](docs/analyses/discord-login.md).
-- ADR 0005: QR login v termináli bez prehliadača.
+### Added
+- **Real account verification (2026-11-04, [analysis](docs/analyses/real-account-check-2026-11-04.md)):** round 2 features were tested on a real account (VUT FIT server, `safe` mode, small windows, exports in a temporary folder deleted after the run).
+  - `[VERIFIED]`: `doctor` (6 checks OK), `status`, `servers`, `channels`, `threads` and forum export, script-triggered interruption (code 130) and resume from `.partial`, `--since-last`, `--zip` with `--max-tokens`, `--debug --log` logs without leaks, `--progress-json`. The user confirmed `discoop ui` and QR login in the TUI.
+  - New findings: `message_count` in the thread list does not include the forum post starter message. `has_more` was `true` again on the last archived page (the window found the end).
+  - **Known limitation (unfixed):** an attachment described differently by the API than by the CDN (different size and content type) will be re-downloaded upon repeated export into the same folder because ID-and-size reuse does not recognize it. Observed on a single attachment, harmless.
+  - Unverified: real Ctrl+C from the console, Ctrl+C and forum selection in TUI, export of a large forum, a new reply in a thread between two `--since-last` runs, private threads and HTTP 202, export with many attachments, Linux and macOS.
+- **Resilient export by channels, staging folder, and automatic resume (P26, [ADR 0017](docs/decisions/0017-reliable-export-and-partial-success.md)):**
+  - The `ExportWriter` class (`src/discoop/export.py`) writes exported data channel by channel into staging folder `<target>.partial` (for zip archive `<name>.zip.partial`), without keeping the entire history in memory.
+  - Atomic publishing to the target path upon full and successful completion (`close(complete=True)`). A previous finished export is never overwritten or corrupted by an interrupted run.
+  - Automatic resume without a new flag: if the target `.partial` matches the request (`request_fingerprint`), the run automatically resumes the in-progress export, and finished channels and their attachments are not re-downloaded. The fingerprint also covers the `threads` (`--no-threads`) and `since_last` (`--since-last`) options: an interrupted export with threads will not be resumed by a run with `--no-threads`, and a `--since-last` run will not resume a normal one (and vice versa); it starts from scratch instead.
+  - A relative time window (e.g. `--from 1d`) is calculated on resume from the creation time of the original run (`Resume.created`), so the window contents do not shift.
+  - Combining `--print` with resuming a partial export where channels are already finished is rejected with exit code 8 before downloading any messages.
+  - New exit code `9` (`ExitCode.PARTIAL`) in CLI when skipping an inaccessible channel (403 `NO_ACCESS`, 404 `NOT_FOUND`), an attachment download error, or a skipped thread. Files omitted by the user via `--no-files` or `--max-file-size` do not trigger code 9.
+  - Extension of `manifest.json` with fields `request`, `targets`, `skipped_channels`, `interrupted`, `partial`, and `complete`.
+- **Full support for threads and forum posts in export and CLI (P27, [ADR 0019](docs/decisions/0019-threads.md)):**
+  - Threads are enabled by default in `discoop messages` (`request.threads = True`), with the option to disable them via the `--no-threads` flag.
+  - Support for forum channels (type 15) and media channels (type 16) as full-fledged targets for `messages`; a forum with `--no-threads` is rejected with code 8 and a hint.
+  - Downloading both active and archived threads via `threads/search` with `limit=25`, offset pagination, and end-of-list detection via an empty or incomplete page (based on the analysis [thread-probe-2026-11-04.md](docs/analyses/thread-probe-2026-11-04.md)).
+  - Thread nesting in export: `channels/<channel>.md` contains subsections for individual threads with forum tags, `messages.md` and `messages.jsonl` are flat with thread identification, thread attachments go to `files/<parent>/`.
+  - Limits `--max-messages` and `--last N` apply independently to the parent channel and to each individual thread.
+  - New command `discoop threads -s SERVER -c CHANNEL [--from ...] [--to ...] [--refresh] [--format text|json]` for quickly listing threads and forum posts (id, archived, messages, last_activity, tags, name) in human, plain, and JSON formats.
+  - Event `thread` for `--progress-json` containing numeric identifiers and counts without leaking names or text.
+- **Incremental download `--since-last` and disk space check (P28, [ADR 0020](docs/decisions/0020-since-last.md)):**
+  - New flag `discoop messages --since-last` (mutually exclusive with `--from`, `--to`, `--last`), which downloads only messages newer than the last successful export of each channel and thread.
+  - Persistent file `sync-state.json` in `paths.data_dir()` separated from the SQLite cache (survives `clear_cache`), keyed by user account ID.
+  - Exclusive snowflake lower bound `saved_id + 1` to prevent duplicate download of the last seen message.
+  - State update occurs only after a complete and successful channel export (not on error or `truncated`).
+  - Skipping inactive channels when `Channel.last_message_id <= saved_id` (the server's channel list is refreshed on `--since-last` so `last_message_id` is up to date):
+    - a channel that cannot have threads, or any channel with `--no-threads`: skipped completely (0 requests),
+    - a text or announcement channel with threads enabled: its own messages are not downloaded, but its thread list is retrieved and threads are downloaded as usual,
+    - forum and media channels are never skipped.
+    - `[ASSUMPTION]` `last_message_id` of a text channel is reliable: confirmed on two samples from the thread probe and in the real account check on 2026-11-04 (matched on 20 of 25 readable channels).
+  - After an interrupted and resumed `--since-last` run, channels saved by the interrupted run retain their old state and will be re-downloaded next time (duplicates, nothing lost). The run displays a note about this.
+  - Preventive check of free disk space before downloading attachments for each channel (`ExportWriter.bytes_to_download` + `shutil.disk_usage`): only counts files that will actually be downloaded (excluding those already in the export or omitted via `--no-files` or `--max-file-size`). Rejection with exit code 1 if a safety margin of at least 50 MB is not available.
+- **Token splitting of export, token estimation in summary, and profiles in CLI (P29):**
+  - New module `src/discoop/split.py` and CLI flag `--max-tokens N` (with `--out` as well as `--zip`, rejected with code 8 before calling API if neither is provided): splits `messages.md` into parts `parts/part-NNN.md` with headers `<!-- discoop part X of Y -->`. Splits only on boundaries of messages and channel/thread headings (a message containing a `# Heading` line remains intact). Limitation: a line in a message body that looks exactly like `[2026-01-01 10:00] x` immediately after an empty line cannot be distinguished from a message header.
+  - Parts are created only upon completion of the export in the staging folder and are published alongside it (both into the folder and into zip), so a crash before completion leaves no `parts/` in the target. On repeated export to a folder, old `parts/part-*.md` are replaced with new ones (or deleted if there are none). Parts are not included in the manifest.
+  - Display of a line with token estimation `tokens: ~... (estimate, about 4 characters per token)` in the export summary.
+  - Named configuration profiles: flags `--profile NAME` (load values with override support) and `--save-profile NAME` (save settings before downloading), and new commands `discoop profiles` (list profiles, `--format json` support) and `discoop profiles delete NAME`.
+- **Guide for AI agents and TUI improvements (P30):**
+  - New command `discoop agent-guide` (module `src/discoop/agent_guide.py`): clean unstyled text for AI with exact procedure `status` → `servers` → `channels` → `messages`, dynamically generated list of all commands from the Typer application, and an exit codes table directly from `ExitCode`. Link to `agent-guide` added to the `NOTE FOR AI AGENTS` section in `--help`.
+  - TUI improvements (`discoop ui`):
+    - Persistent interface state in `<config_dir>/tui-state.json` (module `tui/tuistate.py`): saving and restoring channel selection by servers, global and custom time windows, `safe`/`fast` mode, `Folder`/`Name` fields, threads toggle, and channel last export dates. State is saved only after the saved account state has been loaded (an earlier write would overwrite it with default values). Disk failure does not crash the TUI; a warning is logged. The last export date is not recorded on preview.
+    - Threads toggle in the export form.
+    - Modal dialogs for profile management: `P` saves the current selection, time window, and mode as a profile; `p` loads a saved profile. (`L` is "load channels for all servers".) Hand-edited profiles with bad value types are tolerated by the TUI.
+    - Keyboard shortcut `o` opens the last export folder in the system file explorer (`os.startfile` / `xdg-open` / `open`). It is active after a completed export and not while a task is running.
+    - Dimmed, right-aligned suffix for each channel in the tree: time since last activity (`now`, `5m`, `3h`, `2d`, `4mo`, `1y`, from `Channel.last_message_id`) and, for a channel exported from this account, the last export date (`exp 11-03`, with year if from another year). In narrow rows, the export date drops first, then activity; the channel name is never truncated. Suffixes refresh after export, on state reload, and every 60 s.
+    - Display of completion percentage and estimated time remaining (ETA) during download via `progress.py`.
+- **Optional diagnostic logging (P24, [ADR 0018](docs/decisions/0018-logging.md)):**
+  - New module `src/discoop/logs.py` with functions `setup_logging`, `teardown_logging`, and `DiscoopFormatter`. Logging is disabled by default (no handler attached to logger `discoop`); when enabled, handlers attach exclusively to it (`propagate=False`).
+  - Global CLI flags `--debug` (structured log to `stderr`) and `--log FILE` (append to UTF-8 file), working both before and after the subcommand (`_hoist_mode_flags`).
+  - Support for environment variables `DISCOOP_DEBUG=1` and `DISCOOP_LOG=path` (flag takes precedence).
+  - Strict security filter: never logs the `Authorization` token, signed attachment URLs (`?ex=&is=&hm=`), message texts, response bodies, usernames, or server/channel names (only numeric IDs).
+  - Third-party loggers (`httpx`, `httpcore`, `websockets`) are silenced to `WARNING`.
+  - Logging in `api.py` (method, path without query, allowed params, HTTP status, latency in ms, response size, 429 pauses, and network retries), `scrape.py` (message pages, counts, oldest/newest message IDs), and `attachments.py` (URL host only, status, bytes written).
+  - Automatic disabling of the animated spinner when `--debug` is used. `discoop ui --debug` is rejected with code 8 and a hint (the UI controls the screen), whereas `discoop ui --log FILE` is allowed.
+- **System diagnostics via `discoop doctor` command (P25):**
+  - New command `discoop doctor` checking 6 key points: login (`login` via `GET /users/@me`), Discord API availability (`network`, distinguishes network error from invalid token; `skipped` when not logged in), export directory writability (`export_dir` from config or current directory via `os.access` on the nearest existing parent), free disk space via `disk_usage` (`disk_space`, FAIL below 100 MB), server cache age (`cache`), and tool version (`version`).
+  - Output in plain mode formatted as `check<TAB>OK|FAIL<TAB>detail`, in human mode as a table (`check`, `status`, `detail`). Exit code according to the first failed check (`AUTH_REQUIRED` 2, `NETWORK` 7, otherwise `ERROR` 1), 0 on success.
+- **Machine-readable listings and JSON format (P25):**
+  - Flag `--format text|json` for commands `servers`, `channels`, `status`, and `config list`.
+  - Helper method `Output.json(data)` for unified JSON output on `stdout`. Diagnostic messages (e.g. cache age) go to `stderr`.
+  - `servers` returns a list of objects `[{"id": "...", "name": "...", "member_count": ...}]`.
+  - `channels` returns a flat list `{id, name, type, type_name, category, position}` respecting the `--type` filter.
+- **JSONL progress and ETA during message download (P25):**
+  - Flag `--progress-json` for `discoop messages`: emits structured JSONL lines on `stderr` for events `channel_start`, `page`, `pause`, `channel_done`, `skipped`, `warning`.
+  - Calculation of completion percentage (`~42%`) and estimated time remaining (ETA, e.g. `about 3 min left`) in the human mode spinner and in verbose text output (`messages -v`).
+- **New helper modules and intelligent CLI behaviour (P25):**
+  - `src/discoop/progress.py`: calculation of percentage and estimated time (`fraction_done`, `window_start_id`, `eta_seconds`, `format_eta`) based on Discord snowflake IDs.
+  - `src/discoop/profiles.py`: management of named profiles in `<config_dir>/profiles.json` (`load`, `save`, `delete`, `names`) with atomic write and validation.
+  - `src/discoop/tokens.py`: text token estimation `estimate_tokens` and formatting `format_tokens`.
+  - `src/discoop/resolve.py`: automatic typo suggestions for server or channel names (`Did you mean: ...?`) via `difflib.get_close_matches` on `NotFoundError`.
+- **Research probe script for threads and forums (`prototype/probe_threads.py`):**
+  - Read-only probe script and section 4 in `prototype/README.md` to verify Discord API behaviour regarding threads and forums (`threads/search`, offsets, thread types, comparison of `last_message_id`).
+- **Installation from GitHub (P22, [ADR 0015](docs/decisions/0015-public-repo-and-installation.md)):** `uv tool install git+https://github.com/filbam/Discoop` provides the `discoop` command without `uv run`. README includes instructions for Windows, Linux, and macOS (installation, update, uninstallation) and a Development section. Repo `filbam/Discoop` is public.
+- **Export folder and name in TUI (P21, P23, [ADR 0016](docs/decisions/0016-default-export-folder-in-tui.md)):** form row `Path` is replaced by two separate rows `Folder` and `Name` (in that order, both empty by default, hidden when Target=preview).
+  - Empty `Name`: `discord-export-<date and time>` in local time, e.g. `discord-export-2026-1104-0108` (`YYYY-MMDD-HHMM`). Name is locked on `F5`. Collision of automatic name in the same minute appends `-2`, `-3`.
+  - Specified `Name` is always just a name, never a path: sanitized via `safe_name` (slashes and invalid characters replaced with `_`). Does not resolve collisions; repeated export into it continues. Zip gets `.zip` suffix (never `.zip.zip`).
+  - Empty `Folder`: default folder `discoop` in the user's Documents (`platformdirs.user_documents_dir()`), identically across Windows, Linux, and macOS. Config `export-dir`, if set, takes precedence. Folder is created on first export.
+  - Non-empty `Folder`: `~` expands to user home, absolute path is used as-is, relative path is located inside the default folder. The default folder is permanently changed in Settings (`F2`, `Export folder`); in the `Folder` field only for a single export.
+  - Placeholders show the actual default folder (long path is truncated from the left to keep the end) and name. They refresh along with the CLI command row every 30 s. Paths in `--out`/`--zip` are absolute and use slashes. The log shows the actual path (`Saving to ...`).
+  - CLI has not changed: `discoop messages --out/--zip` remains relative to the current directory or `export-dir`. Description of `export-dir` key mentions TUI default folder.
+  - New `paths.documents_dir()` and `paths.default_export_dir()`, new `TailInput` in `widgets.py`.
+- **Interactive terminal user interface (`discoop ui`, TUI) and shared service layer ([ADR 0013](docs/decisions/0013-tui-and-shared-service-layer.md)):**
+  - **Command `discoop ui` and flag `--ui`:**
+    - Full visual terminal environment built on Textual library for convenient interactive keyboard control (arrows, Enter, Space).
+    - In `--plain` mode or outside an interactive terminal, exits with code 8 (`BAD_ARGS`). Bare `discoop` without arguments continues to print help.
+    - Lazy import of the `Textual` library: regular CLI commands incur no TUI framework initialization overhead.
+  - **Layout ([ADR 0014](docs/decisions/0014-tui-keyboard-one-tree.md)):**
+    - Single tree (servers, categories, channels; all collapsed by default), Export panel on the right (selection list and form), log at the bottom, CLI command row, and Footer with key hints.
+    - In a narrow window (< 95 columns), one panel is shown at a time.
+    - Controlled primarily via keyboard (arrows, Space, Enter, Tab, `/` filter); mouse is supplementary. Key table is in ADR 0014.
+    - Buttons for loading servers and channels individually or in bulk (`R`, `r`, `L`) with `safe` rate and instant cancel via Esc.
+  - **Advanced export management and task scheduling:**
+    - Setting global time window (`--from`/`--to`), download mode (`safe`/`fast`), and export target (folder or ZIP).
+    - Ability to set an individual time window for a specific selected channel (per-channel custom window).
+    - Automatic grouping of channels by matching time window: channels with the same window form a single task; with multiple tasks, exports are stored in subfolders (`target/01-7d/`, ...) or numbered archives (`target-01-7d.zip`).
+    - Live CLI command line in the bottom bar of the TUI showing the exact equivalent command `discoop messages ...`.
+    - Built-in preview of messages for the selected channel directly in the interface.
+  - **Built-in Help (`F1` / `?`):**
+    - Modal help with two tabs: TUI usage guide and full live `discoop --help` output including subcommands generated from the Typer application.
+  - **Shared service layer (`src/discoop/service.py`):**
+    - Unified orchestration of business logic (`list_servers`, `list_channels`, `load_all`, `run_messages`) for both CLI and TUI. No duplication in handling Discord API, cache, or export.
+  - New package `src/discoop/tui/` (`app.py`, `state.py`, `bridge.py`, `modals.py`, `widgets.py`, `discoop.tcss`).
+- **Two download modes (`safe` and `fast`):**
+  - **`safe` mode (default):**
+    - Mimics natural human behaviour and browser scrolling to reduce the risk of account suspension.
+    - Pages messages in smaller batches (25 messages per request instead of 100).
+    - Random interval (jitter) between 2.0 and 4.5 s between requests.
+    - Longer "reading" pause of 8.0 to 15.0 s every 5 to 8 pages with a notification in progress bar and verbose output.
+    - Random pause of 3.0 to 6.0 s when moving to the next channel.
+    - Random pause of 1.0 to 3.0 s between downloading individual attachments from Discord CDN.
+    - On `429 Rate Limit`, automatically waits `retry_after` and doubles intervals for the rest of the run.
+  - **`fast` mode:**
+    - Original fast mode: 100 messages per request, fixed interval from `delay` (default 1.0 s), without reading pauses and without waiting between files from CDN.
+  - **New CLI flags for `discoop messages`:**
+    - `--safe`: forces safe mode with random intervals.
+    - `--fast`: forces fast mode.
+    - `--delay SEC`: sets base request interval (in safe mode, scales random intervals).
+  - **New configuration setting:**
+    - `discoop config set mode safe|fast`: permanent change of the default mode.
+  - The used mode (`safe` / `fast`) is recorded in `manifest.json` in the export (`query.mode`).
+- **Implementation step 3: downloading attachments, export to folder and zip, manifest.**
+  - **Export to folder and zip:** `discoop messages --out DIR` and `--zip FILE`.
+    - Structure: `manifest.json`, `messages.md`, `messages.jsonl`, `channels/<channel>.md`, and `files/<channel>/<attachment_id>_<name>`.
+    - Paths in `messages.md` and `messages.jsonl` are relative to the export directory (`files/...`), in `channels/*.md` relative to that file (`../files/...`). Images (`image/*`) are embedded directly in Markdown as `![name](path) size`.
+    - Repeated export to an existing folder or zip reuses already downloaded complete attachments (`present`) and does not re-download them.
+    - Downloading occurs via temporary `.part` files, and `.zip` is built in a staging folder and replaces the older archive only upon full completion.
+    - Protection against overwriting other data: non-empty folder or file that is not a discoop export (missing manifest with `"tool": "discoop"`) is rejected with code 8 before calling API.
+  - **Downloading attachments from CDN:**
+    - Downloading runs via a separate HTTP client **without token** (Discord CDN does not require authentication). `DiscordAPI` rejects calls outside API base.
+    - Refreshing expired signatures (`ex` in the past or within 60 s) and URLs rejected by CDN (403, 404, 410) via `POST /attachments/refresh-urls` in batches of 50 at the rate configured in settings (`delay`).
+    - A failed attachment (network error, failed URL refresh, redirect limit) does not abort the export; it is recorded in the manifest as `failed` and an error summary is printed to stderr.
+    - Safe filenames for Windows, Linux, and macOS: truncated to 100 characters and 200 bytes, preserving extension, trimming trailing dots and spaces, prefixing `_` for reserved Windows names (`CON`, `NUL`, ...), deduplication, and safe channel directories (max 50 characters, `_<id>` on collision).
+  - **New flags and formats:**
+    - `--print`: prints messages to console in addition to export (with local paths to downloaded files); without it, only a summary is printed on export.
+    - `--no-files`: export without downloading attachments (recorded in manifest as `skipped`).
+    - `--max-file-size`: omit attachments larger than specified size in MB (default 50 MB, `0` = unlimited).
+    - `--format md` and `--format jsonl` in console even with `--print`.
+    - `discoop config set export-dir <folder>`: default folder for relative `--out`/`--zip` paths.
+  - New modules `attachments.py`, `export.py`, tests `test_attachments.py`, `test_export.py` (223 tests total).
+- `discoop messages`: super reactions are noted next to reaction count (`🔥5 (2 super)`), in JSON under `reactions[].super`.
+- **Implementation step 2: `discoop messages`** prints channel messages to console.
+  - **Selection:** `-c` name, ID, or pattern (`isc-*`), repeatable. Server via `-s` or `default-server`,
+    bare channel ID does not require server.
+  - **Time window:** `--from`/`--to` (date, datetime, `48h`/`7d`/`2w`, `now`, `--from all`), default 24 h.
+    `--last N` returns N newest messages. Window boundaries convert to snowflakes, paging in batches of 100 via `before`.
+  - **Formats:** `text` (token-efficient for agents, coloured in human mode) and `json`. Mentions, custom emoji,
+    and timestamps are rewritten to readable text. Attachments are in output only as name, size, and URL.
+  - `--max-messages` (default 5000 per channel, then warning and `truncated`) and `--include-system`.
+  - **Errors:** `403` with code 50001/50013 → code 5, other `403` (anti-abuse, Cloudflare) → code 1, `404` → code 4,
+    bad input → code 8 before calling API. With multiple channels, inaccessible channel is skipped with a warning.
+  - New modules `snowflake.py`, `scrape.py`, `normalize.py`, `render/text.py`, `render/jsonout.py`.
+  - 161 tests (90 new), Discord replaced in them by `httpx.MockTransport` with anonymized messages.
+- ADR 0011: threads enabled by default, default window 24 h, default format in agent mode `text`
+  (decisions 4 through 6 from design).
+- ADR 0010: work is done by agents, the main Claude directs, checks, and commits. Rules in `CLAUDE.md`,
+  "Working with agents" section.
+- **Implementation step 1:** `discoop servers`, `discoop channels`, `discoop config`.
+  - Lists are stored in local SQLite cache and refreshed via `--refresh`, on first use,
+    or once automatically when a name is not found.
+  - **Search by name:** first ID, then exact name, then case-,
+    accent-, and emoji-insensitive match. Glob patterns ready for `messages`. Ambiguous name exits with code 3 and candidate list.
+  - **`channels`:** tree by categories in Discord order, `--flat`, `--type`. In agent mode,
+    tab-separated lines.
+  - **`config`:** keys `default-server` (stores server ID) and `delay`.
+  - **Login and logout** clear cache.
+  - 71 tests.
+- **First prototype:** Python package `discoop` (uv, Typer, Rich).
+  - `discoop login`: QR code in terminal via remote auth gateway, or `--token` from hidden prompt/stdin.
+    Optional anonymized `--trace`. In agent mode, login is rejected.
+  - `discoop status` and `discoop logout`.
+  - Modes `--agent`/`--human`:
+    - help with note for AI agents,
+    - errors `ERROR <CODE>` / `HINT` and stable exit codes.
+  - Token is stored in OS keyring; on Linux without Secret Service, in a `0600` file.
+  - REST client with pacing, retry on 429 and 5xx, and 401 → code 2.
+  - Tests (42): crypto, full QR flow against fake gateway, secret-free trace, CLI, token store.
+- `prototype/probe.py`: one-off verification of open API endpoints.
+- ADR 0006–0009: Python, English in the tool, fallback `login --token`, login in agent mode.
+- Discord web client data analysis: [docs/analyses/discord-analysis.md](docs/analyses/discord-analysis.md).
+- `discoop` tool design: [docs/design.md](docs/design.md).
+- Documentation structure:
+  - rules in `CLAUDE.md`,
+  - `CHANGELOG.md` and `README.md`,
+  - requirements (`docs/requirements.md`) and journal (`docs/journal.md`),
+  - decisions ADR 0001–0004 in `docs/decisions/`.
+- `.gitignore` (Python, local settings, Discord exports).
+- Requirements P13 (Windows, Linux, macOS) and P14 (QR login in terminal).
+- Login analysis (QR remote auth, email/password, MFA, passkey): [docs/analyses/discord-login.md](docs/analyses/discord-login.md).
+- ADR 0005: QR login in terminal without browser.
 
-### Zmenené
-- **Odolný export, kód 9 a spracovanie po kanáloch (2026-11-04, [ADR 0017](docs/decisions/0017-reliable-export-and-partial-success.md)):**
-  - CLI vracia `ExitCode.PARTIAL = 9` pri čiastočnom výsledku (nedostupný kanál 403 `NO_ACCESS` / 404 `NOT_FOUND` pri viacerých cieľoch, zlyhaná príloha alebo vynechané vlákno). Kód 0 ostáva vyhradený pre úplný úspech alebo zámerné používateľské filtre (`--no-files`, `--max-file-size`).
-  - Sťahovanie príloh a obnova URL z CDN prebieha v `ExportWriter` priebežne po jednotlivých kanáloch, namiesto jednej globálnej dávky na konci exportu.
-  - V TUI sa po prerušení alebo čiastočnom výsledku automaticky generovaný názov zafixuje v poli `Name`, takže ďalšie stlačenie `F5` nadviaže na rozpracovaný `<cieľ>.partial`.
-- **Fóra a mediálne kanály ako ciele správ (2026-11-04, [ADR 0019](docs/decisions/0019-threads.md)):**
-  - Kanály typu fórum (15) a média (16) sú plnohodnotnými cieľmi pre `discoop messages` (sťahujú svoje vlákna). Odstránené obmedzenie „threads come in a later version“. Fórum v kombinácii s `--no-threads` je odmietnuté s kódom 8.
-- **Doplnenie (2026-11-04): fóra a media kanály sa dajú vybrať aj v TUI.** `SelectionState.is_selectable` berie okrem `MESSAGE_TYPES` aj `FORUM_TYPES` (kategória sa naďalej nevyberá). Pri Threads = no a vybranom fóre formulár ukáže varovanie (`#threads-warning`) a `F5` štart odmietne hláškou ešte pred volaním Discordu, namiesto zlyhania s `BAD_ARGS` zo služby (`forums_without_threads` v `tui/state.py`). Log pri kanáli s vláknami uvádza aj ich počet. Help opravený: hlasové a stage kanály sa vybrať dajú. Overené len testami s falošným Discordom (`tests/test_tui_forums.py`).
-- **ADR 0014 doplnený (2026-11-04):** sekcia „Doplnenie 2026-11-04“ s klávesmi `P` (uložiť profil), `p` (načítať profil) a `o` (otvoriť priečinok posledného exportu) a s príponami riadkov kanálov v strome. Pôvodné rozhodnutie a jeho stav sa nezmenili.
-- **Rozšírenie testovacieho balíka:** počet automatizovaných testov stúpol z 511 (posledný zapísaný stav, po 1. kole) na 870 (o 359 viac; 642 testov bolo už v commite `3769158` pred zadaním 2. kola, zvyšok je z 2. kola; nové testy pokrývajú odolný export, vlákna, synchronizačný stav, TUI, delenie tokenov, profily a agent príručku). Všetky bežia offline proti falošnému Discordu (`httpx.MockTransport`). Čiastočné overenie na reálnom účte z 2026-11-04 je v prvom bode sekcie „Pridané“.
-- **Upratanie CLI a rozšírenie testov (2026-11-04):**
-  - Z `src/discoop/cli.py` bol odstránený nepoužívaný kód (`_export_target`, `_export`, `_message_targets`, `_progress`, `_unreadable`, `_local_time`).
-  - Rozšírenie testovacieho balíka na 511 automatizovaných testov (85 nových testov pokrývajúcich diagnostické logovanie, doctor, JSON formáty, profily, pomocné moduly a návrhy pri preklepe).
-- **TUI prerobené podľa [ADR 0014](docs/decisions/0014-tui-keyboard-one-tree.md) (2026-11-04)** na základe skúšky používateľa:
-  - Rozloženie: jeden strom namiesto troch stĺpcov, panel Export, log vždy dole. Pôvodný „Discord-inspired“ layout z ADR 0013 nahradený.
-  - Vzhľad: téma `ansi-dark` (farby terminálu), Ctrl+P mení tému. CSS bez hex farieb, prvky vysoké 1 riadok (`compact=True`), bez emoji a veľkých tlačidiel.
-  - Nový `tui/widgets.py` (`ChoiceRow`, `InputRow`, `ActionRow`, `ConfirmRow`, `FormPanel`, `FilterInput`, `SelectedList`, `ChannelTree`, `TextView`, `display_name()`).
-  - Dialógy Help, Settings, Login, Preview a TimeWindow majú rovnaký vzhľad. `TextView` kreslí len viditeľné riadky (pri 5000 správach 0,1–0,4 s, `Static` 1,5–8,7 s), v Help a Preview preto nefunguje výber textu myšou.
-  - Pravidlá: pohyb kurzorom nevolá Discord, naraz beží jedna sieťová operácia, Esc ukončí pauzy okamžite (aj pri `L`), výber nemení kurzor ani rozbalenie.
-  - Nové: `X` vymaže celý výber, po zmene prihlásenia sa výber vyčistí, `e` a uloženie okna na nevybranom kanáli ho aj vyberie, Esc v strome vymaže aktívny filter, pri Target=preview sú skryté Attachments a Max MB, pri QR sa formulár nahradí kódom (pod 27 riadkov bez rámika a Footera).
-  - Zhrnutie behu uvádza kanály, správy, preskočené, orezané a stav príloh.
-  - 376 testov, nový `tests/test_tui_modals.py`.
-- **Premenovanie „agent mode“ na „plain mode“ (`--plain`, [ADR 0012](docs/decisions/0012-rename-agent-mode-to-plain.md)):**
-  - Globálny prepínač `--plain` poskytuje čistý textový výstup bez farieb, Rich tabuliek a efektov, s chybami a notifikáciami na stderr a stabilnými exit kódmi.
-  - V helpe a dokumentácii je explicitne uvedené, že plain mode je ideálny pre AI agentov a automatizované skripty (menej tokenov, jednoduchý parsing).
-  - Prepínač `--agent` a premenná prostredia `DISCOOP_AGENT` zostávajú zachované ako spätná kompatibilita (nová premenná je `DISCOOP_PLAIN`).
-- Analýza prístupu (sekcie 1 a 7) a návrh (sekcia 9): `403` pri kanáli bez `VIEW_CHANNEL` je overený testom
-  používateľa 2026-11-03. Presný kód (`50001` alebo `50013`) výstup neukazuje.
-- Návrh 4.5: správanie `messages` po teste používateľa (embedy bez duplicitnej URL, reakcie, orezané texty).
-- Návrh: rozhodnutia 4 až 6 prijaté (ADR 0011). Sekcia 4.5 opisuje implementovaný `messages` a odchýlky,
-  sekcia 9 mapovanie chýb `403`/`404` podľa analýzy prístupu ku kanálom.
-- Chybové hlášky Discord API obsahujú aj JSON kód chyby (`… (code 50035)`).
-- Návrh a denník: rozhodnutie 9 (výpočet prístupu ku kanálom) je odložené s nízkou prioritou.
-- `CLAUDE.md`: aktuálny stav projektu namiesto „návrh, zatiaľ bez kódu“.
-- Analýzy doplnené o výsledky prototypu:
-  - `discord-analysis.md`, sekcia 15,
-  - `discord-login.md`, sekcia 7: reálny QR login bez captchy.
-- Návrh: overené body [PROTOTYP] sú teraz [OVERENÉ].
-- Analýza presunutá z `docs/discord-analysis.md` do `docs/analyses/discord-analysis.md`.
-- Návrh prerobený pre prihlásenie a podporu všetkých OS:
-  - login cez QR v termináli namiesto Playwright,
-  - cesty k dátam cez `platformdirs`,
-  - keyring s fallbackom pre Linux,
-  - nové otvorené rozhodnutia 7 a 8.
-- CLAUDE.md a ADR 0003: upozornenie na passkey dialóg pri `discord.com/login`.
+### Changed
+- **Resilient export, code 9, and per-channel processing (2026-11-04, [ADR 0017](docs/decisions/0017-reliable-export-and-partial-success.md)):**
+  - CLI returns `ExitCode.PARTIAL = 9` on a partial result (inaccessible channel 403 `NO_ACCESS` / 404 `NOT_FOUND` with multiple targets, failed attachment, or skipped thread). Code 0 remains reserved for complete success or intentional user filters (`--no-files`, `--max-file-size`).
+  - Attachment downloading and URL refreshing from CDN in `ExportWriter` proceed continuously channel by channel, instead of in a single global batch at the end of the export.
+  - In TUI, after an interruption or partial result, the automatically generated name is locked in the `Name` field so pressing `F5` again resumes the in-progress `<target>.partial`.
+- **Forums and media channels as message targets (2026-11-04, [ADR 0019](docs/decisions/0019-threads.md)):**
+  - Forum channels (type 15) and media channels (type 16) are full-fledged targets for `discoop messages` (downloading their threads). Removed "threads come in a later version" limitation. A forum combined with `--no-threads` is rejected with code 8.
+- **Addendum (2026-11-04): forums and media channels can also be selected in TUI.** `SelectionState.is_selectable` accepts `FORUM_TYPES` in addition to `MESSAGE_TYPES` (categories remain non-selectable). When Threads = no and a forum is selected, the form displays a warning (`#threads-warning`) and starting with `F5` is rejected with a message before calling Discord, instead of failing with `BAD_ARGS` from the service (`forums_without_threads` in `tui/state.py`). The log for a channel with threads also indicates their count. Help corrected: voice and stage channels can be selected. Verified only with tests against fake Discord (`tests/test_tui_forums.py`).
+- **ADR 0014 updated (2026-11-04):** section "Addendum 2026-11-04" with keys `P` (save profile), `p` (load profile), and `o` (open last export folder), and with channel line suffixes in the tree. The original decision and its status have not changed.
+- **Test suite expansion:** number of automated tests grew from 511 (last recorded state, after round 1) to 870 (359 more; 642 tests were already in commit `3769158` before the round 2 brief, the rest is from round 2; new tests cover resilient export, threads, sync state, TUI, token splitting, profiles, and agent guide). All run offline against fake Discord (`httpx.MockTransport`). Partial verification on a real account from 2026-11-04 is in the first bullet of the "Added" section.
+- **CLI cleanup and test expansion (2026-11-04):**
+  - Unused code was removed from `src/discoop/cli.py` (`_export_target`, `_export`, `_message_targets`, `_progress`, `_unreadable`, `_local_time`).
+  - Test suite expanded to 511 automated tests (85 new tests covering diagnostic logging, doctor, JSON formats, profiles, helper modules, and typo suggestions).
+- **TUI redesigned according to [ADR 0014](docs/decisions/0014-tui-keyboard-one-tree.md) (2026-11-04)** based on user testing:
+  - Layout: single tree instead of three columns, Export panel, log always at the bottom. Replaced original "Discord-inspired" layout from ADR 0013.
+  - Appearance: `ansi-dark` theme (terminal colours), Ctrl+P toggles theme. CSS without hex colours, elements 1 line high (`compact=True`), without emojis or large buttons.
+  - New `tui/widgets.py` (`ChoiceRow`, `InputRow`, `ActionRow`, `ConfirmRow`, `FormPanel`, `FilterInput`, `SelectedList`, `ChannelTree`, `TextView`, `display_name()`).
+  - Help, Settings, Login, Preview, and TimeWindow dialogs share a uniform appearance. `TextView` renders only visible lines (0.1–0.4 s for 5000 messages vs 1.5–8.7 s with `Static`), mouse text selection is therefore disabled in Help and Preview.
+  - Rules: cursor movement does not trigger Discord calls, only one network operation runs at a time, Esc terminates pauses immediately (including during `L`), selection changes neither cursor nor expanded state.
+  - New: `X` clears entire selection, selection is cleared after changing login, `e` and saving a window on an unselected channel also selects it, Esc in tree clears active filter, Target=preview hides Attachments and Max MB, QR login replaces the form with the code (under 27 lines without border or Footer).
+  - Run summary reports channels, messages, skipped, truncated, and attachment status.
+  - 376 tests, new `tests/test_tui_modals.py`.
+- **Renaming "agent mode" to "plain mode" (`--plain`, [ADR 0012](docs/decisions/0012-rename-agent-mode-to-plain.md)):**
+  - Global flag `--plain` provides clean text output without colours, Rich tables, or effects, with errors and notifications on stderr and stable exit codes.
+  - Help and documentation explicitly state that plain mode is ideal for AI agents and automated scripts (fewer tokens, simple parsing).
+  - Flag `--agent` and environment variable `DISCOOP_AGENT` are preserved for backward compatibility (new variable is `DISCOOP_PLAIN`).
+- Access analysis (sections 1 and 7) and design (section 9): `403` on a channel without `VIEW_CHANNEL` verified by user test on 2026-11-03. Exact code (`50001` or `50013`) is not shown in output.
+- Design 4.5: `messages` behaviour after user testing (embeds without duplicate URL, reactions, trimmed text).
+- Design: decisions 4 through 6 accepted (ADR 0011). Section 4.5 describes implemented `messages` and deviations; section 9 describes mapping `403`/`404` errors according to channel access analysis.
+- Discord API error messages include the JSON error code (`… (code 50035)`).
+- Design and journal: decision 9 (computing channel access) deferred with low priority.
+- `CLAUDE.md`: current project state instead of "design, no code yet".
+- Analyses updated with prototype results:
+  - `discord-analysis.md`, section 15,
+  - `discord-login.md`, section 7: real QR login without captcha.
+- Design: points verified by [PROTOTYPE] are now [VERIFIED].
+- Analysis moved from `docs/discord-analysis.md` to `docs/analyses/discord-analysis.md`.
+- Design reworked for login and cross-platform OS support:
+  - login via QR in terminal instead of Playwright,
+  - data paths via `platformdirs`,
+  - keyring with fallback for Linux,
+  - new open decisions 7 and 8.
+- CLAUDE.md and ADR 0003: warning about passkey dialog on `discord.com/login`.
 
-### Opravené
-- **Kontrola 2. kola (2026-11-04, ešte pred vydaním):**
-  - Odtlačok obnovy exportu ignoroval `threads` a `since_last`: prerušený export s vláknami pokračoval aj beh s `--no-threads` (a opačne pre `--since-last`). Teraz ich zahŕňa.
-  - `split_markdown` delil aj uprostred správy, ktorá obsahuje riadok `# Nadpis`. Teraz delí len na skutočných hraniciach správ a nadpisov.
-  - `--max-tokens` fungoval len s `--out`, `--zip` sa odmietal. Teraz funguje s oboma a časti idú cez staging do exportu (pád nenechá v cieli `parts/`).
-  - `--since-last` pre textový kanál s vláknami nepreskakoval nič. Teraz preskočí vlastné správy kanála (nič nové), ale jeho vlákna číta ďalej.
-  - Kontrola miesta na disku už nesiaha na privátne atribúty writera a nečíta starý zip opakovane.
-  - Moduly `split`, `syncstate` a `tui/tuistate` hlásili chyby cez Python `warnings` (`UserWarning` do terminálu). Teraz do logu a `split` a `syncstate` navyše cez udalosť `warning`, ktorú CLI vypíše. `profiles.load()` pri poškodenom súbore zatiaľ `UserWarning` hlási.
-  - TUI: štartovací súbeh mohol prepísať `tui-state.json` predvolenými hodnotami skôr, než sa stav načítal. `format_activity` vracal `0y ago`. Zlyhanie disku pri ukladaní stavu už TUI nezhodí.
-  - `service.run_messages` bola jedna funkcia na zhruba 420 riadkov, rozdelená na malé funkcie bez zmeny správania.
+### Fixed
+- **Round 2 review (2026-11-04, before release):**
+  - Export resume fingerprint ignored `threads` and `since_last`: an interrupted export with threads resumed even with `--no-threads` (and vice versa for `--since-last`). Now includes them.
+  - `split_markdown` split even in the middle of a message containing a `# Heading` line. Now splits only on actual boundaries of messages and headings.
+  - `--max-tokens` worked only with `--out`, rejecting `--zip`. Now works with both, and parts pass through staging into the export (a crash leaves no `parts/` in the target).
+  - `--since-last` for a text channel with threads did not skip anything. Now skips the channel's own messages (nothing new), but continues reading its threads.
+  - Disk space check no longer accesses private writer attributes and avoids reading the old zip repeatedly.
+  - Modules `split`, `syncstate`, and `tui/tuistate` reported errors via Python `warnings` (`UserWarning` to terminal). Now logged, and `split` and `syncstate` additionally report via a `warning` event printed by the CLI. `profiles.load()` still issues a `UserWarning` on corrupted files for now.
+  - TUI: startup race condition could overwrite `tui-state.json` with default values before the state was loaded. `format_activity` returned `0y ago`. Disk failure when saving state no longer crashes the TUI.
+  - `service.run_messages` was a single function of about 420 lines, split into small functions without changing behaviour.
 - **TUI (2026-11-04):**
-  - Prázdne tlačidlá (`height: 1` pri vysokom rámiku), prestavba celého stromu pri každom výbere (kurzor skákal hore), zadrhávanie.
-  - Kategórie boli vždy rozbalené. Kategória bez vyberateľných kanálov ukazovala `[✓]`. Enter na kategórii ju rozbalil aj vybral.
-  - Pohyb po serveroch volal sieť a súbežné workery obchádzali safe tempo.
-  - Preview posielal `--print` a `--no-files` bez `--out`, čo služba odmietla. Uloženie preview prepísalo súbor.
-  - Pauzy API sa nedali prerušiť, „Load all“ sa nedal zastaviť, `q` nezastavil beh, `space` a `e` pôsobili bez ohľadu na focus.
-  - Pri neplatnom tokene sa ukazovalo zelené `@user`. Overenie tokenu blokovalo UI vlákno, logout šiel bez potvrdenia, token sa ukladal pred overením.
-  - Nastavenia z configu (`mode`, `delay`, `export-dir`) sa v TUI neprejavili. Režim v Settings bol voľný text. Enter v poli časového okna neuložil.
-  - Správa „finished successfully“ aj pri preskočených kanáloch.
-  - Preview a Help brali hranaté zátvorky ako markup, Help nesedel s klávesmi, log nebol vidno bez scrollovania.
-  - Variačné selektory v názvoch rozhadzovali zarovnanie (`display_name()`).
-  - `WindowSpec.slug()`/`label()` pri `from_=None` a zip cesta končiaca lomkou.
-  - `filter_channels` zhodoval čísla ako podreťazec ID, teraz len celé ID.
-  - `TuiEvents` hádal argumenty cez `*args`, odstránené mŕtve záložné kópie tried v `state.py` a `bridge.py`.
-- **Výstup `discoop messages`** po teste používateľa 2026-11-03 (3 nové regresné testy, spolu 164):
-  - Embed nezopakuje URL, ktorú správa už ukazuje. GIF poslaný ako holá URL mal pod textom `[image]` s tou istou
-    URL. Ostane len značka s titulkom, embed bez titulku sa vynechá. JSON má embedy celé.
-  - Prázdne riadky na začiatku a konci textu správy a popisu rich embedu sa orežú, `\r\n` sa zmení na `\n`.
-    V human režime je tak medzi správami vždy jeden prázdny riadok.
-  - Rich embed bez URL a titulku už nemá za `[embed]` medzeru navyše.
+  - Empty buttons (`height: 1` with tall border), complete tree rebuild on every selection (cursor jumped to the top), stuttering.
+  - Categories were always expanded. A category with no selectable channels displayed `[✓]`. Enter on a category both expanded and selected it.
+  - Navigating servers called the network, and concurrent workers bypassed safe rate.
+  - Preview sent `--print` and `--no-files` without `--out`, which the service rejected. Saving preview overwrote the file.
+  - API pauses could not be interrupted, "Load all" could not be stopped, `q` did not stop the run, `space` and `e` took effect regardless of focus.
+  - An invalid token showed a green `@user`. Token verification blocked the UI thread, logout occurred without confirmation, token was saved prior to verification.
+  - Config settings (`mode`, `delay`, `export-dir`) did not take effect in the TUI. Mode in Settings was free text. Enter in time window field did not save.
+  - Message "finished successfully" even with skipped channels.
+  - Preview and Help treated square brackets as markup, Help did not match keys, log was not visible without scrolling.
+  - Variation selectors in names broke alignment (`display_name()`).
+  - `WindowSpec.slug()`/`label()` on `from_=None` and zip path ending in a slash.
+  - `filter_channels` matched numbers as substring of ID, now matches only full ID.
+  - `TuiEvents` guessed arguments via `*args`; removed dead fallback copies of classes in `state.py` and `bridge.py`.
+- **`discoop messages` output** after user test on 2026-11-03 (3 new regression tests, 164 total):
+  - Embed does not repeat URL already shown in the message. A GIF sent as a bare URL had `[image]` with the same
+    URL below the text. Only tag with title remains, embed without title is omitted. JSON preserves full embeds.
+  - Leading and trailing empty lines in message text and rich embed descriptions are stripped, `\r\n` converted to `\n`.
+    In human mode, there is always exactly one empty line between messages.
+  - Rich embed without URL and title no longer has an extra space after `[embed]`.
