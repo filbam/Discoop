@@ -130,7 +130,7 @@ versions adhere to [SemVer](https://semver.org/).
 - **Implementation step 3: downloading attachments, export to folder and zip, manifest.**
   - **Export to folder and zip:** `discoop messages --out DIR` and `--zip FILE`.
     - Structure: `manifest.json`, `messages.md`, `messages.jsonl`, `channels/<channel>.md`, and `files/<channel>/<attachment_id>_<name>`.
-    - Paths in `messages.md` and `messages.jsonl` are relative to the export directory (`files/...`), in `channels/*.md` relative to that file (`../files/...`). Images (`image/*`) are embedded directly in Markdown as `![name](path) size`.
+    - Paths in `messages.md` and `messages.jsonl` are relative to the export directory (`files/...`), in `channels/*.md` relative to that file (`../files/...`). Images (`image/*`) are embedded directly in Markdown as `![name]`(`path`) `size`.
     - Repeated export to an existing folder or zip reuses already downloaded complete attachments (`present`) and does not re-download them.
     - Downloading occurs via temporary `.part` files, and `.zip` is built in a staging folder and replaces the older archive only upon full completion.
     - Protection against overwriting other data: non-empty folder or file that is not a discoop export (missing manifest with `"tool": "discoop"`) is rejected with code 8 before calling API.

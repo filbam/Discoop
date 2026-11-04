@@ -245,7 +245,7 @@ discoop messages -c "isc-*" --since-last --agent
   - `<t:unix>` is converted to local time and `</command:id>` to `/command`. `<@&id>` is always `@role:<id>`.
   - Reply without `referenced_message` is `reply-to (message not available)`. Quote has at most 80 characters.
   - No empty line between messages (fewer tokens). Message starts with a line `[YYYY-MM-DD HH:MM]`.
-- **Format `md`:** Markdown with header `# server / #channel`, list of details (`- `), and messages separated by an empty line. Images (`image/*`) are embedded directly as `![name](path) size`, other files as links `[name](path) size`. In `channels/<channel>.md`, paths have prefix `../files/...`.
+- **Format `md`:** Markdown with header `# server / #channel`, list of details (`- `), and messages separated by an empty line. Images (`image/*`) are embedded directly as `![name]`(`path`) `size`, other files as links `[name]`(`path`) `size`. In `channels/<channel>.md`, paths have prefix `../files/...`.
 - **Format `json`:** a single object `{from, to, last, truncated, channels: [...], messages: [...]}`.
 - **Format `jsonl`:** one line of JSON message according to the schema in section 6.2 (without header, which is in manifest).
 - **Export (`--out`, `--zip`):**
@@ -420,7 +420,7 @@ Modifications compared to raw data:
 - **System messages** (type ≠ 0, 19) are omitted. `--include-system` keeps them.
 - **Order** is chronological, from oldest message.
 
-**`md`:** the same as Markdown for humans or for loading into an AI. Images are embedded as `![](files/...)`.
+**`md`:** the same as Markdown for humans or for loading into an AI. Images are embedded as `![]`(`files/...`).
 
 **`json` / `jsonl`:** normalised schema, not raw Discord. `--raw` includes the original object.
 ```json
