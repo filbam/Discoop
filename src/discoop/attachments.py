@@ -17,6 +17,7 @@ by attachment ID and size and does not download them again.
 """
 
 import contextlib
+import logging
 import os
 import re
 import time
@@ -30,6 +31,8 @@ import httpx
 from discoop.api import USER_AGENT, DiscordAPI, raise_for_status
 from discoop.errors import DiscoopError, ExitCode
 from discoop.models import Attachment, Channel, ChannelMessages
+
+logger = logging.getLogger("discoop.attachments")
 
 FILES_DIR = "files"
 PART = ".part"
@@ -317,23 +320,68 @@ class Downloader:
         self.progress.file(number, total, job)
         target = self.root / job.path
         part = target.with_name(target.name + PART)
+        host = ""
+        try:
+            host = httpx.URL(job.url).host
+        except Exception:
+            pass
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             for attempt in range(len(RETRY_WAITS) + 1):
+                attempt_num = attempt + 1
                 last = attempt == len(RETRY_WAITS)
                 try:
                     status = self._fetch(job.url, part, retry=not last)
                 except (httpx.InvalidURL, httpx.UnsupportedProtocol) as e:
+                    logger.debug(
+                        "download id=%s size=%d host=%s attempt=%d error=%s bytes=0",
+                        job.attachment.id,
+                        job.attachment.size,
+                        host,
+                        attempt_num,
+                        type(e).__name__,
+                    )
                     job.fail(f"download error: {e or type(e).__name__}")
                     return None
                 except httpx.TransportError as e:  # also a timeout or a body cut short
+                    bytes_written = part.stat().st_size if part.is_file() else 0
+                    logger.debug(
+                        "download id=%s size=%d host=%s attempt=%d error=%s bytes=%d",
+                        job.attachment.id,
+                        job.attachment.size,
+                        host,
+                        attempt_num,
+                        type(e).__name__,
+                        bytes_written,
+                    )
                     if last:
                         job.fail(f"network error: {e or type(e).__name__}")
                         return None
                     status = -1
                 except httpx.HTTPError as e:  # e.g. too many redirects: no point in retrying
+                    bytes_written = part.stat().st_size if part.is_file() else 0
+                    logger.debug(
+                        "download id=%s size=%d host=%s attempt=%d error=%s bytes=%d",
+                        job.attachment.id,
+                        job.attachment.size,
+                        host,
+                        attempt_num,
+                        type(e).__name__,
+                        bytes_written,
+                    )
                     job.fail(f"download error: {e or type(e).__name__}")
                     return None
+
+                bytes_written = part.stat().st_size if part.is_file() else 0
+                logger.debug(
+                    "download id=%s size=%d host=%s attempt=%d status=%d bytes=%d",
+                    job.attachment.id,
+                    job.attachment.size,
+                    host,
+                    attempt_num,
+                    status,
+                    bytes_written,
+                )
                 if status == -1:
                     self._sleep(RETRY_WAITS[attempt])
                     continue
@@ -344,6 +392,13 @@ class Downloader:
                 job.status, job.reason = DOWNLOADED, None
                 return None
         except OSError as e:
+            logger.debug(
+                "download id=%s size=%d host=%s error=%s",
+                job.attachment.id,
+                job.attachment.size,
+                host,
+                type(e).__name__,
+            )
             job.fail(f"cannot save the file: {e}")
         finally:
             with contextlib.suppress(OSError):

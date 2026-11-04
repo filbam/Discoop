@@ -138,3 +138,46 @@ def test_token_never_leaves_the_api(path):
     api, _ = make_api(lambda r: pytest.fail(f"request sent to {r.url}"))
     with pytest.raises(ValueError):
         api.request("GET", path)
+
+
+def test_logging_429_and_network_retry_records_events_and_preserves_behavior(tmp_path):
+    from discoop.logs import setup_logging, teardown_logging
+
+    log_file = tmp_path / "api_retry.log"
+    setup_logging(debug=True, log_file=log_file)
+    try:
+        # Test 429 retry: behavior unchanged
+        responses_429 = iter([
+            httpx.Response(429, json={"retry_after": 1.5, "global": False}),
+            httpx.Response(200, json={"ok": True}),
+        ])
+        api_429, sleeps_429 = make_api(lambda r: next(responses_429), delay=1.0)
+        resp_429 = api_429.request("GET", "/channels/123/messages")
+        assert resp_429.status_code == 200
+        assert sleeps_429 == [1.5]
+        assert api_429.delay == 2.0
+
+        # Test network retry: behavior unchanged
+        call_count = [0]
+
+        def network_failing_handler(request: httpx.Request) -> httpx.Response:
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise httpx.ConnectError("Simulated connection failure", request=request)
+            return httpx.Response(200, json={"ok": True})
+
+        api_net, sleeps_net = make_api(network_failing_handler)
+        resp_net = api_net.request("GET", "/channels/456/messages")
+        assert resp_net.status_code == 200
+        assert sleeps_net == [1]  # 2 ** (1 - 1)
+        assert call_count[0] == 2
+    finally:
+        teardown_logging()
+
+    log_content = log_file.read_text(encoding="utf-8")
+    assert "status=429" in log_content
+    assert "retry_after=1.500" in log_content
+    assert "rate limited (429)" in log_content
+    assert "ConnectError" in log_content
+    assert "backoff=1s" in log_content
+    assert "status=200" in log_content

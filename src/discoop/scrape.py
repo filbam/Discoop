@@ -9,6 +9,7 @@ Errors (assumed, docs/analyzy/pristup-ku-kanalom.md, section 7): 403 with code 5
 other 403 codes are blocks, 404 is an unknown channel. Without Read Message History Discord answers `[]`.
 """
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -17,6 +18,8 @@ from discoop.api import BLOCKED_HINT, DiscordAPI, error_details, is_missing_acce
 from discoop.errors import DiscoopError, ExitCode
 from discoop.models import REGULAR_MESSAGE_TYPES
 from discoop.snowflake import Window
+
+logger = logging.getLogger("discoop.scrape")
 
 PAGE_SIZE = 100
 
@@ -59,10 +62,28 @@ def fetch_messages(
         page = _get_page(api, channel_id, cursor, size, label)
         requests += 1
         if not page and requests == 1:
+            logger.debug("page channel_id=%s messages=0 last=True", channel_id)
             return Fetched([], False, requests, nothing_before_end=True)
         page.sort(key=lambda m: int(m["id"]), reverse=True)
         inside = [m for m in page if lowest is None or int(m["id"]) >= lowest]
         wanted = [m for m in inside if include_system or not is_system(m)]
+        is_last = (
+            not page
+            or len(page) < size
+            or len(inside) < len(page)
+            or (limit is not None and len(kept) + len(wanted) >= limit)
+        )
+        if page:
+            logger.debug(
+                "page channel_id=%s messages=%d newest_id=%s oldest_id=%s last=%s",
+                channel_id,
+                len(page),
+                page[0]["id"],
+                page[-1]["id"],
+                is_last,
+            )
+        else:
+            logger.debug("page channel_id=%s messages=0 last=%s", channel_id, is_last)
         if limit is not None and len(kept) + len(wanted) > limit:
             kept += wanted[: limit - len(kept)]
             return Fetched(kept[::-1], True, requests)
