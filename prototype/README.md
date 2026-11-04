@@ -50,3 +50,21 @@ Ciele sa dajú zmeniť cez `--guild`, `--channel`, `--forum` a tempo cez `--dela
 Napíš mi, že je hotovo. Prečítam `prototype/out/*` a výsledky zapíšem do analýz a denníka.
 
 Na odhlásenie slúži `uv run discoop logout`. Reláciu v Discorde zrušíš v **Settings → Devices**.
+
+## 4. Probe vlákien
+
+```
+uv run python prototype/probe_threads.py
+```
+
+**Čo probe vlákien robí:**
+- Zameriava sa na správanie API pri vláknach a fórach: veľkosti strán pri vyhľadávaní vlákien (`limit` 25 vs 50), dostupnosť stránkovania cez `offset` (0, 25, 100, 500 a koniec), kontrolu prípadnej 202 Accepted („not indexed“) odpovede, prítomnosť a atribúty súkromných vlákien (typ 12), porovnanie `total_results` so skutočným počtom vrátených a unikátnych vlákien naprieč stránkami, a kontrolu `last_message_id` v kanáloch servera.
+- Posiela výhradne GET requesty v tempe 1 request za sekundu (`--delay 1.0`). Nič nezapisuje ani nemení.
+- Všetko spúšťa používateľ na svojom účte.
+
+**Výstup:**
+- súhrnná tabuľka v konzole,
+- report `prototype/out/probe-threads-<čas>.json`. Obsahuje iba štruktúru: typy, počty, názvy polí a stavové kódy. Žiadny token, mená kanálov či vlákien, texty správ, ID používateľov ani URL.
+
+Ciele sa dajú prispôsobiť cez prepínače `--guild`, `--forum`, `--channel` a tempo cez `--delay`.
+
