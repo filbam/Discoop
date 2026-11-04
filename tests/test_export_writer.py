@@ -5,8 +5,10 @@ Discord and its CDN are fakes (tests/export_helpers.py); nothing leaves the proc
 
 import json
 import os
+import re
 import shutil
 import zipfile
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 
@@ -18,6 +20,7 @@ from discoop.errors import DiscoopError, ExitCode
 from discoop.models import Attachment, Channel
 from discoop.render import Query
 from discoop.snowflake import Window
+from discoop.split import split_markdown
 from export_helpers import (
     CHANNELS,
     FILES,
@@ -107,6 +110,8 @@ def test_request_summary_has_no_names():
         "include_system": False,
         "files": True,
         "max_file_size": None,
+        "threads": True,
+        "since_last": False,
     }
 
 
@@ -743,3 +748,243 @@ def test_an_empty_or_unfinished_staging_folder_is_a_valid_target(tmp_path, lab):
 def test_staging_paths(tmp_path):
     assert ex.staging_path(tmp_path / "fit") == tmp_path / "fit.partial"
     assert ex.staging_path(tmp_path / "fit.zip") == tmp_path / "fit.zip.partial"
+
+
+# --- bytes_to_download (the disk space check) -----------------------------------------------------------
+
+SHARED_ID = "800000000000000003"
+
+
+def size_of(*attachment_ids: str) -> int:
+    return sum(len(content(attachment_id)) for attachment_id in attachment_ids)
+
+
+def test_bytes_to_download_counts_each_attachment_once(tmp_path, lab):
+    results = lab.threaded_results()
+    general, forum = results[0], results[1]
+    writer = lab.writer(tmp_path / "export")
+    with writer:
+        writer.open([result.channel for result in results])
+        # GENERAL has two files itself and two in its threads; SHARED is posted in the channel and in a thread
+        assert writer.bytes_to_download(general) == size_of("800000000000000001", SHARED_ID, "800000000000000011", "800000000000000012")
+        assert writer.bytes_to_download(forum) == size_of("800000000000000013")
+        writer.add_channel(general)
+        # SHARED was saved with GENERAL: INFO only has the other file to download
+        assert writer.bytes_to_download(lab.result(INFO, FILES["203"])) == size_of("800000000000000004")
+        assert writer.bytes_to_download(general) == 0
+
+
+def test_bytes_to_download_is_zero_without_files_or_over_the_size_limit(tmp_path, lab):
+    result = lab.result(GENERAL, FILES["200"])
+    no_files = lab.writer(tmp_path / "a", options=ex.Options(files=False))
+    with no_files:
+        no_files.open([GENERAL])
+        assert no_files.bytes_to_download(result) == 0
+    small = lab.writer(tmp_path / "b", options=ex.Options(files=True, max_file_size=10))
+    with small:
+        small.open([GENERAL])
+        assert small.bytes_to_download(result) == 0
+    exact = lab.writer(tmp_path / "c", options=ex.Options(files=True, max_file_size=len(content(SHARED_ID))))
+    with exact:
+        exact.open([GENERAL])
+        assert exact.bytes_to_download(result) == size_of("800000000000000001", SHARED_ID)  # the limit itself is allowed
+
+
+def test_bytes_to_download_leaves_out_an_attachment_without_a_url(tmp_path, lab):
+    result = lab.result(GENERAL, FILES["200"])
+    message = result.messages[-1]
+    bare = tuple(replace(attachment, url="") for attachment in message.attachments)
+    result = replace(result, messages=(*result.messages[:-1], replace(message, attachments=bare)))
+    writer = lab.writer(tmp_path / "export")
+    with writer:
+        writer.open([GENERAL])
+        assert writer.bytes_to_download(result) == 0
+
+
+@pytest.mark.parametrize("as_zip", [False, True], ids=["folder", "zip"])
+def test_bytes_to_download_leaves_out_files_of_an_earlier_export(tmp_path, lab, as_zip, monkeypatch):
+    target = tmp_path / ("fit.zip" if as_zip else "fit")
+    lab.export_all(target, as_zip, [lab.result(GENERAL, FILES["200"])])
+    opened: list[Path] = []
+    real = ex._zip_files
+    monkeypatch.setattr(ex, "_zip_files", lambda path: (opened.append(path), real(path))[1])
+
+    again = lab.result(GENERAL, FILES["200"])  # the same two files
+    another = lab.result(INFO, [(SHARED_ID, "graf (1).png"), ("800000000000000004", "other.bin")])
+    writer = lab.writer(target, as_zip)
+    with writer:
+        writer.open([GENERAL, INFO])
+        assert writer.bytes_to_download(again) == 0
+        assert writer.bytes_to_download(another) == size_of("800000000000000004")  # SHARED is in the export
+    assert len(opened) == (1 if as_zip else 0)  # an old zip is read once, however many files and calls there are
+
+
+def test_bytes_to_download_leaves_out_files_of_the_staging_folder(tmp_path, lab):
+    results = lab.results()
+    channels = [result.channel for result in results]
+    target = tmp_path / "export"
+    first = lab.writer(target)
+    with pytest.raises(Boom):
+        with first:
+            stream(first, results, stop_after=1)  # GENERAL is saved in `export.partial`
+    resume = ex.find_unfinished(target, ex.request_fingerprint(channels, QUERY, OPTIONS, CET))
+    assert resume is not None
+    writer = lab.writer(target)
+    with writer:
+        writer.open(channels, resume)
+        assert writer.bytes_to_download(results[0]) == 0  # finished by the first run
+        assert writer.bytes_to_download(results[1]) == size_of("800000000000000002")
+        # a file that was downloaded just before the crash, when its channel was not committed yet
+        stray = ex.staging_path(target) / "files" / "2bit-terminy" / "800000000000000002_CON.txt"
+        stray.parent.mkdir(parents=True)
+        stray.write_bytes(content("800000000000000002"))
+        assert writer.bytes_to_download(results[1]) == 0
+        assert writer.bytes_to_download(results[2]) == size_of("800000000000000004")  # SHARED came with GENERAL
+
+
+# --- parts (--max-tokens): made with the export, published with it ---------------------------------------
+
+
+def parts_of(files: dict[str, bytes]) -> dict[str, str]:
+    return {
+        name: data.decode("utf-8") for name, data in files.items() if re.fullmatch(r"parts/part-\d{3}\.md", name)
+    }
+
+
+def zip_tree(path: Path) -> dict[str, bytes]:
+    with zipfile.ZipFile(path) as archive:
+        return {name: archive.read(name) for name in archive.namelist()}
+
+
+def export_tree(target: Path, as_zip: bool) -> dict[str, bytes]:
+    return zip_tree(target) if as_zip else tree(target)
+
+
+def write_export(lab, target: Path, as_zip: bool = False, results=None, **kw) -> ex.Exported:
+    writer = lab.writer(target, as_zip, **kw)
+    with writer:
+        stream(writer, results or lab.results())
+        return writer.close(complete=True)
+
+
+@pytest.mark.parametrize("as_zip", [False, True], ids=["folder", "zip"])
+def test_parts_are_published_with_the_export(tmp_path, lab, as_zip):
+    target = tmp_path / ("fit.zip" if as_zip else "fit")
+    write_export(lab, target, as_zip, max_tokens=150)
+    files = export_tree(target, as_zip)
+    expected = split_markdown(files["messages.md"].decode("utf-8"), 150)
+    assert len(expected) > 1
+    parts = parts_of(files)
+    assert sorted(parts) == [f"parts/part-{number:03d}.md" for number in range(1, len(expected) + 1)]
+    assert [parts[name] for name in sorted(parts)] == expected
+    assert expected[0].startswith(f"<!-- discoop part 1 of {len(expected)} -->\n")
+    assert "part-0" not in json.dumps(json.loads(files["manifest.json"]))  # the manifest does not list parts
+    assert not as_zip or not debris(tmp_path)
+
+
+def test_a_folder_and_a_zip_get_the_same_parts(tmp_path, lab):
+    write_export(lab, tmp_path / "folder", False, max_tokens=150)
+    write_export(lab, tmp_path / "fit.zip", True, max_tokens=150)
+    assert parts_of(tree(tmp_path / "folder")) == parts_of(zip_tree(tmp_path / "fit.zip")) != {}
+
+
+def test_no_parts_without_max_tokens(tmp_path, lab):
+    write_export(lab, tmp_path / "fit")
+    assert not (tmp_path / "fit" / "parts").exists()
+
+
+@pytest.mark.parametrize("as_zip", [False, True], ids=["folder", "zip"])
+def test_a_crash_before_the_end_leaves_no_parts_in_the_target(tmp_path, lab, as_zip):
+    target = tmp_path / ("fit.zip" if as_zip else "fit")
+    writer = lab.writer(target, as_zip, max_tokens=150)
+    with pytest.raises(Boom):
+        with writer:
+            stream(writer, lab.results(), stop_after=2)
+    assert not target.exists()
+    assert not (ex.staging_path(target) / "parts").exists()  # parts are only made when the export is finished
+
+
+@pytest.mark.parametrize("as_zip", [False, True], ids=["folder", "zip"])
+def test_an_interrupted_run_leaves_the_parts_of_a_finished_export_alone(tmp_path, lab, as_zip):
+    target = tmp_path / ("fit.zip" if as_zip else "fit")
+    write_export(lab, target, as_zip, max_tokens=150)
+    before = export_tree(target, as_zip)
+    assert parts_of(before)
+    other = Query(Window(NOW - timedelta(days=2), NOW), None, 5000, False)  # another request: it starts anew
+    writer = lab.writer(target, as_zip, query=other, max_tokens=60)
+    with pytest.raises(Boom):
+        with writer:
+            stream(writer, lab.results(), stop_after=1)
+    assert export_tree(target, as_zip) == before
+
+
+def test_a_reexport_replaces_the_old_parts(tmp_path, lab):
+    target = tmp_path / "fit"
+    write_export(lab, target, max_tokens=60)
+    many = parts_of(tree(target))
+    assert len(many) > 2
+    (target / "parts" / "notes.txt").write_text("mine", encoding="utf-8")  # not a part: stays
+
+    write_export(lab, target, max_tokens=100_000)
+    assert sorted(parts_of(tree(target))) == ["parts/part-001.md"]
+    assert parts_of(tree(target))["parts/part-001.md"].startswith("<!-- discoop part 1 of 1 -->\n")
+    assert (target / "parts" / "notes.txt").read_text(encoding="utf-8") == "mine"
+
+    (target / "parts" / "notes.txt").unlink()
+    write_export(lab, target)  # without --max-tokens: the old parts do not fit the new messages.md either
+    assert not (target / "parts").exists()
+
+
+def test_a_reexport_into_a_zip_replaces_the_old_parts(tmp_path, lab):
+    target = tmp_path / "fit.zip"
+    write_export(lab, target, True, max_tokens=60)
+    write_export(lab, target, True, max_tokens=100_000)
+    assert sorted(parts_of(zip_tree(target))) == ["parts/part-001.md"]
+    write_export(lab, target, True)
+    assert parts_of(zip_tree(target)) == {}
+
+
+@pytest.mark.parametrize("as_zip", [False, True], ids=["folder", "zip"])
+def test_an_interrupted_export_is_continued_and_gets_its_parts(tmp_path, lab, as_zip):
+    results = lab.results()
+    one_go = tmp_path / ("one.zip" if as_zip else "one")
+    write_export(lab, one_go, as_zip, results, max_tokens=150)
+
+    target = tmp_path / ("fit.zip" if as_zip else "fit")
+    first = lab.writer(target, as_zip)  # the first run has no max_tokens: the parts are made at the end only
+    with pytest.raises(Boom):
+        with first:
+            stream(first, results, stop_after=2)
+    channels = [result.channel for result in results]
+    resume = ex.find_unfinished(target, ex.request_fingerprint(channels, QUERY, OPTIONS, CET))
+    assert resume is not None and list(resume.done) == ["200", "202"]
+    writer = lab.writer(target, as_zip, max_tokens=150)
+    with writer:
+        writer.open(channels, resume)
+        writer.add_channel(results[2])
+        writer.close(complete=True)
+    assert parts_of(export_tree(target, as_zip)) == parts_of(export_tree(one_go, as_zip)) != {}
+
+
+def test_parts_a_crashed_finish_left_in_the_staging_folder_do_not_get_published(tmp_path, lab):
+    target = tmp_path / "fit"
+    writer = lab.writer(target, max_tokens=100_000)
+    with writer:
+        stream(writer, lab.results())
+        stale = ex.staging_path(target) / "parts" / "part-009.md"
+        stale.parent.mkdir()
+        stale.write_text("an old split", encoding="utf-8")
+        writer.close(complete=True)
+    assert sorted(parts_of(tree(target))) == ["parts/part-001.md"]
+
+
+def test_a_message_larger_than_the_limit_is_reported_to_the_warning_callback(tmp_path, lab):
+    told: list[str] = []
+    write_export(lab, tmp_path / "fit", max_tokens=1, on_warning=told.append)
+    assert told and all("exceeds max_tokens" in text for text in told)
+    assert sorted(parts_of(tree(tmp_path / "fit"))) == [f"parts/part-{n:03d}.md" for n in range(1, len(told) + 1)]
+
+
+def test_max_tokens_must_be_positive(tmp_path, lab):
+    with pytest.raises(ValueError, match="at least 1"):
+        lab.writer(tmp_path / "fit", max_tokens=0)

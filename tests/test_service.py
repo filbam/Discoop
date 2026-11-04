@@ -339,3 +339,61 @@ def test_validate_export_target_validation():
 
 def test_cancelled_exception():
     assert issubclass(service.Cancelled, Exception)
+
+
+def test_messages_request_threads_argv():
+    req_default = MessagesRequest(channels=("c1",))
+    assert req_default.threads is True
+    assert "--no-threads" not in req_default.to_argv()
+
+    req_no_threads = MessagesRequest(channels=("c1",), threads=False)
+    assert req_no_threads.threads is False
+    assert "--no-threads" in req_no_threads.to_argv()
+
+
+def test_list_threads_validates_container(tmp_path):
+    category_channel = Channel("100", "srv1", "general-cat", 4)
+    voice_channel = Channel("101", "srv1", "voice", 2)
+    cache = Cache(tmp_path / "cache.db")
+    directory = Directory(cache, lambda: DiscordAPI("tok"))
+    window = service.Window(None, NOW)
+
+    with pytest.raises(DiscoopError) as exc_cat:
+        service.list_threads(directory, category_channel, window)
+    assert exc_cat.value.code == ExitCode.BAD_ARGS
+    assert "it cannot have threads" in exc_cat.value.message
+
+    with pytest.raises(DiscoopError) as exc_voice:
+        service.list_threads(directory, voice_channel, window)
+    assert exc_voice.value.code == ExitCode.BAD_ARGS
+
+
+def test_resolve_targets_forum_and_media(tmp_path):
+    forum_channel = Channel("204", "1001", "help-forum", 15)
+    media_channel = Channel("205", "1001", "memes-media", 16)
+    category_channel = Channel("100", "1001", "cat", 4)
+    server = Server("1001", "Server 1")
+
+    cache = Cache(tmp_path / "cache.db")
+    cache.replace_servers([server])
+    cache.replace_channels("1001", [forum_channel, media_channel, category_channel])
+    directory = Directory(cache, lambda: DiscordAPI("tok"))
+
+    targets = service.resolve_targets(directory, "1001", ["help-forum", "memes-media"])
+    assert len(targets) == 2
+    assert targets[0][1].id == "204"
+    assert targets[1][1].id == "205"
+
+    with pytest.raises(DiscoopError) as exc:
+        service.resolve_targets(directory, "1001", ["100"])
+    assert exc.value.code == ExitCode.BAD_ARGS
+    assert "is a category, not a channel" in exc.value.message
+
+
+def test_threads_command_help():
+    threads_help = cli.command_help(("threads",))
+    assert "List the threads and forum posts of a channel" in threads_help
+    assert "--channel" in threads_help
+    assert "--from" in threads_help
+    assert "--refresh" in threads_help
+

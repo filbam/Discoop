@@ -5,8 +5,22 @@
     messages.jsonl        one JSON message per line
     channels/<name>.md    the same Markdown, one file per channel
     files/<name>/<attachment id>_<file name>
+    parts/part-NNN.md     only with `max_tokens`: messages.md split into parts (not in the manifest)
 
 Paths in messages.md and messages.jsonl are relative to the export folder, in channels/*.md to that file (`../files/…`).
+
+Threads (forum posts, threads of text channels) are nested in the result of their channel (`ChannelMessages.threads`)
+and stay with it: channels/<name>.md has a section per thread after the channel's own messages, messages.md the same,
+messages.jsonl is flat (the messages of the channel, then those of each thread; see `render.jsonout`). The files of a
+thread are saved in the folder of its channel. A channel and its threads are ONE unit: `ExportWriter.add_channel`
+writes, commits and resumes them together, and the manifest entry of the channel counts the threads (`threads`,
+`thread_messages`, only when there are some) and their files (`files`). There are no folders and no entries of their own
+for threads.
+
+With `max_tokens` the parts of messages.md (`split.split_markdown`) are made when the export is finished, into the
+staging folder, and published with everything else, in a folder and in a zip alike. So a crash leaves no `parts/` in the
+target, and publishing into a folder that holds an earlier export replaces its `parts/part-*.md` (they belong to the
+messages.md they were made from, so they go also when the new run has no `max_tokens`).
 
 A folder can be exported into again: saved files are reused (`present`), new ones downloaded, and the other files
 are written anew for this run. A zip has the same content; files from an older zip are reused as well. A folder or
@@ -76,11 +90,13 @@ from discoop.attachments import (
 from discoop.errors import DiscoopError, ExitCode
 from discoop.models import Attachment, Channel, ChannelMessages
 from discoop.render import Query, jsonout, text
+from discoop.split import split_markdown
 
 MANIFEST = "manifest.json"
 MESSAGES_MD = "messages.md"
 MESSAGES_JSONL = "messages.jsonl"
 CHANNELS_DIR = "channels"
+PARTS_DIR = "parts"
 TOOL = "discoop"
 STATUSES = (DOWNLOADED, PRESENT, FAILED, SKIPPED)
 SAVED = (DOWNLOADED, PRESENT)  # statuses of a file that is in the export
@@ -96,6 +112,8 @@ SKIP_REASONS = (SKIP_NO_ACCESS, SKIP_NOT_FOUND)
 class Options:
     files: bool = True  # False: --no-files
     max_file_size: int | None = None  # bytes; None: no limit
+    threads: bool = True  # False: --no-threads; part of the request, so it is part of the resume fingerprint
+    since_last: bool = False  # True: --since-last; likewise, a normal run must not continue it (or the reverse)
 
 
 @dataclass(frozen=True)
@@ -106,11 +124,17 @@ class SkippedChannel:
 
 @dataclass(frozen=True)
 class ChannelDone:
-    """A finished channel as the manifest of an unfinished export records it."""
+    """A finished channel as the manifest of an unfinished export records it.
+
+    `messages` are those posted in the channel itself, `files` include the files of its threads and `truncated` is
+    true if the channel or one of its threads was cut short; `threads` and `thread_messages` are 0 without threads.
+    """
 
     messages: int
     files: int
     truncated: bool
+    threads: int = 0
+    thread_messages: int = 0
 
 
 @dataclass(frozen=True)
@@ -191,6 +215,8 @@ def request_summary(
         "include_system": query.include_system,
         "files": options.files,
         "max_file_size": options.max_file_size,
+        "threads": options.threads,
+        "since_last": options.since_last,
     }
 
 
@@ -238,7 +264,13 @@ def find_unfinished(target: Path, fingerprint: str | None = None) -> Resume | No
         created = datetime.fromisoformat(data["created"])
         offsets = {name: int(data["offsets"][name]) for name in (MESSAGES_MD, MESSAGES_JSONL)}
         done = {
-            item["channel"]["id"]: ChannelDone(int(item["messages"]), int(item["files"]), bool(item["truncated"]))
+            item["channel"]["id"]: ChannelDone(
+                int(item["messages"]),
+                int(item["files"]),
+                bool(item["truncated"]),
+                int(item.get("threads", 0)),
+                int(item.get("thread_messages", 0)),
+            )
             for item in data["channels"]
         }
         skipped = {item["id"]: item["reason"] for item in data["skipped_channels"]}
@@ -315,6 +347,9 @@ class ExportWriter:
     Leaving the `with` block by an exception closes the writer with `complete=False`: the staging folder stays for
     the next run. Nothing but `close(complete=True)` touches the target. See the module docstring.
 
+    `max_tokens` makes `close(complete=True)` also write `parts/part-NNN.md` (messages.md in parts of at most that many
+    estimated tokens, no message split); `on_warning` is told about a message that is larger than that.
+
     Methods raise DiscoopError when they cannot write (ExitCode.ERROR), ValueError for a misuse.
     """
 
@@ -332,9 +367,14 @@ class ExportWriter:
         now: Callable[[], float] = time.time,
         sleep: Callable[[float], None] = time.sleep,
         progress: Progress | None = None,
+        max_tokens: int | None = None,
+        on_warning: Callable[[str], None] | None = None,
     ) -> None:
+        if max_tokens is not None and max_tokens < 1:
+            raise ValueError(f"max_tokens must be at least 1, got {max_tokens}")
         self.target = target
         self.as_zip = as_zip
+        self.max_tokens = max_tokens
         self.staging = staging_path(target)
         self.query = query
         self.options = options
@@ -344,6 +384,8 @@ class ExportWriter:
         self._now = now
         self._sleep = sleep  # pauses between attempts to rename a file; also the downloader's pauses
         self._progress = progress
+        self._on_warning = on_warning
+        self._parts: list[str] = []  # the parts of the finished export, relative to its root
         self._created = jsonout.iso_time(created, tz)
         self._opened = False
         self._closed = False
@@ -359,6 +401,7 @@ class ExportWriter:
         self._saved: list[ChannelMessages] = []
         self._offsets = {MESSAGES_MD: 0, MESSAGES_JSONL: 0}
         self._in_target: dict[str, list[Stored]] | None = None
+        self._in_zip: dict[str, list[int]] | None = None
 
     # -- state
 
@@ -432,7 +475,9 @@ class ExportWriter:
         """Download the files of a channel, append it to messages.md and messages.jsonl, write channels/<name>.md
         and save the manifest. Returns the jobs of the files first seen in this channel.
 
-        A channel that is not one of the targets is accepted and added to them (a thread found while fetching).
+        A channel that is not one of the targets is accepted and added to them. The threads of the channel are part
+        of `result` (`ChannelMessages.threads`): they are downloaded, written and recorded together with it, as one
+        unit, and are never added on their own.
         """
         self._require_open()
         channel = result.channel
@@ -477,6 +522,40 @@ class ExportWriter:
         self._skipped[channel.id] = reason
         with self._io():
             self._commit()
+
+    def bytes_to_download(self, result: ChannelMessages) -> int:
+        """The bytes `add_channel(result)` would still have to download, by the sizes Discord gives.
+
+        Left out are what is not downloaded: attachments already seen in this export (also those of a channel
+        finished by an earlier run), saved files that are reused (in the staging folder, in the target folder or in
+        the old zip, found by attachment ID and size), files over `max_file_size`, files without a download URL, and
+        everything with `--no-files`. An attachment that is in the channel and in its thread counts once.
+        """
+        if not self.options.files:
+            return 0
+        in_staging = stored_files(self.staging) if self.staging.is_dir() else {}
+        in_target = self._stored_in_target()
+        in_zip = self._stored_in_zip()
+        counted: set[str] = set()
+        needed = 0
+        for part in result.parts():
+            for message in part.messages:
+                for number, attachment in enumerate(message.attachments):
+                    key = attachment.id or f"{message.id}-{number}"
+                    if key in counted or key in self._seen:
+                        continue
+                    counted.add(key)
+                    if self.options.max_file_size is not None and attachment.size > self.options.max_file_size:
+                        continue
+                    if not attachment.url.startswith("https://"):
+                        continue
+                    job = FileJob(attachment, message.id, result.channel.id, "", attachment.url)
+                    if reuse_stored(job, in_staging) or reuse_stored(job, in_target):
+                        continue
+                    if any(attachment.size <= 0 or size == attachment.size for size in in_zip.get(attachment.id, [])):
+                        continue
+                    needed += max(attachment.size, 0)
+        return needed
 
     def close(self, complete: bool) -> Exported:
         """End the export. `complete=True` publishes it (every target must be added or skipped, else ValueError);
@@ -559,6 +638,19 @@ class ExportWriter:
         if channel.id not in self._target_ids:
             self._target_ids.append(channel.id)
 
+    def _stored_in_target(self) -> dict[str, list[Stored]]:
+        """The files of an earlier export in the target folder, by attachment ID (read once: the target does not
+        change before the export is published). None for a zip."""
+        if self._in_target is None:
+            self._in_target = stored_files(self.target) if not self.as_zip and self.target.is_dir() else {}
+        return self._in_target
+
+    def _stored_in_zip(self) -> dict[str, list[int]]:
+        """The sizes of the files in the old zip at the target, by attachment ID (read once, in one pass)."""
+        if self._in_zip is None:
+            self._in_zip = _zip_files(self.target) if self.as_zip and self.target.is_file() else {}
+        return self._in_zip
+
     def _fetch(self, jobs: list[FileJob]) -> None:
         """Get the files into the staging folder: reuse the saved ones, download the rest."""
         if not jobs:
@@ -571,10 +663,9 @@ class ExportWriter:
             if self.target.is_file():
                 _reuse_zip(self.target, self.staging, jobs)
         else:
-            if self._in_target is None:
-                self._in_target = stored_files(self.target) if self.target.is_dir() else {}
+            in_target = self._stored_in_target()
             for job in jobs:
-                reuse_stored(job, self._in_target)  # files of an earlier export stay where they are
+                reuse_stored(job, in_target)  # files of an earlier export stay where they are
         todo = [job for job in jobs if job.status == PENDING]
         downloader = Downloader(
             self._api, self._cdn, self.staging, now=self._now, sleep=self._sleep, progress=self._progress
@@ -628,12 +719,7 @@ class ExportWriter:
             "targets": list(self._target_ids),
             "skipped_channels": [{"id": item.id, "reason": item.reason} for item in skipped],
             "truncated": any(item["truncated"] for item in channels),
-            "counts": {
-                "channels": len(channels),
-                "messages": sum(item["messages"] for item in channels),
-                "files": len(jobs),
-            }
-            | {status: sum(1 for job in jobs if job.status == status) for status in STATUSES},
+            "counts": self._counts(channels, jobs),
             "channels": channels,
             "attachments": [
                 {
@@ -653,6 +739,21 @@ class ExportWriter:
             data["offsets"] = dict(self._offsets)  # bytes of messages.md and messages.jsonl that are finished channels
         return data
 
+    @staticmethod
+    def _counts(channels: Sequence[Mapping[str, Any]], jobs: Sequence[FileJob]) -> dict[str, Any]:
+        """Totals for the manifest. `threads` and `thread_messages` appear only if some channel has threads, so an
+        export without them has exactly the counts it had before threads existed."""
+        counts: dict[str, Any] = {
+            "channels": len(channels),
+            "messages": sum(item["messages"] for item in channels),
+        }
+        threads = sum(item.get("threads", 0) for item in channels)
+        if threads:
+            counts["threads"] = threads
+            counts["thread_messages"] = sum(item.get("thread_messages", 0) for item in channels)
+        counts["files"] = len(jobs)
+        return counts | {status: sum(1 for job in jobs if job.status == status) for status in STATUSES}
+
     def _abandon(self) -> Exported:
         keep = bool(self._summaries or self._skipped or self._resumed)
         if keep:
@@ -668,6 +769,7 @@ class ExportWriter:
                 MESSAGES_MD: self._append(MESSAGES_MD, "\n"),
                 MESSAGES_JSONL: self._append(MESSAGES_JSONL, ""),
             }
+        self._parts = self._write_parts()
         data = self._manifest(complete=True, interrupted=False, offsets=False)
         final = _dumps(data)
         keep = self._keep()
@@ -694,7 +796,25 @@ class ExportWriter:
         keep = {MANIFEST, MESSAGES_MD, MESSAGES_JSONL}
         keep.update(item["markdown"] for item in self._summaries.values())
         keep.update(job.path for job in self.jobs if job.status in SAVED)
+        keep.update(self._parts)
         return keep
+
+    def _write_parts(self) -> list[str]:
+        """Split the finished messages.md into parts in the staging folder; returns their paths. Parts that an earlier
+        attempt to finish left there are deleted first, so no part of another split stays."""
+        folder = self.staging / PARTS_DIR
+        for old in folder.glob("part-*.md") if folder.is_dir() else ():
+            old.unlink()
+        if self.max_tokens is None:
+            return []
+        markdown = (self.staging / MESSAGES_MD).read_bytes().decode("utf-8")
+        names = []
+        for number, part in enumerate(split_markdown(markdown, self.max_tokens, on_warning=self._on_warning), 1):
+            name = f"{PARTS_DIR}/part-{number:03d}.md"
+            folder.mkdir(exist_ok=True)
+            (self.staging / name).write_bytes(part.encode("utf-8"))
+            names.append(name)
+        return names
 
     def _publish_zip(self, keep: set[str], final: str) -> None:
         """Build the zip in the staging folder and put it in place with one rename."""
@@ -744,8 +864,24 @@ class ExportWriter:
                 old.unlink()
         replace_file(self.staging / MESSAGES_MD, target / MESSAGES_MD, sleep=self._sleep)
         replace_file(self.staging / MESSAGES_JSONL, target / MESSAGES_JSONL, sleep=self._sleep)
+        self._publish_parts()
         _atomic_write(target / MANIFEST, final, self._sleep)
         self._discard_staging(final)
+
+    def _publish_parts(self) -> None:
+        """Replace the `parts/part-*.md` of an earlier export in the target by the parts of this one (or by none)."""
+        folder = self.target / PARTS_DIR
+        names = {PurePosixPath(name).name for name in self._parts}
+        if names:
+            folder.mkdir(exist_ok=True)
+        for name in sorted(names):
+            replace_file(self.staging / PARTS_DIR / name, folder / name, sleep=self._sleep)
+        if folder.is_dir():
+            for old in folder.glob("part-*.md"):
+                if old.name not in names:
+                    old.unlink()
+            with contextlib.suppress(OSError):
+                folder.rmdir()  # only an empty folder goes
 
     def _discard_staging(self, final: str) -> None:
         """Delete the staging folder of a published export. If Windows will not let it go, the leftover says so."""
@@ -794,21 +930,38 @@ def export(
 
 
 def with_paths(results: Sequence[ChannelMessages], jobs: Sequence[FileJob]) -> list[ChannelMessages]:
-    """The messages with `path` set on every attachment that is saved."""
+    """The messages, also those of the threads, with `path` set on every attachment that is saved."""
     paths = {job.attachment.id: job.path for job in jobs if job.status in SAVED and job.attachment.id}
-    out = []
-    for result in results:
-        messages = tuple(
-            replace(m, attachments=tuple(replace(a, path=paths.get(a.id)) for a in m.attachments))
-            if m.attachments
-            else m
-            for m in result.messages
-        )
-        out.append(replace(result, messages=messages))
-    return out
+    return [_with_paths(result, paths) for result in results]
+
+
+def _with_paths(result: ChannelMessages, paths: Mapping[str, str]) -> ChannelMessages:
+    messages = tuple(
+        replace(m, attachments=tuple(replace(a, path=paths.get(a.id)) for a in m.attachments))
+        if m.attachments
+        else m
+        for m in result.messages
+    )
+    return replace(result, messages=messages, threads=tuple(_with_paths(t, paths) for t in result.threads))
 
 
 # --- helpers ---------------------------------------------------------------------------------------
+
+
+def _zip_files(path: Path) -> dict[str, list[int]]:
+    """The saved files in a zip (`files/<folder>/<attachment id>_<name>`) as their sizes by attachment ID. A zip that
+    cannot be read has none."""
+    found: dict[str, list[int]] = {}
+    try:
+        with zipfile.ZipFile(path) as archive:
+            for info in archive.infolist():
+                parts = PurePosixPath(info.filename).parts
+                match = STORED_NAME.match(parts[-1]) if len(parts) >= 3 and parts[0] == FILES_DIR else None
+                if match and not info.is_dir():
+                    found.setdefault(match.group(1), []).append(info.file_size)
+    except (zipfile.BadZipFile, OSError):
+        return {}
+    return found
 
 
 def _reuse_zip(old: Path, staging: Path, jobs: Sequence[FileJob]) -> None:

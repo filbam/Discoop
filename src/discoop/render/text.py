@@ -19,6 +19,25 @@ A file saved by an export shows its path instead of the URL: `[file] zadanie.pdf
 Markdown has the same lines with a `# server / #channel` heading, a blank line between messages and `- ` instead of
 the two-space indent, so the details form a list. A saved file is a link, an image is shown inline:
 `- [file] ![graf.png](files/isc-public/<id>_graf.png) 120KB`. Message texts stay as they are: Discord uses Markdown.
+
+Threads (forum posts, threads of text channels) follow the messages of their channel, one section each, in the given
+order. The channel header gets `threads: N (M messages)` between `messages:` and `files:`, and `files:` then counts
+the files of the threads too; `messages:` stays the number of messages posted in the channel itself:
+
+    === VUT FIT / #help-center ===
+    range: 2026-11-02 12:00 .. 2026-11-03 12:00 (UTC+01:00) | messages: 0 | threads: 1 (2 messages) | files: 1
+
+    --- thread "Projekt 1" ---
+    created: 2026-11-02 14:05 | last activity: 2026-11-03 09:12 | messages: 2 | files: 1 | tags: Otazka | archived: yes
+
+    [2026-11-02 14:05] Student A (@student_a)
+    ...
+
+A section has the thread's own header line (what is not known is left out; `archived`, `locked` and `truncated` show
+only when true; tag names come from the forum, tags it no longer lists are dropped). In Markdown the heading is
+`## thread "name"`. A forum without messages of its own has no `(no messages)` line, only its threads. The
+`[thread]` line of the message that started a thread stays as it is. A channel without threads renders exactly
+as it did before threads existed.
 """
 
 import re
@@ -60,13 +79,46 @@ def lines(
         out.append([(f"# {title}" if markdown else f"=== {title} ===", "bold")])
         out.append([(_summary(result, query, tz), "dim")])
         out.append([])
-        if not result.messages:
+        if not result.messages and not result.threads:
             out.append([("(no messages)", "dim")])
-        for number, message in enumerate(result.messages):
-            if spaced and number:
+        out += _messages(result.messages, tz, spaced, markdown, link_prefix)
+        for thread in result.threads:
+            if out[-1]:
                 out.append([])
-            out += _message(message, tz, markdown, link_prefix)
+            out += _thread(result, thread, query, tz, spaced, markdown, link_prefix)
     return out
+
+
+def _messages(
+    messages: Sequence[Message], tz: tzinfo | None, spaced: bool, markdown: bool, link_prefix: str
+) -> list[Line]:
+    out: list[Line] = []
+    for number, message in enumerate(messages):
+        if spaced and number:
+            out.append([])
+        out += _message(message, tz, markdown, link_prefix)
+    return out
+
+
+def _thread(
+    parent: ChannelMessages,
+    thread: ChannelMessages,
+    query: Query,
+    tz: tzinfo | None,
+    spaced: bool,
+    markdown: bool,
+    link_prefix: str,
+) -> list[Line]:
+    """A thread's section: heading, its header line, a blank line and the messages like those of a channel."""
+    name = thread.channel.name
+    out: list[Line] = [
+        [(f'## thread "{name}"' if markdown else f'--- thread "{name}" ---', "bold")],
+        [(_thread_summary(parent, thread, query, tz), "dim")],
+        [],
+    ]
+    if not thread.messages:
+        out.append([("(no messages)", "dim")])
+    return out + _messages(thread.messages, tz, spaced, markdown, link_prefix)
 
 
 def plain(results: Sequence[ChannelMessages], query: Query, tz: tzinfo | None = None) -> str:
@@ -94,8 +146,30 @@ def _summary(result: ChannelMessages, query: Query, tz: tzinfo | None) -> str:
     if query.last is not None:
         parts.append(f"last: {query.last}")
     parts.append(f"messages: {len(result.messages)}")
+    if result.threads:
+        parts.append(f"threads: {len(result.threads)} ({result.thread_message_count} messages)")
     parts.append(f"files: {result.file_count}")
     if result.truncated:
+        parts.append(f"truncated: yes (--max-messages {query.max_messages})")
+    return " | ".join(parts)
+
+
+def _thread_summary(parent: ChannelMessages, thread: ChannelMessages, query: Query, tz: tzinfo | None) -> str:
+    """The header line of a thread: times, counts, forum tags and the flags that are set."""
+    meta = thread.thread
+    parts = []
+    if meta is not None:
+        parts += [f"created: {_time(meta.created, tz)}", f"last activity: {_time(meta.last_activity, tz)}"]
+    parts += [f"messages: {len(thread.messages)}", f"files: {thread.file_count}"]
+    if meta is not None:
+        tags = parent.channel.tag_names(meta.applied_tags)
+        if tags:
+            parts.append("tags: " + ", ".join(tags))
+        if meta.archived:
+            parts.append("archived: yes")
+        if meta.locked:
+            parts.append("locked: yes")
+    if thread.truncated:
         parts.append(f"truncated: yes (--max-messages {query.max_messages})")
     return " | ".join(parts)
 

@@ -26,7 +26,9 @@ from fake_messages import (
     signed_url,
 )
 
-SOON = NOW + timedelta(hours=20)
+# These tests run through the CLI, which reads the real clock: a URL that is "still valid" must not run out on
+# the day the tests are run (with +20 hours it did, 2026-11-04 07:00 UTC, and the tests started to fail).
+SOON = NOW + timedelta(days=3650)
 PDF, PNG, SCRIPT, NOTE = "800000000000000001", "800000000000000002", "800000000000000003", "800000000000000004"
 PDF_PATH = f"files/2bit-general/{PDF}_zadanie.pdf"
 PNG_PATH = f"files/2bit-general/{PNG}_graf (1).png"
@@ -131,7 +133,16 @@ def test_out_folder(capsys, env):
     root = env.tmp / "exports" / "fit"
     assert (code, err) == (0, "")
     assert out.splitlines() == [
-        f"export: {root}", *SUMMARY, "downloaded: 4", "already_present: 0", "failed: 0", "skipped: 0", "truncated: no"
+        f"export: {root}",
+        "channels: 2",
+        "messages: 4",
+        "tokens: ~186 (estimate, about 4 characters per token)",
+        "files: 4",
+        "downloaded: 4",
+        "already_present: 0",
+        "failed: 0",
+        "skipped: 0",
+        "truncated: no",
     ]
     saved = files_in(root)
     assert sorted(saved) == sorted(ALL_FILES)
@@ -201,9 +212,9 @@ def test_expired_urls_are_refreshed_in_batches_before_downloading(capsys, env):
     assert code == 0 and "downloaded: 60" in out
     assert [len(batch) for batch in env.discord.refresh_batches] == [50, 10]
     assert len(env.cdn.requests) == 60 and all(r.url.params["hm"] == "fresh" for r in env.cdn.requests)
-    # API requests (servers, channels, messages, 2 refreshes) keep the configured delay between them.
+    # API requests (servers, channels, messages, 2 thread searches, 2 refreshes) keep the configured delay between them.
     api_requests = sum(env.discord.calls.values())
-    assert api_requests == 5 and len(env.sleeps) == api_requests - 1 and min(env.sleeps) > 0.5
+    assert api_requests == 7 and len(env.sleeps) == api_requests - 1 and min(env.sleeps) > 0.5
 
 
 def test_url_refused_by_the_cdn_is_refreshed(capsys, env):
@@ -211,18 +222,22 @@ def test_url_refused_by_the_cdn_is_refreshed(capsys, env):
     code, out, err = export(capsys, "--out", "exports/fit")
     assert (code, err) == (0, "")
     assert "downloaded: 4" in out
-    assert [len(batch) for batch in env.discord.refresh_batches] == [4]
+    assert [len(batch) for batch in env.discord.refresh_batches] == [3, 1]
+
+
+FAILED_FILE_WARNING = (
+    "WARNING: 1 of 4 files could not be downloaded; manifest.json lists them as failed:"
+    " ../../evil:name?.sh (HTTP 404 (also after refreshing the URL))."
+)
 
 
 def test_failed_file_does_not_stop_the_export(capsys, env):
     env.cdn.missing.add(f"/attachments/200/{SCRIPT}/evil_name.sh")
     code, out, err = export(capsys, "--out", "exports/fit")
-    assert code == 0
+    assert code == 9
     assert "downloaded: 3" in out and "failed: 1" in out
-    assert err == (
-        "WARNING: 1 of 4 files could not be downloaded; manifest.json lists them as failed:"
-        " ../../evil:name?.sh (HTTP 404 (also after refreshing the URL)).\n"
-    )
+    # Without --verbose the plain mode prints the warning only; the partial-result note is a verbose one
+    assert err == FAILED_FILE_WARNING + "\n"
     root = env.tmp / "exports" / "fit"
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     failed = [a for a in manifest["attachments"] if a["status"] == "failed"]
@@ -235,6 +250,18 @@ def test_failed_file_does_not_stop_the_export(capsys, env):
     assert "- [file] ../../evil:name?.sh 232B https://cdn.discordapp.com/attachments/200/" in md  # the URL instead
 
 
+def test_failed_file_ends_the_verbose_report_with_the_partial_result_note(capsys, env):
+    env.cdn.missing.add(f"/attachments/200/{SCRIPT}/evil_name.sh")
+    code, out, err = run(capsys, "-v", "messages", "-s", FIT, "-c", "200", "-c", "202", "--out", "exports/fit")
+    assert code == 9
+    assert err.splitlines()[-3:] == [
+        FAILED_FILE_WARNING,
+        "Messages from the last 24 hours. For more use --from 7d, --from 2026-10-01 or --from all.",
+        "Partial result (exit code 9): 1 file not downloaded."
+        " Run the same command again to try them again; files already saved are not downloaded again.",
+    ]
+
+
 def test_download_error_marks_file_failed_and_export_continues(capsys, env):
     orig_handle = env.cdn.handle
 
@@ -245,7 +272,7 @@ def test_download_error_marks_file_failed_and_export_continues(capsys, env):
 
     env.cdn.handle = cdn_handle
     code, out, err = export(capsys, "--out", "exports/fit")
-    assert code == 0
+    assert code == 9
     assert "downloaded: 3" in out and "failed: 1" in out
     assert "Exceeded maximum allowed redirects" in err
     root = env.tmp / "exports" / "fit"
@@ -344,7 +371,8 @@ def test_print_puts_messages_on_stdout_and_the_summary_on_stderr(capsys, env):
     assert out.startswith("=== VUT FIT / #2bit-general ===\n")
     assert f"\n  [file] zadanie.pdf 232B {PDF_PATH}\n" in out
     assert f"Exported to {env.tmp / 'exports' / 'fit'}: 2 channels, 4 messages, 4 files (4 downloaded," in err
-    assert "Downloading 4/4: files/2bit-terminy/" in err  # --verbose progress
+    assert "Downloading 3/3: files/2bit-general/" in err  # --verbose progress
+    assert "Downloading 1/1: files/2bit-terminy/" in err
     code, out, _ = export(capsys, "--out", "exports/fit", "--print", "--format", "json")
     assert json.loads(out)["messages"][0]["attachments"][0]["path"] == PDF_PATH
 

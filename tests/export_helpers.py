@@ -4,7 +4,8 @@ Names, texts and files are made up. Nothing here talks to the real Discord or it
 """
 
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -13,7 +14,7 @@ import httpx
 from discoop import export as export_module
 from discoop.api import DiscordAPI
 from discoop.attachments import PART, Progress, cdn_client, channel_folders, plan
-from discoop.models import Attachment, Author, Channel, ChannelMessages, Message, Server
+from discoop.models import Attachment, Author, Channel, ChannelMessages, ForumTag, Message, Server, Thread
 from discoop.render import Query, jsonout, text
 from discoop.snowflake import Window
 from fake_messages import CET, FIT, NOW, FakeCDN, FakeDiscord, Network, signed_url
@@ -28,6 +29,8 @@ GENERAL = Channel("200", FIT, "2bit-general", 0)
 TERMINY = Channel("202", FIT, "2bit-terminy", 0)
 INFO = Channel("203", FIT, "2bit-info", 0)
 CHANNELS = [GENERAL, TERMINY, INFO]
+SOLVED, QUESTION = ForumTag("910", "Solved"), ForumTag("911", "Question")
+FORUM = Channel("210", FIT, "2bit-forum", 15, available_tags=(SOLVED, QUESTION))
 
 # Attachment IDs and file names per channel. SHARED is posted in two channels (e.g. forwarded) and saved once.
 SHARED = "800000000000000003"
@@ -85,6 +88,55 @@ class Lab:
     def results(self, channels: list[Channel] | None = None) -> list[ChannelMessages]:
         return [self.result(c, FILES.get(c.id), texts=(f"text of {c.name}",)) for c in channels or CHANNELS]
 
+    def thread(
+        self,
+        parent: Channel,
+        thread_id: str,
+        name: str,
+        files: list[tuple[str, str]] | None = None,
+        *,
+        texts: tuple[str, ...] = ("reply",),
+        tags: Sequence[str] = (),
+        archived: bool = False,
+        locked: bool = False,
+        truncated: bool = False,
+        known: bool = True,
+    ) -> ChannelMessages:
+        """A thread of `parent` as `ChannelMessages` reads it: its own messages, `thread` set (`known=False`: not)."""
+        info = Thread(
+            thread_id,
+            parent.id,
+            name,
+            11,
+            created=NOW - timedelta(hours=3),
+            last_activity=NOW - timedelta(hours=1),
+            archived=archived,
+            locked=locked,
+            applied_tags=tuple(tags),
+        )
+        nested = self.result(info.as_channel(parent.server_id), files, texts=texts)
+        return replace(nested, truncated=truncated, thread=info if known else None)
+
+    def threaded_results(self) -> list[ChannelMessages]:
+        """Three channels: GENERAL with two threads, a forum with two posts and no messages of its own, TERMINY with
+        none. SHARED is posted in GENERAL and in one of its threads."""
+        general = self.result(GENERAL, FILES["200"], texts=("text of 2bit-general",))
+        notes = self.thread(GENERAL, "7001", "poznamky", [("800000000000000011", "poznamky.txt")], texts=("a", "b"))
+        shared = self.thread(
+            GENERAL, "7002", "graf", [(SHARED, "graf (1).png"), ("800000000000000012", "vysledky.csv")], archived=True
+        )
+        forum = ChannelMessages(SERVER, FORUM, ())
+        posts = (
+            self.thread(FORUM, "8001", "Ako na projekt?", [("800000000000000013", "priloha.zip")], tags=("910",)),
+            self.thread(FORUM, "8002", "Termin", texts=("odpoved", "dakujem"), tags=("911", "999"), locked=True),
+        )
+        terminy = self.result(TERMINY, FILES["202"], texts=("text of 2bit-terminy",))
+        return [
+            replace(general, threads=(notes, shared)),
+            replace(forum, threads=posts),
+            terminy,
+        ]
+
     def api(self) -> DiscordAPI:
         return DiscordAPI("tok", transport=self.transport, sleep=lambda s: None)
 
@@ -98,6 +150,8 @@ class Lab:
         sleep: Callable[[float], None] | None = None,
         progress: Progress | None = None,
         created: datetime = NOW,
+        max_tokens: int | None = None,
+        on_warning: Callable[[str], None] | None = None,
     ) -> export_module.ExportWriter:
         return export_module.ExportWriter(
             target,
@@ -111,6 +165,8 @@ class Lab:
             now=NOW.timestamp,
             sleep=sleep or self.sleeps.append,
             progress=progress,
+            max_tokens=max_tokens,
+            on_warning=on_warning,
         )
 
     def export_all(self, target: Path, as_zip: bool, results: list[ChannelMessages], **kw) -> export_module.Exported:

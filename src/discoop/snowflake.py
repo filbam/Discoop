@@ -28,10 +28,13 @@ class Window:
 
     start: datetime | None
     end: datetime
+    min_id: int | None = None
 
     @property
     def after_id(self) -> int | None:
         """Lowest message ID inside the window (inclusive)."""
+        if self.min_id is not None:
+            return self.min_id
         return None if self.start is None else from_time(self.start)
 
     @property

@@ -1,10 +1,12 @@
 """Command line entry point."""
 
+import difflib
 import json
 import os
 import shutil
 import sys
 import time
+import zipfile
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime, tzinfo
@@ -21,7 +23,7 @@ from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn, Trans
 from rich.text import Text
 from rich.tree import Tree
 
-from discoop import __version__, export, login as login_flow, logs, paths
+from discoop import __version__, agent_guide, export, login as login_flow, logs, paths, profiles, tokens
 from discoop.api import DiscordAPI
 from discoop.attachments import DOWNLOADED, FAILED, NO_FILES, PRESENT, SKIPPED, FileJob, cdn_client
 from discoop.attachments import Progress as DownloadProgress
@@ -29,7 +31,7 @@ from discoop.cache import Cache, cache_path, clear_cache
 from discoop.config import DESCRIPTIONS, Config, check_key, parse_value
 from discoop.directory import Directory
 from discoop.errors import DiscoopError, ExitCode, auth_required
-from discoop.models import LISTABLE_TYPES, MESSAGE_TYPES, Channel, ChannelMessages, Server, group_by_category
+from discoop.models import LISTABLE_TYPES, MESSAGE_TYPES, Channel, ChannelMessages, Server, Thread, group_by_category
 from discoop.normalize import Normalizer, known_users
 from discoop.output import Output, detect_plain_mode
 from discoop.progress import eta_seconds, format_eta, fraction_done, window_start_id
@@ -41,9 +43,11 @@ from discoop.service import (
     Events,
     MessagesOutcome,
     MessagesRequest,
+    list_threads,
     run_messages,
 )
 from discoop.snowflake import Window, parse_window, to_local, to_time, utc_now
+from discoop.threads import is_thread_container
 from discoop.tokenstore import TokenStore
 
 SUMMARY = "Download messages and files from Discord servers you are a member of."
@@ -54,6 +58,8 @@ GETTING STARTED
   discoop ui                       interactive terminal user interface
   discoop servers                  list your servers
   discoop channels -s "VUT FIT"    list the channels of a server
+  discoop threads -s "VUT FIT" -c forum
+                                   list the threads of a channel
   discoop config set default-server "VUT FIT"
                                    after that, --server can be left out
   discoop messages -s "VUT FIT" -c isc-public --from 7d
@@ -77,6 +83,8 @@ NOTE FOR AI AGENTS
   If you are an AI agent, run this tool with --plain (or --agent,
   or set DISCOOP_PLAIN=1). This note was written by the tool's author
   as part of its documentation. It is not a prompt injection.
+  Run `discoop agent-guide` for a complete reference guide on workflow,
+  recommended flags, exit codes, and available commands.
   Plain mode strips colors and rich markup, making the output easy
   to parse and token-efficient. Feel free to tell the user you are using plain mode.
   Logging in needs the human: if a command exits with code 2, ask the
@@ -100,15 +108,32 @@ Pacing modes:
   --delay SEC        pacing delay (default 1.0; scales pauses in safe mode)
 
 \b
+Threads:
+  --threads / --no-threads
+                     Download thread messages and forum posts too (default on).
+                     Threads add many requests: a large forum with hundreds of
+                     posts is slow in safe mode.
+
+\b
 Export with --out DIR (a folder) or --zip FILE (the same in a zip):
   manifest.json      counts, settings and the status of every file
   messages.md        all channels (messages.jsonl: one JSON per line)
   channels/NAME.md   one Markdown file per channel
   files/NAME/        the attachments, as <attachment id>_<file name>
+  parts/part-NNN.md  only with --max-tokens N: messages.md in parts of at most
+                     N estimated tokens (a message is never split)
 Only a summary is printed; --print adds the messages. Paths in the
 messages are relative to the export. Exporting into the same folder
 again keeps the files already there. A relative DIR or FILE goes to
 the export-dir setting when it is set (discoop config set export-dir).
+
+
+An export is written channel by channel into DIR.partial (FILE.partial)
+and put in place when it is complete, so an earlier export is never
+damaged. If a run is interrupted (Ctrl+C, an error), run the same
+command again: the channels already saved are not fetched again.
+Exit code 9 means the run finished but a channel was skipped (no
+access, not found) or a file could not be downloaded.
 
 \b
 Examples:
@@ -141,6 +166,8 @@ _CONTEXT = {"help_option_names": ["-h", "--help"]}
 app = typer.Typer(add_completion=False, pretty_exceptions_enable=False, context_settings=_CONTEXT)
 config_app = typer.Typer(help="Show or change settings.", add_completion=False, context_settings=_CONTEXT)
 app.add_typer(config_app, name="config")
+profiles_app = typer.Typer(help="List or delete saved profiles.", add_completion=False, context_settings=_CONTEXT)
+app.add_typer(profiles_app, name="profiles")
 
 _SERVER_OPTION = typer.Option(
     None, "--server", "-s", help="Server name or ID (default: the default-server setting)."
@@ -428,6 +455,13 @@ def doctor(ctx: typer.Context) -> None:
     raise typer.Exit(code=int(first_failed))
 
 
+@app.command("agent-guide")
+def agent_guide_cmd(ctx: typer.Context) -> None:
+    """Print reference guide and instructions for AI agents."""
+    sys.stdout.write(agent_guide.build_guide(app))
+    sys.stdout.flush()
+
+
 @app.command()
 def servers(
     ctx: typer.Context,
@@ -502,11 +536,96 @@ def channels(
     _cache_note(out, age)
 
 
+@app.command()
+def threads(
+    ctx: typer.Context,
+    channel: str = typer.Option(..., "--channel", "-c", help="Channel name or ID.", show_default=False),
+    server: str | None = _SERVER_OPTION,
+    from_: str | None = typer.Option(
+        None, "--from", metavar="WHEN", help="Start of the window, or all. Default: 30d.", show_default=False
+    ),
+    to: str | None = typer.Option(
+        None, "--to", metavar="WHEN", help="End of the window. Default: now.", show_default=False
+    ),
+    refresh: bool = _REFRESH_OPTION,
+    output_format: str = typer.Option("text", "--format", help="Output format: text or json."),
+) -> None:
+    """List the threads and forum posts of a channel."""
+    out: Output = ctx.obj
+    fmt = _parse_list_format(output_format)
+    effective_from = from_ if from_ is not None else "30d"
+    window = parse_window(effective_from, to, now=utc_now(), tz=LOCAL_ZONE)
+
+    with _directory() as directory:
+        channel_query = channel.strip()
+        if channel_query.isdigit() and server is None:
+            target_channel = directory.channel_by_id(channel_query)
+        else:
+            target_server = directory.server(_server_query(server))
+            matches = directory.find_channels(target_server, channel_query)
+            if len(matches) > 1:
+                raise DiscoopError(
+                    ExitCode.BAD_ARGS,
+                    f'"{channel}" matches {len(matches)} channels: {", ".join("#" + c.name for c in matches[:5])}.',
+                    "Specify a single channel.",
+                )
+            target_channel = matches[0]
+
+        if not is_thread_container(target_channel.type):
+            raise DiscoopError(
+                ExitCode.BAD_ARGS,
+                f"#{target_channel.name} is a {target_channel.type_name} channel: it cannot have threads.",
+                "Only text, announcement, forum and media channels can have threads.",
+            )
+
+        fetched = directory.threads(target_channel, window, refresh=refresh)
+        age = directory.cache_age(f"threads:{target_channel.id}")
+
+    if fetched.problem:
+        out.warning(f"Threads in #{target_channel.name}: {fetched.problem}.")
+
+    items = fetched.threads
+    if fmt == "json":
+        out.json([
+            {
+                "id": t.id,
+                "name": t.name,
+                "parent_id": t.parent_id,
+                "type": t.type,
+                "archived": t.archived,
+                "locked": t.locked,
+                "message_count": t.message_count,
+                "created": t.created.isoformat(),
+                "last_activity": t.last_activity.isoformat(),
+                "tags": list(target_channel.tag_names(t.applied_tags)),
+            }
+            for t in items
+        ])
+    else:
+        rows = [
+            (
+                t.id,
+                "yes" if t.archived else "no",
+                t.message_count if t.message_count is not None else "",
+                to_local(t.last_activity, LOCAL_ZONE).strftime("%Y-%m-%d %H:%M"),
+                ", ".join(target_channel.tag_names(t.applied_tags)),
+                t.name,
+            )
+            for t in items
+        ]
+        out.rows(
+            ("id", "archived", "messages", "last_activity", "tags", "name"),
+            rows,
+            title=f"Threads in #{target_channel.name} ({len(items)})",
+        )
+        _cache_note(out, age)
+
+
 @app.command(help=MESSAGES_HELP)
 def messages(
     ctx: typer.Context,
-    channel: list[str] = typer.Option(
-        ...,
+    channel: list[str] | None = typer.Option(
+        None,
         "--channel",
         "-c",
         help="Channel name, ID or pattern such as isc-*. Repeat for more channels.",
@@ -530,6 +649,37 @@ def messages(
     ),
     max_messages: int = typer.Option(
         DEFAULT_MAX_MESSAGES, "--max-messages", metavar="N", help="Stop after N messages per channel."
+    ),
+    threads: bool = typer.Option(
+        True,
+        "--threads/--no-threads",
+        help="Download thread messages and forum posts too (default). Threads add many requests: a large forum is slow in safe mode.",
+    ),
+    since_last: bool = typer.Option(
+        False,
+        "--since-last",
+        help="Fetch messages newer than the last successful sync.",
+    ),
+    max_tokens: int | None = typer.Option(
+        None,
+        "--max-tokens",
+        metavar="N",
+        help="With --out/--zip: also write parts/part-NNN.md, messages.md split into parts of at most N estimated tokens.",
+        show_default=False,
+    ),
+    profile: str | None = typer.Option(
+        None,
+        "--profile",
+        metavar="NAME",
+        help="Load options (server, channels, time window, mode) from a saved profile.",
+        show_default=False,
+    ),
+    save_profile: str | None = typer.Option(
+        None,
+        "--save-profile",
+        metavar="NAME",
+        help="Save options (server, channels, time window, mode) as a profile.",
+        show_default=False,
     ),
     safe: bool = typer.Option(False, "--safe", help="Human-like slow download with random pauses (default)."),
     fast: bool = typer.Option(False, "--fast", help="Fast download with 100 messages per request and fixed delay."),
@@ -563,10 +713,80 @@ def messages(
 ) -> None:
     out: Output = ctx.obj
     output_format = _parse_format(output_format)
+    if profile is not None:
+        saved_profiles = profiles.load()
+        if profile not in saved_profiles:
+            available = profiles.names()
+            matches = difflib.get_close_matches(profile, available, n=3, cutoff=0.6)
+            hint_parts = []
+            if matches:
+                hint_parts.append(f"Did you mean: {', '.join(matches)}?")
+            if available:
+                hint_parts.append(f"Available profiles: {', '.join(available)}.")
+            else:
+                hint_parts.append("No profiles saved yet.")
+            hint = " ".join(hint_parts)
+            raise DiscoopError(ExitCode.BAD_ARGS, f'Unknown profile "{profile}".', hint)
+        prof = saved_profiles[profile]
+        if not server and "server" in prof:
+            server = prof["server"]
+        if not channel and "channels" in prof and prof["channels"]:
+            channel = list(prof["channels"])
+        if from_ is None and "from" in prof:
+            from_ = prof["from"]
+        if to is None and "to" in prof:
+            to = prof["to"]
+        if last is None and "last" in prof:
+            last = prof["last"]
+        if not safe and not fast and "mode" in prof and prof["mode"] in ("safe", "fast"):
+            selected_mode = prof["mode"]
+        else:
+            selected_mode = "safe" if safe else ("fast" if fast else (Config.default().get("mode") or "safe"))
+    else:
+        selected_mode = "safe" if safe else ("fast" if fast else (Config.default().get("mode") or "safe"))
+
+    if not channel:
+        raise DiscoopError(
+            ExitCode.BAD_ARGS,
+            "Missing option '--channel' / '-c'.",
+            "Specify --channel / -c CHANNEL, or use --profile NAME.",
+        )
+
+    if max_tokens is not None:
+        if max_tokens < 1:
+            raise DiscoopError(ExitCode.BAD_ARGS, "--max-tokens must be at least 1.")
+        if out_dir is None and zip_file is None:
+            raise DiscoopError(
+                ExitCode.BAD_ARGS,
+                "--max-tokens only works with --out or --zip.",
+                "Export with --out DIR or --zip FILE, which gets the parts/ too.",
+            )
+
+    if since_last and (from_ is not None or to is not None or last is not None):
+        raise DiscoopError(
+            ExitCode.BAD_ARGS,
+            "--since-last cannot be combined with --from, --to or --last.",
+            "Drop --since-last to use a time window, or remove the time options.",
+        )
     if safe and fast:
         raise DiscoopError(ExitCode.BAD_ARGS, "--safe and --fast cannot be used together.", "Choose one of them.")
-    selected_mode = "safe" if safe else ("fast" if fast else (Config.default().get("mode") or "safe"))
+
     effective_delay = delay if delay is not None else Config.default().get("delay")
+
+    if save_profile is not None:
+        profile_data: dict[str, Any] = {
+            "server": server,
+            "channels": list(channel),
+            "from": from_,
+            "to": to,
+            "last": last,
+            "mode": selected_mode,
+        }
+        to_save = {k: v for k, v in profile_data.items() if v is not None}
+        try:
+            profiles.save(save_profile, to_save)
+        except ValueError as e:
+            raise DiscoopError(ExitCode.BAD_ARGS, str(e))
 
     request = MessagesRequest(
         channels=tuple(channel),
@@ -584,6 +804,9 @@ def messages(
         no_files=no_files,
         max_file_size=max_file_size,
         output_format=output_format,
+        threads=threads,
+        since_last=since_last,
+        max_tokens=max_tokens,
     )
     try:
         window = parse_window(from_, to, now=utc_now(), tz=LOCAL_ZONE, whole_history=last is not None)
@@ -611,8 +834,12 @@ def messages(
         if print_messages:
             _print_messages(out, outcome.exported.results, outcome.query, output_format)
         _export_report(out, outcome.exported, summary_on_stdout=not print_messages)
-    if from_ is None and last is None and not progress_json:
+    if from_ is None and last is None and not since_last and not progress_json:
         out.note("Messages from the last 24 hours. For more use --from 7d, --from 2026-10-01 or --from all.")
+    if outcome.partial:
+        if not progress_json:
+            out.note(_partial_advice(outcome))
+        raise typer.Exit(code=int(ExitCode.PARTIAL))
 
 
 @config_app.command("list")
@@ -668,6 +895,58 @@ def config_unset(ctx: typer.Context, key: str = typer.Argument(..., help="Settin
     out: Output = ctx.obj
     removed = Config.default().unset(key)
     out.message(f"{key} reset to its default." if removed else f"{key} was not set.")
+
+
+@profiles_app.callback(invoke_without_command=True)
+def profiles_root(
+    ctx: typer.Context,
+    output_format: str = typer.Option("text", "--format", help="Output format: text or json."),
+) -> None:
+    """List or delete saved profiles."""
+    if ctx.invoked_subcommand is None:
+        _list_profiles(ctx, output_format)
+
+
+@profiles_app.command("list")
+def profiles_list(
+    ctx: typer.Context,
+    output_format: str = typer.Option("text", "--format", help="Output format: text or json."),
+) -> None:
+    """List saved profile names."""
+    _list_profiles(ctx, output_format)
+
+
+@profiles_app.command("delete")
+def profiles_delete(
+    ctx: typer.Context,
+    name: str = typer.Argument(..., help="Profile name to delete."),
+) -> None:
+    """Delete a saved profile."""
+    out: Output = ctx.obj
+    try:
+        deleted = profiles.delete(name)
+    except ValueError as e:
+        raise DiscoopError(ExitCode.BAD_ARGS, str(e))
+    if not deleted:
+        raise DiscoopError(ExitCode.NOT_FOUND, f'Profile "{name}" does not exist.')
+    out.message(f'Profile "{name}" deleted.')
+
+
+def _list_profiles(ctx: typer.Context, output_format: str) -> None:
+    out: Output = ctx.obj
+    fmt = _parse_list_format(output_format)
+    names = profiles.names()
+    if fmt == "json":
+        out.json(names)
+    else:
+        if out.plain:
+            for name in names:
+                print(name)
+        else:
+            if names:
+                out.rows(("name",), [(name,) for name in names], title=f"Saved profiles ({len(names)})")
+            else:
+                out.note("No profiles saved yet.")
 
 
 def display_name(user: dict[str, Any]) -> str:
@@ -736,32 +1015,66 @@ def _print_plain(out: Output, data: str) -> None:
         out.console.print(Text(data), soft_wrap=True)
 
 
+def _read_messages_md(exported: export.Exported) -> str:
+    if exported.path.is_dir():
+        md_file = exported.path / "messages.md"
+        if md_file.is_file():
+            try:
+                return md_file.read_text(encoding="utf-8")
+            except OSError:
+                pass
+    elif exported.path.is_file() and zipfile.is_zipfile(exported.path):
+        try:
+            with zipfile.ZipFile(exported.path) as zf:
+                if "messages.md" in zf.namelist():
+                    return zf.read("messages.md").decode("utf-8")
+        except Exception:
+            pass
+    try:
+        from discoop.render import Query
+        from discoop.snowflake import Window
+        return text_render.markdown(exported.results, Query(Window(None, None)))
+    except Exception:
+        return ""
+
+
 def _export_report(out: Output, exported: export.Exported, summary_on_stdout: bool) -> None:
-    """The summary (stdout, or a stderr note when --print put the messages there) and warnings about files."""
+    """The summary (stdout, or a stderr note when --print put the messages there) and warnings about files.
+
+    The totals are those of the whole export (its manifest): after a resumed run `exported.results` only has the
+    channels fetched by that run.
+    """
     jobs = exported.jobs
     counts = {status: exported.count(status) for status in (DOWNLOADED, PRESENT, FAILED, SKIPPED)}
-    messages = sum(len(r.messages) for r in exported.results)
-    truncated = any(r.truncated for r in exported.results)
+    totals = exported.manifest.get("counts", {})
+    channels = totals.get("channels", len(exported.results))
+    messages = totals.get("messages", sum(len(r.messages) for r in exported.results)) + totals.get("thread_messages", 0)
+    truncated = exported.manifest.get("truncated", any(r.truncated for r in exported.results))
+    channels_skipped = len(exported.skipped)
+    md_text = _read_messages_md(exported)
+    est = tokens.estimate_tokens(md_text)
     if summary_on_stdout:
-        out.fields(
-            {
-                "export": exported.path,
-                "channels": len(exported.results),
-                "messages": messages,
-                "files": len(jobs),
-                "downloaded": counts[DOWNLOADED],
-                "already_present": counts[PRESENT],
-                "failed": counts[FAILED],
-                "skipped": counts[SKIPPED],
-                "truncated": "yes" if truncated else "no",
-            },
-            title="Export",
-        )
+        summary = {
+            "export": exported.path,
+            "channels": channels,
+            "messages": messages,
+            "tokens": f"~{tokens.format_tokens(est)} (estimate, about 4 characters per token)",
+            "files": len(jobs),
+            "downloaded": counts[DOWNLOADED],
+            "already_present": counts[PRESENT],
+            "failed": counts[FAILED],
+            "skipped": counts[SKIPPED],
+            "truncated": "yes" if truncated else "no",
+        }
+        if channels_skipped:  # "skipped" above counts files
+            summary["channels_skipped"] = channels_skipped
+        out.fields(summary, title="Export")
     else:
+        skipped_text = f", {channels_skipped} channels skipped" if channels_skipped else ""
         out.note(
-            f"Exported to {exported.path}: {len(exported.results)} channels, {messages} messages, {len(jobs)} files"
+            f"Exported to {exported.path}: {channels} channels, {messages} messages, {len(jobs)} files"
             f" ({counts[DOWNLOADED]} downloaded, {counts[PRESENT]} already present, {counts[FAILED]} failed,"
-            f" {counts[SKIPPED]} skipped)."
+            f" {counts[SKIPPED]} skipped), tokens: ~{tokens.format_tokens(est)}{skipped_text}."
         )
     failed = [job for job in jobs if job.status == FAILED]
     if failed:
@@ -775,6 +1088,23 @@ def _export_report(out: Output, exported: export.Exported, summary_on_stdout: bo
             f"{len(too_large)} files larger than --max-file-size were not downloaded (use --max-file-size 0 for all): "
             + _examples(too_large, lambda job: f"{job.attachment.filename} ({size_label(job.attachment.size)})")
         )
+
+
+def _partial_advice(outcome: MessagesOutcome) -> str:
+    """Why the exit code is 9 and what to do. Saved files are kept, so a second run only does the missing part."""
+    parts = []
+    if outcome.skipped:
+        parts.append(f"{len(outcome.skipped)} {'channel' if len(outcome.skipped) == 1 else 'channels'} skipped")
+    if outcome.thread_problems:
+        parts.append(
+            f"{outcome.thread_problems} {'thread problem' if outcome.thread_problems == 1 else 'thread problems'}"
+        )
+    failed = outcome.exported.count(FAILED) if outcome.exported is not None else 0
+    if failed:
+        parts.append(f"{failed} {'file' if failed == 1 else 'files'} not downloaded")
+    advice = "Run the same command again to try them again"
+    advice += "; files already saved are not downloaded again." if outcome.exported is not None else "."
+    return f"Partial result (exit code {int(ExitCode.PARTIAL)}): {', '.join(parts)}. {advice}"
 
 
 def _examples(jobs: list[FileJob], describe: Callable[[FileJob], str], count: int = 3) -> str:
@@ -895,6 +1225,23 @@ class _CliEvents(Events):
             self._status = self.out.err_console.status(f"Fetching {self._label}")
             self._status.start()
 
+    def thread(self, index: int, total: int, channel: Channel, thread: Thread) -> None:
+        if self.progress_json:
+            self._emit_json({
+                "event": "thread",
+                "index": index,
+                "total": total,
+                "channel_id": channel.id,
+                "thread_id": thread.id,
+            })
+            return
+
+        msg = f"Fetching #{channel.name} — thread {index} of {total}: {thread.name}"
+        if self._status is not None:
+            self._status.update(f"{msg}...")
+        if self.out.verbose or self.out.agent or getattr(self.out, "debug", False):
+            self.out.note(msg)
+
     def page(self, kept: int, oldest_id: int) -> None:
         frac = (
             fraction_done(self._start_id, self._end_id, oldest_id)
@@ -1001,6 +1348,23 @@ class _CliEvents(Events):
             return
         self.out.note(text)
 
+    def resumed(self, done: int, total: int) -> None:
+        if self.progress_json:
+            self._emit_json({"event": "resumed", "done": done, "total": total})
+            return
+        self.out.note(f"Continuing an unfinished export: {done} of {total} channels are already saved.")
+
+    def interrupted(self, saved: int, total: int, path: Path) -> None:
+        if self._status is not None:
+            self._status.stop()
+            self._status = None
+
+        if self.progress_json:
+            self._emit_json({"event": "interrupted", "saved": saved, "total": total})
+            return
+
+        self.out.warning(f"Saved {saved} of {total} channels in {path}. Run the same command again to continue.")
+
     def close(self) -> None:
         if self._status is not None:
             self._status.stop()
@@ -1056,7 +1420,7 @@ def main(argv: list[str] | None = None) -> None:
         _use_utf8_streams()
     out = Output(plain=plain)
     out.debug = False
-    for typer_app in (app, config_app):
+    for typer_app in (app, config_app, profiles_app):
         typer_app.rich_markup_mode = None if plain else "rich"
     app.info.help = _help_text(plain)
     try:
@@ -1126,9 +1490,11 @@ def command_help(path: Sequence[str] = ()) -> str:
     old_help = app.info.help
     old_app_mode = app.rich_markup_mode
     old_config_mode = config_app.rich_markup_mode
+    old_profiles_mode = profiles_app.rich_markup_mode
     try:
         app.rich_markup_mode = None
         config_app.rich_markup_mode = None
+        profiles_app.rich_markup_mode = None
         app.info.help = _help_text(True)
         cmd = typer.main.get_command(app)
         ctx = click.Context(cmd, info_name="discoop")
@@ -1143,3 +1509,4 @@ def command_help(path: Sequence[str] = ()) -> str:
         app.info.help = old_help
         app.rich_markup_mode = old_app_mode
         config_app.rich_markup_mode = old_config_mode
+        profiles_app.rich_markup_mode = old_profiles_mode

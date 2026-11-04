@@ -116,6 +116,12 @@ class FakeDiscord:
                 if known:
                     return httpx.Response(200, json={**known, "guild_id": FIT})
                 return httpx.Response(404, json={"message": "Unknown Channel", "code": 10003})
+            if len(parts) == 4 and parts[2:] == ["threads", "search"]:
+                # No threads by default, so `messages` of any channel works; a test that needs threads uses
+                # fake_threads.FakeThreadSearch. A forced status (above) answers this path too.
+                return httpx.Response(
+                    200, json={"threads": [], "members": [], "total_results": 0, "first_messages": [], "has_more": False}
+                )
             if parts[2] == "messages" and channel_id in self.channels:
                 return self.channels[channel_id].respond(request)
         return httpx.Response(404, json={"message": "Unknown Channel", "code": 10003})

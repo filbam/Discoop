@@ -301,14 +301,14 @@ def test_pattern_and_repeated_channels(capsys, discord):
 
 
 def test_pattern_with_only_forums(capsys, discord):
-    code, _, err = run(capsys, "messages", "-s", FIT, "-c", "help-*")
-    assert code == 4 and "#help-center" in err
+    code, _, err = run(capsys, "messages", "-s", FIT, "-c", "help-*", "--no-threads")
+    assert code == 8 and "A forum only has threads: drop --no-threads" in err
 
 
 @pytest.mark.parametrize(
     ("args", "code", "text"),
     [
-        (["-c", "help-center"], 8, "is a forum channel"),
+        (["-c", "help-center", "--no-threads"], 8, "A forum only has threads: drop --no-threads"),
         (["-c", "100"], 8, "is a category"),
         (["-c", "nope"], 4, 'No channel matches "nope"'),
         (["-c", "999"], 4, 'No channel matches "999"'),
@@ -360,7 +360,7 @@ def test_unknown_channel_id_without_server(capsys, discord):
 def test_one_unreadable_channel_among_several_is_skipped(capsys, discord):
     discord.status["202"] = 403
     code, out, err = run(capsys, "messages", "-s", FIT, "-c", "200", "-c", "202")
-    assert code == 0
+    assert code == 9  # PARTIAL: the run finished, but a channel is missing
     assert [line for line in out.splitlines() if line.startswith("===")] == ["=== VUT FIT / #2bit-general ==="]
     assert err.startswith("WARNING: Skipped: No access to the messages of #2bit-terminy (202) in VUT FIT.")
     discord.status["200"] = 403

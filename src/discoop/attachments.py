@@ -13,7 +13,8 @@ Assumed: at most 50 URLs per refresh request, the CDN answers an expired URL wit
 
 A file is saved as `files/<channel folder>/<attachment id>_<file name>`. It is written as `<name>.part` and renamed
 when the download is complete, so a file under its final name is whole. A rerun into the same folder finds files
-by attachment ID and size and does not download them again.
+by attachment ID and size and does not download them again. The files of a channel's threads go to the same folder
+as its own.
 """
 
 import contextlib
@@ -189,6 +190,9 @@ def plan(
 ) -> list[FileJob]:
     """One job per attachment, in message order. An attachment seen twice (e.g. also forwarded) is saved once.
 
+    The files of a channel's threads come after its own and go into the same folder, with the channel's ID as the
+    job's `channel_id`: a channel and its threads are one unit (the file names are unique through the attachment ID).
+
     `seen` carries that across calls when channels arrive one at a time: it maps the attachment key to its job, gets
     every new job added, and an attachment already in it makes no new job. The result holds only the new jobs.
     """
@@ -196,13 +200,14 @@ def plan(
     new: list[FileJob] = []
     for result in results:
         folder = folders[result.channel.id]
-        for message in result.messages:
-            for number, attachment in enumerate(message.attachments):
-                key = attachment.id or f"{message.id}-{number}"
-                if key not in jobs:
-                    path = f"{FILES_DIR}/{folder}/{file_name(key, attachment.filename)}"
-                    jobs[key] = job = FileJob(attachment, message.id, result.channel.id, path, attachment.url)
-                    new.append(job)
+        for part in result.parts():
+            for message in part.messages:
+                for number, attachment in enumerate(message.attachments):
+                    key = attachment.id or f"{message.id}-{number}"
+                    if key not in jobs:
+                        path = f"{FILES_DIR}/{folder}/{file_name(key, attachment.filename)}"
+                        jobs[key] = job = FileJob(attachment, message.id, result.channel.id, path, attachment.url)
+                        new.append(job)
     return new
 
 

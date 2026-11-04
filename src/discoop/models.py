@@ -278,13 +278,48 @@ class Message:
 
 @dataclass(frozen=True)
 class ChannelMessages:
-    """What `messages` fetched from one channel."""
+    """What `messages` fetched from one channel.
+
+    A channel's threads (the posts of a forum, the threads of a text channel) are nested in `threads`, one
+    `ChannelMessages` each, so a channel and its threads form one unit for rendering and for an export:
+
+        thread_result = ChannelMessages(server, thread.as_channel(server.id), items, truncated, thread=thread)
+        channel_result = ChannelMessages(server, channel, items, truncated, threads=(thread_result, ...))
+
+    The `channel` of a nested item is the thread as a channel (`Thread.as_channel`: `parent_id` is the channel that
+    holds it, type 10, 11 or 12); `thread` carries the rest of what is known about it (times, flags, forum tag IDs;
+    the tag names come from the parent's `Channel.available_tags`). A thread has no threads of its own.
+    `threads` are rendered and exported in the given order; a caller should sort them (oldest first).
+    A forum channel itself has no messages: its `messages` stay empty and everything is in `threads`.
+    """
 
     server: Server
     channel: Channel
     messages: tuple[Message, ...]
     truncated: bool = False  # stopped at --max-messages, older messages in the window are missing
+    threads: tuple["ChannelMessages", ...] = ()
+    thread: Thread | None = None  # only on a nested item: the thread's metadata
 
     @property
     def file_count(self) -> int:
-        return sum(len(m.attachments) for m in self.messages)
+        """Files of the channel and of its threads: they are all downloaded with it."""
+        return sum(len(m.attachments) for m in self.messages) + sum(t.file_count for t in self.threads)
+
+    @property
+    def thread_message_count(self) -> int:
+        """Messages in the threads, not counting those of the channel itself."""
+        return sum(len(t.messages) for t in self.threads)
+
+    @property
+    def total_messages(self) -> int:
+        """Messages of the channel and of its threads: the lines it adds to `messages.jsonl`."""
+        return len(self.messages) + self.thread_message_count
+
+    @property
+    def any_truncated(self) -> bool:
+        """True if the channel or any of its threads stopped at --max-messages."""
+        return self.truncated or any(t.truncated for t in self.threads)
+
+    def parts(self) -> tuple["ChannelMessages", ...]:
+        """The channel itself, then its threads: every place that holds messages, in output order."""
+        return (self, *self.threads)

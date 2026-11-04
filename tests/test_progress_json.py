@@ -96,7 +96,7 @@ def test_progress_json_skipped_and_warning(capsys, discord_env):
         "--max-messages", "100",
         "--progress-json",
     )
-    assert code == 0
+    assert code == 9  # PARTIAL: channel 202 was skipped (403 NO_ACCESS)
 
     lines = [json.loads(line) for line in err.strip().splitlines()]
 
