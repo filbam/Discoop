@@ -23,8 +23,8 @@ Si koordinátor. Prácu rozdeľ na balíky z tabuľky v sekcii 3 a každý balí
 
 `discoop` je Python 3.12 CLI nástroj (Typer, Rich, Textual, httpx), ktorý sťahuje správy a prílohy z Discord serverov, ktorých je používateľ
 členom (hlavne VUT FIT), pre analýzu cez AI. Kód je v `src/discoop/`, testy v `tests/`, dokumenty v `docs/` (po slovensky).
-Prečítaj `CLAUDE.md` (pravidlá práce a dokumentácie) a potom: `docs/navrh-nastroja.md`, `docs/poziadavky.md`, `docs/rozhodnutia/README.md`
-a **`docs/analyzy/probe-vlakien-2026-11-04.md`** (overené fakty o Discord API pre vlákna; kde je `[PREDPOKLAD]`, nespoliehaj sa na to).
+Prečítaj `CLAUDE.md` (pravidlá práce a dokumentácie) a potom: `docs/design.md`, `docs/requirements.md`, `docs/decisions/README.md`
+a **`docs/analyses/thread-probe-2026-11-04.md`** (overené fakty o Discord API pre vlákna; kde je `[PREDPOKLAD]`, nespoliehaj sa na to).
 
 `uv` nemusí byť v PATH. V Git Bash: `export PATH="$PATH:/c/Users/Filip/AppData/Local/Microsoft/WinGet/Packages/astral-sh.uv_Microsoft.Winget.Source_8wekyb3d8bbwe"`.
 Príkazy: `uv run pytest`, `uv run pytest tests/test_xyz.py`, `uv run discoop --help`.
@@ -79,15 +79,15 @@ Je to zámerná zmena správania: prílohy sa sťahujú po kanáloch, takže sa 
 
 | Balík | Fáza | Súbory, ktoré smie meniť |
 |---|---|---|
-| **R2-A** dokončiť odolný export v service, cli, TUI | 1 | `src/discoop/service.py`, `src/discoop/cli.py` (príkaz `messages` a to, čo potrebuje), `src/discoop/tui/bridge.py`, `src/discoop/tui/app.py`, `src/discoop/tui/modals.py`, `tests/test_messages.py`, `tests/test_service.py`, `tests/test_tui_app.py`, `tests/test_tui_modals.py`, nové testy, nový `docs/rozhodnutia/0017-spolahlivy-export-a-ciastocny-uspech.md`, jeden riadok v `docs/rozhodnutia/README.md` |
+| **R2-A** dokončiť odolný export v service, cli, TUI | 1 | `src/discoop/service.py`, `src/discoop/cli.py` (príkaz `messages` a to, čo potrebuje), `src/discoop/tui/bridge.py`, `src/discoop/tui/app.py`, `src/discoop/tui/modals.py`, `tests/test_messages.py`, `tests/test_service.py`, `tests/test_tui_app.py`, `tests/test_tui_modals.py`, nové testy, nový `docs/decisions/0017-reliable-export-and-partial-success.md`, jeden riadok v `docs/decisions/README.md` |
 | **R2-C** dokončiť vlákna v renderi a exporte | 1 | `src/discoop/models.py` (iba `ChannelMessages` a metadáta vlákna), `src/discoop/render/text.py`, `src/discoop/render/jsonout.py`, `src/discoop/export.py`, `src/discoop/attachments.py`, `tests/export_helpers.py`, `tests/test_export.py`, `tests/test_export_writer.py`, `tests/test_attachments.py`, `tests/test_thread_render.py`, `tests/test_export_threads.py`, nové testy |
-| **R3** vlákna v service a cli | 2 | `src/discoop/service.py`, `src/discoop/cli.py`, `tests/test_messages.py` (len pridať), `tests/test_service.py` (len pridať), nový `tests/test_threads_cli.py`, nový `docs/rozhodnutia/0019-vlakna.md`, jeden riadok v `docs/rozhodnutia/README.md` |
-| **R4-D** `--since-last` a kontrola miesta na disku | 3 | `src/discoop/service.py`, `src/discoop/cli.py`, `src/discoop/snowflake.py`, nový `src/discoop/syncstate.py`, nové `tests/test_syncstate.py`, `tests/test_since_last.py`, nový `docs/rozhodnutia/0020-since-last.md`, jeden riadok v `docs/rozhodnutia/README.md` |
+| **R3** vlákna v service a cli | 2 | `src/discoop/service.py`, `src/discoop/cli.py`, `tests/test_messages.py` (len pridať), `tests/test_service.py` (len pridať), nový `tests/test_threads_cli.py`, nový `docs/decisions/0019-threads.md`, jeden riadok v `docs/decisions/README.md` |
+| **R4-D** `--since-last` a kontrola miesta na disku | 3 | `src/discoop/service.py`, `src/discoop/cli.py`, `src/discoop/snowflake.py`, nový `src/discoop/syncstate.py`, nové `tests/test_syncstate.py`, `tests/test_since_last.py`, nový `docs/decisions/0020-since-last.md`, jeden riadok v `docs/decisions/README.md` |
 | **R4-G** TUI: stav, profily, prepínač vlákien, otvorenie priečinka, percentá | 3 | `src/discoop/tui/*`, `src/discoop/paths.py`, `src/discoop/config.py`, `tests/test_tui_*.py`, nové TUI testy |
 | **R5-H** `--max-tokens`, odhad tokenov, `--profile` | 4 | `src/discoop/cli.py`, `src/discoop/service.py`, nový `src/discoop/split.py`, nové `tests/test_split.py`, `tests/test_profile_cli.py` |
 | **R5-G** modul `agent-guide` (bez zápisu do `cli.py`) | 4 | nový `src/discoop/agent_guide.py`, nový `tests/test_agent_guide.py` |
 | **R5-R** registrácia príkazu `agent-guide` a odkaz v helpe | 5 | `src/discoop/cli.py`, `tests/test_agent_guide.py` (len pridať) |
-| **R6-DOC** dokumentácia | 6 | `CHANGELOG.md`, `docs/dennik.md`, `docs/navrh-nastroja.md`, `docs/poziadavky.md`, `README.md`, `docs/odovzdanie-stavu.md`, riadok stavu v `CLAUDE.md`, stavy ADR 0017/0019/0020 |
+| **R6-DOC** dokumentácia | 6 | `CHANGELOG.md`, `docs/journal.md`, `docs/design.md`, `docs/requirements.md`, `README.md`, `docs/handover.md`, riadok stavu v `CLAUDE.md`, stavy ADR 0017/0019/0020 |
 
 Poradie: fáza 1 (R2-A ‖ R2-C) → fáza 2 (R3) → fáza 3 (R4-D ‖ R4-G) → fáza 4 (R5-H ‖ R5-G) → fáza 5 (R5-R) → fáza 6 (R6-DOC) → záverečný plný `uv run pytest`.
 `service.py` a `cli.py` sa nikdy nemenia dvoma agentmi naraz (preto sú R3, R5-R sériové a v paralelných fázach ich vlastní vždy len jeden balík).
@@ -108,7 +108,7 @@ sa hlási poctivo kódom 9; používateľ vidí, čo sa stalo a čo má urobiť.
    Preskočenie pre veľkosť (`--max-file-size`) a `--no-files` sa **nepočíta**. Súhrn po obnove berie súčty z `exported.manifest["counts"]` a `exported.jobs`, nie z `Exported.results`.
    `--print` spolu s obnovou, kde už sú hotové kanály, sa odmietne (BAD_ARGS + rada) pred akýmkoľvek volaním API.
 6. ADR 0017 „Spoľahlivý export a čiastočný úspech“ (po slovensky, formát ako ostatné ADR; stav **Prijaté** pre kód 9 a automatickú obnovu: používateľ plán schválil 2026-11-04;
-   mechanizmus `<cieľ>.partial` opíš ako implementáciu). Riadok do indexu `docs/rozhodnutia/README.md` (skontroluj, či tam už nie je).
+   mechanizmus `<cieľ>.partial` opíš ako implementáciu). Riadok do indexu `docs/decisions/README.md` (skontroluj, či tam už nie je).
 7. Testy: pád v 2. kanáli zo 3 a opätovný beh dokončí bez nového sťahovania kanála 1 (over počty requestov na fake), Ctrl+C/`Cancelled` nechá obnoviteľný `.partial`,
    kód 9 pri preskočenom kanáli (export aj konzola) a pri zlyhanej prílohe, ale 0 pri preskočení pre veľkosť a pri `--no-files`, poznámka o obnove, odmietnutie `--print`, súhrn v TUI,
    hotový export zostane nedotknutý po prerušenom obnovení cez CLI.
@@ -188,10 +188,10 @@ Prečítaj `tui/state.py`, `tui/app.py` (klávesové skratky: `F5, F1, F2, F3, /
 
 ### R6-DOC: dokumentácia (fáza 6)
 Všetko po slovensky, s `[OVERENÉ]`/`[PREDPOKLAD]`, bez tokenov a cudzích údajov. Čítaj skutočný kód a správy balíkov z `prototype/out/antigravity-kolo-2-sprava.md`, nepíš nič, čo sa nespravilo.
-- `docs/poziadavky.md`: P26 odolný export a poctivý výsledok (kód 9, obnova), P27 vlákna a príspevky na fórach, P28 prírastkové sťahovanie `--since-last`, P29 delenie na tokeny/odhad/profily, P30 `agent-guide` a stav TUI. Všetko dátum 2026-11-04, zdroj: plán schválený používateľom.
-- `CHANGELOG.md` (`[Unreleased]`), `docs/dennik.md` (nová sekcia pre toto kolo, blok „Ďalej“ zachovaj a aktualizuj, čo ostáva: otestovať na reálnom účte), `docs/navrh-nastroja.md` (kódy ukončenia vrátane 9, atómový zápis a `.partial`, vlákna, `--since-last`, tokeny, profily, `agent-guide`, `threads`),
-  `README.md` (stručné príklady), `docs/odovzdanie-stavu.md`, riadok stavu v `CLAUDE.md` (počet testov z posledného plného behu), stavy ADR 0017/0019/0020 v indexe.
-- Odkaz na `docs/analyzy/probe-vlakien-2026-11-04.md` tam, kde sa píše o vláknach.
+- `docs/requirements.md`: P26 odolný export a poctivý výsledok (kód 9, obnova), P27 vlákna a príspevky na fórach, P28 prírastkové sťahovanie `--since-last`, P29 delenie na tokeny/odhad/profily, P30 `agent-guide` a stav TUI. Všetko dátum 2026-11-04, zdroj: plán schválený používateľom.
+- `CHANGELOG.md` (`[Unreleased]`), `docs/journal.md` (nová sekcia pre toto kolo, blok „Ďalej“ zachovaj a aktualizuj, čo ostáva: otestovať na reálnom účte), `docs/design.md` (kódy ukončenia vrátane 9, atómový zápis a `.partial`, vlákna, `--since-last`, tokeny, profily, `agent-guide`, `threads`),
+  `README.md` (stručné príklady), `docs/handover.md`, riadok stavu v `CLAUDE.md` (počet testov z posledného plného behu), stavy ADR 0017/0019/0020 v indexe.
+- Odkaz na `docs/analyses/thread-probe-2026-11-04.md` tam, kde sa píše o vláknach.
 
 ## 5. Správa (povinná, píše sa priebežne)
 

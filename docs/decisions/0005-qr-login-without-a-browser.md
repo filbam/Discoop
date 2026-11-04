@@ -2,7 +2,7 @@
 
 - **Stav:** Prijaté
 - **Dátum:** 2026-11-03
-- **Rozhodol:** používateľ (požiadavky P13 a P14), technické riešenie podľa [analyzy/discord-login.md](../analyzy/discord-login.md)
+- **Rozhodol:** používateľ (požiadavky P13 a P14), technické riešenie podľa [analyzy/discord-login.md](../analyses/discord-login.md)
 
 ## Kontext
 
@@ -32,7 +32,7 @@ Hlavná cesta prihlásenia je **možnosť 1**:
 - **Uloženie tokenu:** keyring.
 
 Playwright z hlavnej cesty vypadáva. Záložné cesty sú otvorené rozhodnutie
-([navrh-nastroja.md, sekcia 15](../navrh-nastroja.md#15-otvorené-rozhodnutia), body 7 a 8).
+([design.md, sekcia 15](../design.md#15-otvorené-rozhodnutia), body 7 a 8).
 
 ## Dôsledky
 

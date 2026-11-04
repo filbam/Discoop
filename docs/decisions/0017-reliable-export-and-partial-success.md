@@ -61,7 +61,7 @@ Doterajší prístup mal niekoľko nedostatkov:
 
 Značka `[OVERENÉ]` pri nasledujúcich bodoch znamená overené testami proti falošnému Discordu (`httpx.MockTransport`) a lokálnemu súborovému systému. Skutočný výpadok siete takto overený nebol.
 
-Na reálnom účte (2026-11-04, [analýza](../analyzy/overenie-na-realnom-ucte-2026-11-04.md)) sa navyše overilo:
+Na reálnom účte (2026-11-04, [analýza](../analyses/real-account-check-2026-11-04.md)) sa navyše overilo:
 - Prerušenie skriptom (`KeyboardInterrupt` vyvolaný z udalostí CLI pri skutočnom sťahovaní po sieti) po 2. z 3 kanálov: kód 130, `<cieľ>.partial` s manifestom `complete: false, interrupted: true` a 2 kanálmi, cieľ neexistoval, hláška „Saved 2 of 3 channels in ....partial. Run the same command again to continue.“ Ten istý príkaz potom stiahol už len 3. kanál, publikoval cieľ (`complete: true`), zmazal `.partial` a skončil s kódom 0.
 - Prerušenie uprostred prvého kanála exportu jedného fóra (počas jeho 2. vlákna): kód 130, žiadny `.partial`, žiadny cieľ, žiadne súbory `.part`. Opakovanie prebehlo normálne.
 - Export fóra (2 príspevky, 22 správ) skončil s úplným manifestom. Zip s `--max-tokens` (3 časti) bol platný a časti neboli v manifeste.

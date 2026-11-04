@@ -115,7 +115,7 @@ def _tags_from_api(raw: Any) -> tuple[ForumTag, ...]:
 
 @dataclass(frozen=True)
 class Thread:
-    """A thread or a forum post, as listed by `threads/search` (docs/analyzy/discord-analyza.md, section 6).
+    """A thread or a forum post, as listed by `threads/search` (docs/analyses/discord-analysis.md, section 6).
 
     A thread is a channel of its own: its messages are read from `/channels/{id}/messages`. In a forum the post
     and its first message share the ID.
@@ -204,11 +204,11 @@ def group_by_category(channels: Iterable[Channel]) -> list[tuple[Channel | None,
 
 
 def is_hidden(data: dict[str, Any]) -> bool:
-    """Channels the client gets obfuscated (docs/analyzy/discord-analyza.md, section 3)."""
+    """Channels the client gets obfuscated (docs/analyses/discord-analysis.md, section 3)."""
     return data.get("name") == "___hidden___" or bool((data.get("flags") or 0) & _HIDDEN_FLAG)
 
 
-# Messages, normalized for output (docs/navrh-nastroja.md, section 6.2). Built by discoop.normalize.
+# Messages, normalized for output (docs/design.md, section 6.2). Built by discoop.normalize.
 
 
 @dataclass(frozen=True)

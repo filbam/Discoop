@@ -1,11 +1,11 @@
 """Paging through a channel's messages, newest first, inside a time window.
 
-Verified behaviour (docs/analyzy/discord-analyza.md, sections 4, 11 and 15):
+Verified behaviour (docs/analyses/discord-analysis.md, sections 4, 11 and 15):
 - `GET /channels/{id}/messages?before=X&limit=N` returns up to N messages older than X, newest first,
 - `limit` is at most 100 (101 gives 400),
 - fewer messages than asked for means the start of the channel's history.
 
-Errors (assumed, docs/analyzy/pristup-ku-kanalom.md, section 7): 403 with code 50001/50013 is missing access,
+Errors (assumed, docs/analyses/channel-access.md, section 7): 403 with code 50001/50013 is missing access,
 other 403 codes are blocks, 404 is an unknown channel. Without Read Message History Discord answers `[]`.
 """
 

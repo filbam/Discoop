@@ -11,7 +11,7 @@ a kontrolné skripty hlavného Claudea). **[PREDPOKLAD]** = extrapolácia alebo 
 - Dokument neobsahuje ID používateľa, mená ľudí, texty správ ani názvy vlákien. Fórum sa tu volá „fórum (kategória
   general)“, ostatné kanály „študijné textové kanály“.
 - Do tohto dokumentu sa dostali len počty, časy, kódy ukončenia a názvy polí.
-- Súvisiace meranie: [probe-vlakien-2026-11-04.md](probe-vlakien-2026-11-04.md) (iba čítacie GET volania
+- Súvisiace meranie: [thread-probe-2026-11-04.md](thread-probe-2026-11-04.md) (iba čítacie GET volania
   prototypu). Tu sa spúšťal samotný nástroj `discoop`.
 
 ---
@@ -74,7 +74,7 @@ a kontrolné skripty hlavného Claudea). **[PREDPOKLAD]** = extrapolácia alebo 
 - **[OVERENÉ]** Druhý príkaz urobil 4 požiadavky na `threads/search`: 1 strana aktívnych vlákien a 3 strany
   archivovaných vlákien (po 25).
 - **[OVERENÉ]** `has_more` bolo na poslednej archivovanej strane znova `true`. Koniec našlo až okno (`reached_start`).
-  Potvrdzuje to, že `has_more` nie je spoľahlivé (rovnako ako v [probe-vlakien-2026-11-04.md](probe-vlakien-2026-11-04.md),
+  Potvrdzuje to, že `has_more` nie je spoľahlivé (rovnako ako v [thread-probe-2026-11-04.md](thread-probe-2026-11-04.md),
   sekcia 7.6).
 - **[OVERENÉ]** Jedno vlákno, ktoré je ešte aktívne, ale staršie než okno, vypadlo vo filtri okna.
 
@@ -85,7 +85,7 @@ a kontrolné skripty hlavného Claudea). **[PREDPOKLAD]** = extrapolácia alebo 
   počet správ, počet súborov a tagy.
 - **[OVERENÉ]** Správy v `messages.jsonl` majú pole `thread: {id, name, parent_id, tags}`. Tagy sú názvy tagov fóra.
 - **[OVERENÉ]** Počty v manifeste: `messages` 0, `threads` 2, `thread_messages` 22. Fórum nemá vlastné správy, čo
-  zodpovedá [ADR 0019](../rozhodnutia/0019-vlakna.md).
+  zodpovedá [ADR 0019](../decisions/0019-threads.md).
 - **[OVERENÉ]** **Nové zistenie:** `message_count`, ktorý ukazuje zoznam vlákien (výpis `discoop threads`),
   nezahŕňa štartovaciu správu príspevku fóra. Zoznam ukázal 9 a 11, stiahnutie vrátilo 10 a 12 správ. Pozorované na týchto
   dvoch príspevkoch (spolu 22 správ).
@@ -103,7 +103,7 @@ Prerušenie vyvolal skript výnimkou `KeyboardInterrupt` z udalostí CLI. Signá
 - **(b) Uprostred prvého kanála exportu jedného fóra (počas jeho 2. vlákna):**
   - **[OVERENÉ]** Kód ukončenia 130, žiadny `.partial`, žiadny cieľ, žiadne súbory `.part`. Opakovanie prebehlo
     normálne.
-  - Je to v súlade s [ADR 0019](../rozhodnutia/0019-vlakna.md): kanál a jeho vlákna sú nedeliteľná jednotka a
+  - Je to v súlade s [ADR 0019](../decisions/0019-threads.md): kanál a jeho vlákna sú nedeliteľná jednotka a
     ukladajú sa spolu, preto nebolo čo uložiť do `.partial`.
 - **Pozorovanie:** v oboch prípadoch `main()` nevypísal riadok „Interrupted.“, hoci kód má na to `out.error(...)`.
   Kód 130 vyšiel aj bez neho. Pozri sekciu 5.
@@ -148,7 +148,7 @@ Vzorka: spolu 28 textových a oznamovacích kanálov (najaktívnejšie a náhodn
 - **[OVERENÉ]** 16 správ, 43,5 s.
 - **[OVERENÉ]** Zip je platný (`testzip` bez chýb). Záznamy: `channels/`, `manifest.json`, `messages.jsonl`,
   `messages.md`, `parts/part-001.md` až `parts/part-003.md`.
-- **[OVERENÉ]** Časti nie sú v manifeste (zodpovedá [ADR 0017](../rozhodnutia/0017-spolahlivy-export-a-ciastocny-uspech.md)).
+- **[OVERENÉ]** Časti nie sú v manifeste (zodpovedá [ADR 0017](../decisions/0017-reliable-export-and-partial-success.md)).
 - **[OVERENÉ]** Prvý riadok časti 1 je `<!-- discoop part 1 of 3 -->`. Súhrn ukázal `tokens: ~742`.
 
 ### 3.8 Príloha z CDN
@@ -224,7 +224,7 @@ Vzorka: spolu 28 textových a oznamovacích kanálov (najaktívnejšie a náhodn
 ## 7. Dopad na dokumentáciu
 
 Záznamy, ktoré tvrdili, že nič z kola 2 nebolo overené na reálnom účte, boli opravené: `CLAUDE.md`,
-[denník](../dennik.md), [odovzdanie stavu](../odovzdanie-stavu.md), [požiadavky P26 až P30](../poziadavky.md),
-[návrh nástroja](../navrh-nastroja.md), [ADR 0017](../rozhodnutia/0017-spolahlivy-export-a-ciastocny-uspech.md),
-[ADR 0019](../rozhodnutia/0019-vlakna.md), [ADR 0020](../rozhodnutia/0020-since-last.md) a
+[denník](../journal.md), [odovzdanie stavu](../handover.md), [požiadavky P26 až P30](../requirements.md),
+[návrh nástroja](../design.md), [ADR 0017](../decisions/0017-reliable-export-and-partial-success.md),
+[ADR 0019](../decisions/0019-threads.md), [ADR 0020](../decisions/0020-since-last.md) a
 [CHANGELOG](../../CHANGELOG.md).

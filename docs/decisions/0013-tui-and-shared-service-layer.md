@@ -6,7 +6,7 @@
 
 > **Poznámka (2026-11-03):** Spoločná servisná vrstva (`service.py`), lazy import Textualu, spúšťanie a zoskupovanie úloh
 > ostávajú platné. Rozloženie TUI (tri stĺpce, záložky), ovládanie a Help sa riadia
-> [ADR 0014](0014-tui-klavesnica-jeden-strom.md).
+> [ADR 0014](0014-tui-keyboard-one-tree.md).
 
 ## Kontext
 

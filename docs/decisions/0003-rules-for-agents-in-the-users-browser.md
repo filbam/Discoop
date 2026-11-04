@@ -6,7 +6,7 @@
 
 ## Kontext
 
-Analýzu Discordu robil AI agent v reálnom Chrome používateľa, prihlásenom do Discordu ([denník 2026-11-03](../dennik.md)).
+Analýzu Discordu robil AI agent v reálnom Chrome používateľa, prihlásenom do Discordu ([denník 2026-11-03](../journal.md)).
 
 1. **Odoslaná správa:** agent mal povolené písať do vyhľadávania. Klik trafil pole na písanie správy a Enter
    odoslal správu z účtu používateľa.

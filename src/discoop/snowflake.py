@@ -1,7 +1,7 @@
 """Time and Discord snowflakes: parsing --from/--to and turning the window into message IDs.
 
 A snowflake carries its creation time in the top bits: `ms = (id >> 22) + DISCORD_EPOCH_MS`
-(docs/analyzy/discord-analyza.md, section 11). A time becomes a synthetic snowflake with the
+(docs/analyses/discord-analysis.md, section 11). A time becomes a synthetic snowflake with the
 lower 22 bits set to zero, which is what `before=` needs.
 
 Times without a zone are local time. `tz=None` means the system zone with the right DST offset

@@ -1,4 +1,4 @@
-"""The `json` and `jsonl` formats: normalized messages (docs/navrh-nastroja.md, section 6.2).
+"""The `json` and `jsonl` formats: normalized messages (docs/design.md, section 6.2).
 
 `json` is one object with the query, a summary per channel and the messages. `jsonl` has one message object per
 line and nothing else; an export keeps the query and the summary in its manifest.

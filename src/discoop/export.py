@@ -1,4 +1,4 @@
-"""Exports: a folder or a zip with the messages, their files and a manifest (docs/navrh-nastroja.md, section 6.3).
+"""Exports: a folder or a zip with the messages, their files and a manifest (docs/design.md, section 6.3).
 
     manifest.json         what was asked for, counts, and every attachment with its status
     messages.md           all channels, for people and AI

@@ -176,9 +176,9 @@ uv run pytest                # testy
 
 | Dokument | Obsah |
 |---|---|
-| [docs/poziadavky.md](docs/poziadavky.md) | čo má nástroj robiť |
-| [docs/navrh-nastroja.md](docs/navrh-nastroja.md) | príkazy, výstupy, architektúra, postup implementácie |
-| [docs/analyzy/](docs/analyzy/) | analýzy (napr. dáta Discord web klienta) |
-| [docs/rozhodnutia/](docs/rozhodnutia/README.md) | rozhodnutia (ADR) |
-| [docs/dennik.md](docs/dennik.md) | priebeh práce, incidenty, ďalšie kroky |
+| [docs/requirements.md](docs/requirements.md) | čo má nástroj robiť |
+| [docs/design.md](docs/design.md) | príkazy, výstupy, architektúra, postup implementácie |
+| [docs/analyses/](docs/analyses/) | analýzy (napr. dáta Discord web klienta) |
+| [docs/decisions/](docs/decisions/README.md) | rozhodnutia (ADR) |
+| [docs/journal.md](docs/journal.md) | priebeh práce, incidenty, ďalšie kroky |
 | [CHANGELOG.md](CHANGELOG.md) | zmeny projektu |

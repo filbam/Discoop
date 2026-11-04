@@ -1,6 +1,6 @@
 """Turning what the user typed (ID, name, pattern) into servers and channels.
 
-Rules (docs/navrh-nastroja.md, section 5): exact ID, then exact name, then normalized name
+Rules (docs/design.md, section 5): exact ID, then exact name, then normalized name
 (case, diacritics and emoji ignored, so "aeu-private" finds "aeu-private🔒"), and glob
 patterns where several results are fine. Several equally good matches are an error, never a guess.
 """

@@ -4,7 +4,7 @@ from enum import IntEnum
 
 
 class ExitCode(IntEnum):
-    """Stable exit codes (docs/navrh-nastroja.md, section 12)."""
+    """Stable exit codes (docs/design.md, section 12)."""
 
     OK = 0
     ERROR = 1

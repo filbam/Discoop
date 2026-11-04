@@ -4,7 +4,7 @@ Dátum: 2026-11-03. Typ: prieskum dokumentácie a zdrojového kódu knižníc. *
 žiadny prehliadač s Discordom.
 
 **Legenda:** **[OVERENÉ]** = pozorované na účte používateľa (prototyp, test `discoop channels`, analýza
-[discord-analyza.md](discord-analyza.md)) alebo priamo v kóde tohto repa.
+[discord-analysis.md](discord-analysis.md)) alebo priamo v kóde tohto repa.
 **[PREDPOKLAD]** = z dokumentácie alebo cudzieho kódu, na účte používateľa zatiaľ neoverené. Zdroj je uvedený
 v zátvorke a v sekcii [Zdroje](#zdroje).
 
@@ -42,7 +42,7 @@ v zátvorke a v sekcii [Zdroje](#zdroje).
 
 - `GET /guilds/{id}/channels` s user tokenom vracia aj kanály, ktoré používateľ nevidí, s reálnym menom
   (napr. kategórie `moderation`, `logging`, `fillers` a kanál `1549737445002584094`) **[OVERENÉ]**
-  ([discord-analyza.md, sekcia 15](discord-analyza.md#15-overenie-prototypom-2026-11-03)).
+  ([discord-analysis.md, sekcia 15](discord-analysis.md#15-overenie-prototypom-2026-11-03)).
 - Kanály z REST majú polia `permission_overwrites` a `flags`. Pole `permissions` v nich nie je,
   lebo prototyp `?permissions=true` neposlal **[OVERENÉ]** (zoznam polí v reporte probe).
 - Overwrite má tvar `{id, type, allow, deny}`. `type 0` je rola, `type 1` je člen, `allow`/`deny` sú stringy

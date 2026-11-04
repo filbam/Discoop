@@ -2,7 +2,7 @@
 
 hello -> init -> nonce_proof (both ways) -> pending_remote_init (QR is shown)
 -> pending_ticket (phone scanned) -> pending_login (phone confirmed, carries the ticket).
-Details: docs/analyzy/discord-login.md, section 2.
+Details: docs/analyses/discord-login.md, section 2.
 """
 
 import asyncio

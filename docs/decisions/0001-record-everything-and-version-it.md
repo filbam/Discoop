@@ -15,12 +15,12 @@ Všetko podstatné sa zapisuje do repa a verzuje v gite:
 
 | Čo | Kam |
 |---|---|
-| Požiadavky | `docs/poziadavky.md` |
-| Návrh | `docs/navrh-nastroja.md` |
-| Analýzy | `docs/analyzy/<tema>.md` |
-| Rozhodnutia | `docs/rozhodnutia/NNNN-nazov.md` |
+| Požiadavky | `docs/requirements.md` |
+| Návrh | `docs/design.md` |
+| Analýzy | `docs/analyses/<tema>.md` |
+| Rozhodnutia | `docs/decisions/NNNN-nazov.md` |
 | Zmeny projektu | `CHANGELOG.md` |
-| Priebeh práce a incidenty | `docs/dennik.md` |
+| Priebeh práce a incidenty | `docs/journal.md` |
 
 Pravidlá pre AI sú v `CLAUDE.md`, ktorý sa načíta pri každom sedení v tomto repe.
 
@@ -28,4 +28,4 @@ Pravidlá pre AI sú v `CLAUDE.md`, ktorý sa načíta pri každom sedení v tom
 
 - Záznam sa aktualizuje v tom istom kroku ako zmena.
 - Dokumenty nesmú obsahovať token, cookies ani mená a texty správ iných ľudí.
-- Analýza Discordu sa presunula do `docs/analyzy/`.
+- Analýza Discordu sa presunula do `docs/analyses/`.

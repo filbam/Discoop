@@ -1,6 +1,6 @@
 """Anonymized threads and a fake `threads/search` for tests.
 
-Shapes follow docs/analyzy/discord-analyza.md (section 6). Names and IDs are made up.
+Shapes follow docs/analyses/discord-analysis.md (section 6). Names and IDs are made up.
 """
 
 from datetime import datetime, timedelta

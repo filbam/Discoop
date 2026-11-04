@@ -42,7 +42,7 @@ USER_AGENT = f"discoop/{__version__}"
 MAX_RETRY_WAIT = 60.0
 # JSON error codes of a 403 that really mean "no permission" (Missing Access, Missing Permissions).
 # Other 403 codes, e.g. 10008 from the anti-abuse system or 40333 from Cloudflare, are blocks, not missing
-# access (docs/analyzy/pristup-ku-kanalom.md, section 7).
+# access (docs/analyses/channel-access.md, section 7).
 MISSING_ACCESS_CODES = {50001, 50013}
 BLOCKED_HINT = (
     "It is not a missing permission. Discord may be blocking requests (anti-abuse or Cloudflare):"

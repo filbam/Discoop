@@ -1,6 +1,6 @@
 """Raw Discord message JSON into models.Message, with mentions and markup turned into readable text.
 
-Rewrites (docs/navrh-nastroja.md, section 6.2): `<@id>` → `@name`, `<#id>` → `#channel`,
+Rewrites (docs/design.md, section 6.2): `<@id>` → `@name`, `<#id>` → `#channel`,
 `<@&id>` → `@role:<id>` (role names are not fetched), `<:name:id>` → `:name:`,
 `<t:unix:style>` → local time, `</command:id>` → `/command`. Blank lines at the start and the end of a text
 are dropped, so they cannot pile up between messages in the output.
@@ -141,7 +141,7 @@ def _attachment(data: Mapping[str, Any]) -> Attachment:
 
 
 def _reaction(data: Mapping[str, Any]) -> Reaction:
-    """One entry per emoji; super reactions are a part of its count (docs/analyzy/discord-analyza.md, section 4)."""
+    """One entry per emoji; super reactions are a part of its count (docs/analyses/discord-analysis.md, section 4)."""
     emoji = data.get("emoji") or {}
     name = emoji.get("name") or "?"
     burst = (data.get("count_details") or {}).get("burst", data.get("burst_count"))

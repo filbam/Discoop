@@ -1,6 +1,6 @@
 """Attachments of an export: safe file names, signed CDN URLs, downloading without the token.
 
-Verified (docs/analyzy/discord-analyza.md, sections 5 and 15):
+Verified (docs/analyses/discord-analysis.md, sections 5 and 15):
 - attachment URLs are signed, `?ex=<expiry>&is=<issued>&hm=<signature>&` with hex unix seconds; a freshly fetched
   URL stays valid for 12 to 24 more hours,
 - the CDN needs no token. Files are downloaded by a separate HTTP client without an Authorization header,

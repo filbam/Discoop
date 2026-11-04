@@ -320,14 +320,14 @@ handshaku (zistenia sú z [OVERENÉ] JS a prevádzky). Neoverené ostáva, či s
 
 1. **Ručné vloženie tokenu** (`discoop login --token`, vstup cez skrytý prompt alebo stdin, nie ako argument v histórii).
    Funguje vždy a všade a je najjednoduchší. Nevýhoda: používateľ musí vedieť token získať z DevTools.
-2. **Prihlásenie cez prehliadač** (pôvodný návod v `navrh-nastroja.md` 4.1, Playwright).
+2. **Prihlásenie cez prehliadač** (pôvodný návod v `design.md` 4.1, Playwright).
    Zvládne captchu, 2FA aj passkey. Na Linuxe/macOS treba nainštalovaný Chrome alebo Chromium, takže je to ťažšia závislosť.
    Pozor: na Windows môže prehliadač pri otvorení `/login` sám vyvolať passkey dialóg (sekcia 8).
 3. **Email/heslo + TOTP cez API** (`/auth/login` → `/auth/mfa/totp`). Technicky jednoduché, ale ne-prehliadačový klient
    pravdepodobne často dostane captchu **[PREDPOKLAD]**. Nástroj by navyše musel pracovať s heslom. Neodporúčam ako
    hlavnú cestu, nanajvýš ako experimentálnu.
 
-### 6.4 Dopad na návrh (`navrh-nastroja.md` som needitoval)
+### 6.4 Dopad na návrh (`design.md` som needitoval)
 
 - Sekcia 3 („Login: Playwright + nainštalovaný Chrome“) a sekcia 4.1 by sa pri novej požiadavke zmenili na QR login cez
   `websockets` + `cryptography`. Playwright by ostal ako voliteľný fallback.

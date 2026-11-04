@@ -6,14 +6,14 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
 
 ## 2026-11-04
 
-**Antigravity kolo 2 — odolný export, vlákna a fóra, `--since-last`, kontrola disku, profily, delenie tokenov, `agent-guide` a vylepšenia TUI (P26–P30, [ADR 0017](rozhodnutia/0017-spolahlivy-export-a-ciastocny-uspech.md), [ADR 0019](rozhodnutia/0019-vlakna.md), [ADR 0020](rozhodnutia/0020-since-last.md)):**
+**Antigravity kolo 2 — odolný export, vlákna a fóra, `--since-last`, kontrola disku, profily, delenie tokenov, `agent-guide` a vylepšenia TUI (P26–P30, [ADR 0017](decisions/0017-reliable-export-and-partial-success.md), [ADR 0019](decisions/0019-threads.md), [ADR 0020](decisions/0020-since-last.md)):**
 - **Kto a ako (pre čitateľa, ktorý pri tom nebol):**
-  - Zadanie je v [docs/zadania/antigravity-kolo-2.md](zadania/antigravity-kolo-2.md): dokončenie celého zvyšku plánu naraz (odolný export, vlákna a fóra, `--since-last`, delenie na tokeny, profily, `agent-guide`, vylepšenia TUI).
+  - Zadanie je v [docs/briefs/antigravity-round-2.md](briefs/antigravity-round-2.md): dokončenie celého zvyšku plánu naraz (odolný export, vlákna a fóra, `--since-last`, delenie na tokeny, profily, `agent-guide`, vylepšenia TUI).
   - Implementáciu urobil Antigravity: koordinátor Argon a agenti Gemini Flash, v 6 nadväzujúcich fázach po balíkoch (R2-A, R2-C, R3, R4-D, R4-G, R5-H, R5-G, R5-R, R6-DOC). Ich vlastná správa je v `prototype/out/antigravity-kolo-2-sprava.md` (lokálny súbor, gitom ignorovaný).
-  - Potom výsledok skontroloval hlavný Claude (diff, testy) a nálezy nechal opraviť dvomi kontrolnými agentmi podľa [ADR 0010](rozhodnutia/0010-praca-cez-agentov.md). Nálezy a opravy sú v sekcii „Kontrola hlavným Claudom“ nižšie.
+  - Potom výsledok skontroloval hlavný Claude (diff, testy) a nálezy nechal opraviť dvomi kontrolnými agentmi podľa [ADR 0010](decisions/0010-work-through-agents.md). Nálezy a opravy sú v sekcii „Kontrola hlavným Claudom“ nižšie.
   - Opisy fáz nižšie sú zosúladené s aktuálnym kódom, nie s tým, čo Antigravity pôvodne odovzdal.
 - **Fáza 1 (balíky R2-A a R2-C):**
-  - **R2-A (odolný export v service, cli, TUI, [ADR 0017](rozhodnutia/0017-spolahlivy-export-a-ciastocny-uspech.md)):**
+  - **R2-A (odolný export v service, cli, TUI, [ADR 0017](decisions/0017-reliable-export-and-partial-success.md)):**
     - `service.py` a `ExportWriter` (`src/discoop/export.py`) zapisujú priebežne po kanáloch do staging priečinka `<cieľ>.partial` (pri zipe `<názov>.zip.partial`), bez držania celej histórie v pamäti.
     - Automatická obnova (resume): pri zhode požiadavky (`request_fingerprint`) sa hotové kanály a ich stiahnuté prílohy preskočia a export pokračuje ďalšími kanálmi. Udalosť `Events.resumed(done, total)` informuje používateľa; CLI vypíše `Continuing an unfinished export: N of M channels are already saved.`. Relatívne okno (`--from 1d`) sa pri obnove ráta od pôvodného času `Resume.created`.
     - Prerušenie (Ctrl+C / `Cancelled` v TUI / chyba): writer sa uzavrie s `complete=False` a vyvolá `Events.interrupted`. Ctrl+C v CLI skončí so štandardným unixovým kódom 130.
@@ -24,17 +24,17 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
     - Podpora vnorených vlákien pod rodičovským kanálom: `ChannelMessages.threads` a metadáta `thread: Thread | None`. Fórum nemá vlastné správy, obsah tvoria vlákna.
     - Renderovanie: v `render/text.py` a markdown exporte sekcie pre jednotlivé vlákna s ich názvami, tagmi a správami; v `render/jsonout.py` plochý formát s atribútom `thread`. Bez prítomnosti vlákien ostáva výstup bajt po bajte identický s predchádzajúcim formátom.
     - Prílohy vlákien smerujú do `files/<priečinok rodiča>/` s deduplikáciou a unikátnymi ID príloh.
-- **Fáza 2 (balík R3, [ADR 0019](rozhodnutia/0019-vlakna.md)):**
+- **Fáza 2 (balík R3, [ADR 0019](decisions/0019-threads.md)):**
   - **Vlákna v service a CLI:**
     - `MessagesRequest.threads: bool = True` (predvolene zapnuté podľa ADR 0011), možnosť vypnutia cez `--no-threads`.
     - Fórumové kanály (typ 15) a mediálne kanály (typ 16) sú plnohodnotnými cieľmi `messages`; fórum s `--no-threads` je odmietnuté s kódom 8.
-    - Sťahovanie aktívnych aj archivovaných vlákien cez `threads/search` s `limit=25`, stránkovaním podľa offsetu a detekciou konca prázdnou alebo neúplnou stranou (overené v [docs/analyzy/probe-vlakien-2026-11-04.md](analyzy/probe-vlakien-2026-11-04.md)).
+    - Sťahovanie aktívnych aj archivovaných vlákien cez `threads/search` s `limit=25`, stránkovaním podľa offsetu a detekciou konca prázdnou alebo neúplnou stranou (overené v [docs/analyses/thread-probe-2026-11-04.md](analyses/thread-probe-2026-11-04.md)).
     - Limity `--max-messages` a `--last N` platia nezávisle na rodičovský kanál a na každé jedno vlákno.
     - Ošetrenie chýb: HTTP 403/404 na jednotlivom vlákne vlákno preskočí s varovaním a beh pokračuje s výsledkom kód 9.
     - Nový príkaz `discoop threads -s SERVER -c CHANNEL [--from ...] [--to ...] [--refresh] [--format text|json]` na prehľadný výpis vlákien kanála bez sťahovania správ (Rich tabuľka v human režime, TSV v plain režime, JSON pole pri `--format json`).
     - Udalosť `Events.thread` pre `--progress-json` emituje iba ID kanála, ID vlákna a poradové počty bez textov a názvov.
 - **Fáza 3 (balíky R4-D a R4-G):**
-  - **R4-D (`--since-last` a kontrola miesta na disku, [ADR 0020](rozhodnutia/0020-since-last.md)):**
+  - **R4-D (`--since-last` a kontrola miesta na disku, [ADR 0020](decisions/0020-since-last.md)):**
     - Nový modul `src/discoop/syncstate.py`: ukladanie stavu poslednej synchronizácie do `sync-state.json` v `paths.data_dir()`, kľúčované ID účtu. Nezávislé od SQLite cache (prežije `clear_cache`).
     - Prepínač `messages --since-last` (vylučuje sa s `--from`, `--to`, `--last`): sťahuje správy s ID väčším ako `saved_id` (exkluzívna spodná hranica `min_id = int(saved_id) + 1`). Pre kanál bez predchádzajúceho stavu sa použije predvolené 24-hodinové okno s informačnou poznámkou.
     - Posun stavu nastáva až po úspešnom a úplnom dokončení exportu (`complete=True`) a len pre kanály bez limitného orezania (`truncated`) a bez zlyhaných súborov či vlákien.
@@ -59,7 +59,7 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
 - **Fáza 5 (balík R5-R):**
   - Registrácia nového CLI príkazu `discoop agent-guide` volajúceho `agent_guide.build_guide(app)` bez Rich obalenia (čistý text aj v human režime) a pridanie odkazu na príkaz do sekcie `NOTE FOR AI AGENTS` v `--help`.
 - **Fáza 6 (balík R6-DOC):**
-  - Kompletná aktualizácia dokumentácie: požiadavky P26–P30 v `docs/poziadavky.md`, sekcia `[Unreleased]` v `CHANGELOG.md`, aktualizácia `docs/navrh-nastroja.md`, príklady nových prepínačov a kód 9 v `README.md`, aktualizácia odovzdania stavu `docs/odovzdanie-stavu.md`, potvrdenie ADR 0017, 0019 a 0020 ako `Prijaté` v `docs/rozhodnutia/README.md` a stav testov v `CLAUDE.md`. Túto dokumentáciu písal Antigravity skôr, než sa kód po kontrole zmenil. Preto ju neskôr agent prešiel a zosúladil s kódom (klávesy `P`/`p`/`o`, `--max-tokens` so zipom, pravidlo preskakovania pri `--since-last`, prípony v strome, počet testov).
+  - Kompletná aktualizácia dokumentácie: požiadavky P26–P30 v `docs/requirements.md`, sekcia `[Unreleased]` v `CHANGELOG.md`, aktualizácia `docs/design.md`, príklady nových prepínačov a kód 9 v `README.md`, aktualizácia odovzdania stavu `docs/handover.md`, potvrdenie ADR 0017, 0019 a 0020 ako `Prijaté` v `docs/decisions/README.md` a stav testov v `CLAUDE.md`. Túto dokumentáciu písal Antigravity skôr, než sa kód po kontrole zmenil. Preto ju neskôr agent prešiel a zosúladil s kódom (klávesy `P`/`p`/`o`, `--max-tokens` so zipom, pravidlo preskakovania pri `--since-last`, prípony v strome, počet testov).
 - **Kontrola hlavným Claudom (2026-11-04):** po Antigravity prešiel hlavný Claude diff a testy. Našiel a nechal opraviť:
   - Odtlačok obnovy exportu (`request_fingerprint`) ignoroval `threads` a `since_last`: prerušený export s vláknami pokračoval aj beh s `--no-threads` (a opačne pre `--since-last`). Teraz ich zahŕňa.
   - Moduly `split`, `syncstate` a `tui/tuistate` hlásili chyby cez Python `warnings` (`UserWarning`). V terminálovom TUI by ich Textual vykreslil do obrazovky, v CLI sú šum. Teraz idú do logu a `split` a `syncstate` aj cez udalosť `warning`. `profiles.load()` pri poškodenom súbore `UserWarning` zatiaľ vydáva (otvorený bod).
@@ -75,7 +75,7 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
 - **Overené `[OVERENÉ]`:**
   - `uv run pytest`: všetkých **870 automatizovaných testov** prechádza (stav po kontrole hlavným Claudom). Všetky bežia offline proti falošnému Discordu (`httpx.MockTransport`).
   - Všetky nové scenáre overené offline testami (odolný export, staging `.partial`, pád a obnova, prepínač `--threads/--no-threads`, fórum end-to-end, `threads` CLI, `--since-last`, prežitie `clear_cache`, kontrola disku pred CDN, `split_markdown`, limity tokenov, profily, TUI modály a obnova stavu, `agent-guide`).
-- **Test na reálnom účte (2026-11-04, [analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md)):** hlavný Claude spustil nástroj na reálnom účte používateľa (server VUT FIT) na jeho výslovnú žiadosť, v režime `safe` a v malých oknách. Exporty išli do dočasného priečinka, ktorý sa potom zmazal.
+- **Test na reálnom účte (2026-11-04, [analýza](analyses/real-account-check-2026-11-04.md)):** hlavný Claude spustil nástroj na reálnom účte používateľa (server VUT FIT) na jeho výslovnú žiadosť, v režime `safe` a v malých oknách. Exporty išli do dočasného priečinka, ktorý sa potom zmazal.
   - `[OVERENÉ]` `doctor` (všetkých 6 kontrol OK), `status`, `servers` a `channels` fungujú. Používateľ samostatne potvrdil, že `discoop ui` funguje a že sa v ňom prihlásil (QR prihlásenie v TUI funguje).
   - `[OVERENÉ]` `discoop threads` na fóre: `--from 3d` vypísalo 2 vlákna za 5,9 s, `--from 90d --refresh --format json` 61 unikátnych vlákien (50 archivovaných) zoradených podľa poslednej aktivity zostupne za 17 s, na 4 stránky `threads/search` (1 aktívna + 3 archivované po 25). `has_more` bolo na poslednej archivovanej strane znova `true`, koniec našlo okno (`reached_start`). Aktívne vlákno staršie než okno vypadlo vo filtri okna.
   - `[OVERENÉ]` Export fóra (`messages -c <fórum> --from 3d --no-files --out DIR`): 2 príspevky, 22 správ, 11,6 s, úplný manifest (`messages 0, threads 2, thread_messages 22`), sekcie `## thread "..."` s riadkami hlavičky (vytvorenie, posledná aktivita, správy, súbory, tagy) a pole `thread: {id, name, parent_id, tags}` v `messages.jsonl`. Nové zistenie: `message_count` v zozname vlákien nezahŕňa štartovaciu správu príspevku (zoznam ukázal 9 a 11, stiahnutie vrátilo 10 a 12 správ).
@@ -88,7 +88,7 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
   - **Známe obmedzenie (neopravené):** príloha, ktorú API popíše inak než CDN (v teste `size` 25238 a `image/webp`, CDN poslalo PNG s 36731 B), sa pri opakovanom exporte do toho istého priečinka stiahla znova (`downloaded: 1, already_present: 0`): opätovné použitie podľa ID a veľkosti ju nepozná. Pozorované na jedinej prílohe. Neškodné, viď sekcia 4 analýzy.
   - **Otvorené pozorovania:** pri kóde 130 `main()` nevypísal riadok „Interrupted.“ (kód má `out.error(...)`, vetva vyzerá nedosiahnuteľná, neškodné). Nezistilo sa, či stránky správ vlákien emitujú v `--progress-json` udalosť `page`.
 - **Neoverené `[PREDPOKLAD]`:**
-  - Chovanie `threads/search` na všetkých rôznych typoch kanálov Discordu mimo fórum `#help-center` a vzorový textový kanál overený v probe analýze ([probe-vlakien-2026-11-04.md](analyzy/probe-vlakien-2026-11-04.md)).
+  - Chovanie `threads/search` na všetkých rôznych typoch kanálov Discordu mimo fórum `#help-center` a vzorový textový kanál overený v probe analýze ([thread-probe-2026-11-04.md](analyses/thread-probe-2026-11-04.md)).
   - Reakcia reálneho Discord API na neindexované vlákna (HTTP 202) a súkromné vlákna (typ 12): v teste na reálnom účte 2026-11-04 sa neobjavili.
   - Export fóra so stovkami príspevkov od začiatku do konca a export s množstvom príloh (2026-11-04 sa na reálnom účte skúšali len malé okná a videla sa 1 príloha).
   - Skutočné Ctrl+C z konzoly počas čakania na sieť alebo počas sťahovania súboru (prerušenie sa na reálnom účte skúšalo len skriptom) a vlákno, ktoré medzi dvoma behmi `--since-last` dostane novú odpoveď.
@@ -97,7 +97,7 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
   - Linux a macOS.
 
 **Ďalej:**
-1. Dotestovať na reálnom účte, čo ešte nie je overené (podrobne [analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md), sekcia 6):
+1. Dotestovať na reálnom účte, čo ešte nie je overené (podrobne [analýza](analyses/real-account-check-2026-11-04.md), sekcia 6):
    - Skutočné Ctrl+C z konzoly (počas čakania na sieť aj počas sťahovania súboru) a Ctrl+C v TUI, potom opätovné spustenie.
    - TUI na reálnom účte: výber fór, prepínač Threads, profily (`P` uloží, `p` načíta), otvorenie priečinka cez `o`, prípony riadkov kanálov v strome a perzistentnosť `tui-state.json`.
    - Export fóra so stovkami príspevkov od začiatku do konca.
@@ -105,7 +105,7 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
    - Súkromné vlákna (typ 12), HTTP 202 a export s množstvom príloh.
 2. Otvorené drobnosti:
    - Linux a macOS sú neotestované.
-   - Príloha, ktorú API popíše inak než CDN (iná veľkosť a typ obsahu), sa pri opakovanom exporte sťahuje znova: opätovné použitie podľa ID a veľkosti ju nepozná ([analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md), sekcia 4). Neopravené a neškodné. Možná oprava: uvoľniť kontrolu veľkosti alebo ukladať do manifestu skutočnú veľkosť.
+   - Príloha, ktorú API popíše inak než CDN (iná veľkosť a typ obsahu), sa pri opakovanom exporte sťahuje znova: opätovné použitie podľa ID a veľkosti ju nepozná ([analýza](analyses/real-account-check-2026-11-04.md), sekcia 4). Neopravené a neškodné. Možná oprava: uvoľniť kontrolu veľkosti alebo ukladať do manifestu skutočnú veľkosť.
    - Pri kóde 130 sa nevypíše riadok „Interrupted.“, hoci kód má `out.error(...)`. Vetva vyzerá nedosiahnuteľná.
    - `--progress-json`: nezistilo sa, či stránky správ vlákien emitujú udalosť `page`.
    - `PreviewScreen`: „Save“ ukladá do `export-dir` alebo do `exports` v aktuálnom priečinku, nie do `Documents/discoop` ako export z formulára. Či to tak ostane, je stále otvorená otázka.
@@ -115,7 +115,7 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
 3. Používateľ rozhodne o pushi commitov na GitHub (push iba na jeho pokyn).
 4. Rozhodnutie 9 (výpočet prístupu ku kanálom) ostáva odložené s nízkou prioritou.
 
-**Prerobené TUI (`discoop ui`, P18–P20, [ADR 0014](rozhodnutia/0014-tui-klavesnica-jeden-strom.md)):**
+**Prerobené TUI (`discoop ui`, P18–P20, [ADR 0014](decisions/0014-tui-keyboard-one-tree.md)):**
 - **Nález používateľa** (2026-11-03, po prvom vyskúšaní TUI z ADR 0013): veľa tlačidiel bez textu, nefunkčné šípky,
   kanály nie sú zbalené, rozhranie zadrháva. Chcel klávesnicu ako primárne ovládanie, jednoduchšie a terminálovejšie UI.
 - **Príčiny a opravy:**
@@ -157,8 +157,8 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
 - **Názov exportu v TUI (P21):** riadok `Path` nahradil `Name` s predvoleným názvom `YYYY-MMDD-HHMM` (dátum a čas).
   Prvá verzia spájala názov a cestu v jednom poli (holý názov do priečinka exportov, lomka alebo absolútna cesta ako
   cesta) a bez `export-dir` šla do `exports` v aktuálnom priečinku. To používateľ ešte v ten deň zmenil, pozri P23 nižšie.
-  Kolízia automatického názvu dostane `-2`, `-3`. Podrobnosti v `navrh-nastroja.md` (4.8).
-- **Ako prebiehala práca:** podľa [ADR 0010](rozhodnutia/0010-praca-cez-agentov.md) cez agentov, hlavný Claude výsledky
+  Kolízia automatického názvu dostane `-2`, `-3`. Podrobnosti v `design.md` (4.8).
+- **Ako prebiehala práca:** podľa [ADR 0010](decisions/0010-work-through-agents.md) cez agentov, hlavný Claude výsledky
   kontroloval (diff, `uv run pytest`, SVG screenshoty vykreslené do PNG). Commity (všetky na `main`, nepushnuté):
   `a7a5347` (rozhodnutia P18–P20, ADR 0014), `470c127` (preview joby a typované udalosti), `4e13acb` (hlavná obrazovka),
   `4dc5f8b` (dialógy).
@@ -171,7 +171,7 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
   - V šírke 80 stĺpcov sa Footer nezmestí celý.
   - CLI príkaz v riadku má vždy `--delay` z configu.
 
-**Inštalácia a verejné repo (P22, [ADR 0015](rozhodnutia/0015-verejne-repo-a-instalacia.md)):**
+**Inštalácia a verejné repo (P22, [ADR 0015](decisions/0015-public-repo-and-installation.md)):**
 - Používateľ chce príkaz `discoop` bez `uv run`, rýchlu inštaláciu na Windows, Linuxe aj macOS z GitHubu. Repo
   `filbam/Discoop` je verejné. Zvolené `uv tool install git+https://github.com/filbam/Discoop`, návod pre každý OS je v README.
 - História gitu skontrolovaná: 34 commitov, vzor Discord tokenu sa nenašiel, `Temp/` ani `prototype/out/` nikdy neboli v gite.
@@ -181,7 +181,7 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
 - **Neoverené `[PREDPOKLAD]`:** samotná inštalácia z GitHubu, Linux, macOS, automatické stiahnutie Pythonu uv-čkom, beh TUI z takejto inštalácie.
 - GitHub je na `75f0310`, lokálne je 9 nepushnutých commitov.
 
-**Priečinok a názov exportu v TUI, dve polia (P23, [ADR 0016](rozhodnutia/0016-predvoleny-priecinok-exportov-v-tui.md)):**
+**Priečinok a názov exportu v TUI, dve polia (P23, [ADR 0016](decisions/0016-default-export-folder-in-tui.md)):**
 - Používateľ rozhodol, že `Name` nemá byť cesta a export nemá ísť podľa miesta spustenia terminálu. Formulár má teraz
   samostatné riadky `Folder` a `Name`. Prázdny `Name` je `discord-export-<dátum a čas>`, prázdny `Folder` je `discoop`
   v Dokumentoch používateľa (`platformdirs.user_documents_dir()`, rovnako na Windows, Linuxe aj macOS). Config `export-dir`
@@ -202,7 +202,7 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
   OneDrive, beh v skutočnom termináli.
 - **Mimo rozsahu:** `Save` v Preview ukladá naďalej do `export-dir`, inak `exports` v aktuálnom priečinku.
 
-**Antigravity kolo 1 — logovanie, diagnostika, JSON výstupy, pomocné moduly a probe vlákien (P24, P25, [ADR 0018](rozhodnutia/0018-logovanie.md)):**
+**Antigravity kolo 1 — logovanie, diagnostika, JSON výstupy, pomocné moduly a probe vlákien (P24, P25, [ADR 0018](decisions/0018-logging.md)):**
 - **Rozdelenie práce podľa ADR 0010:** práca prebiehala v troch fázach cez špecializované balíky agentov (AG-A, AG-B, AG-C, AG-E1, AG-E2, AG-DOC).
 - **Balík A (`src/discoop/logs.py`, `api.py`, `scrape.py`, `attachments.py`, ADR 0018):**
   - Implementovaná infraštruktúra diagnostického logovania (`setup_logging`, `teardown_logging`, `DiscoopFormatter`).
@@ -243,7 +243,7 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
 
 ## 2026-11-03
 
-**Analýza Discord web klienta** → [analyzy/discord-analyza.md](analyzy/discord-analyza.md)
+**Analýza Discord web klienta** → [analyzy/discord-analysis.md](analyses/discord-analysis.md)
 - Analýzu robil agent v Chrome používateľa (server VUT FIT) v troch behoch. Agent iba sledoval requesty,
   ktoré posiela samotný Discord klient. Token nečítal.
 - Hlavné zistenia:
@@ -258,7 +258,7 @@ vo fóre `#help-center`. Stalo sa to po zatvorení panelu vyhľadávania: ďalš
 a Enter určený pre vyhľadávanie správu odoslal.
 - Používateľ správu zmazal.
 - Vlákno ostalo sledované (Following).
-- Opatrenie: agent na Discorde nesmie písať ani stláčať klávesy ([ADR 0003](rozhodnutia/0003-pravidla-pre-agentov-v-prehliadaci.md)).
+- Opatrenie: agent na Discorde nesmie písať ani stláčať klávesy ([ADR 0003](decisions/0003-rules-for-agents-in-the-users-browser.md)).
 
 **Incident 2: Chrome sa dvakrát zavrel.** V oboch prípadoch presne pri `tabs_close_mcp`. Karta agenta bola
 jediná v okne, ktoré si agent vytvoril.
@@ -268,28 +268,28 @@ jediná v okne, ktoré si agent vytvoril.
 - Ako prečítané sa označilo niekoľko kanálov (zoznam je v analýze, sekcia „Vedľajšie účinky“).
 - V histórii vyhľadávania Discordu pribudli 4 dotazy.
 
-**Návrh nástroja** → [navrh-nastroja.md](navrh-nastroja.md)
+**Návrh nástroja** → [design.md](design.md)
 - Obsahuje príkazy, výstupy (konzola, priečinok, zip), režimy human/agent, prílohy, vlákna, help a exit kódy.
 - Otvorené rozhodnutia sú v sekcii 15. Názov `discoop` je prijatý (ADR 0004).
 
 **Git**
-- Repo založené lokálne a prepojené so súkromným `filbam/Discoop` ([ADR 0002](rozhodnutia/0002-sukromne-repo-a-identita.md)).
+- Repo založené lokálne a prepojené so súkromným `filbam/Discoop` ([ADR 0002](decisions/0002-private-repo-and-identity.md)).
 - Prvý commit `f1c6fac` (analýza + návrh) je pushnutý.
 - Pri pushi bolo treba prihlásenie ako `filbam`, lebo predvolený účet `FilipBambura` súkromné repo nevidí.
 
-**Záznamy:** zavedená štruktúra dokumentácie podľa požiadavky P12 ([ADR 0001](rozhodnutia/0001-zaznamenavanie-a-verzovanie.md)):
-`CLAUDE.md`, `CHANGELOG.md`, `poziadavky.md`, `dennik.md`, `rozhodnutia/`, `analyzy/`.
+**Záznamy:** zavedená štruktúra dokumentácie podľa požiadavky P12 ([ADR 0001](decisions/0001-record-everything-and-version-it.md)):
+`CLAUDE.md`, `CHANGELOG.md`, `requirements.md`, `journal.md`, `decisions/`, `analyses/`.
 
 **Nové požiadavky:** P13 (Windows, Linux, macOS) a P14 (QR login v termináli).
 
-**Analýza prihlásenia** → [analyzy/discord-login.md](analyzy/discord-login.md)
+**Analýza prihlásenia** → [analyzy/discord-login.md](analyses/discord-login.md)
 - Robil ju agent vo vstavanom prehliadači aplikácie Claude, v neprihlásenom stave. Iba pozoroval prevádzku
   a čítal zdrojový kód stránky. Nič neodoslal a QR neskenoval.
 - **Hlavné zistenie:** QR login (remote auth gateway `v=2`) sa dá spraviť bez prehliadača. Stačí WebSocket,
   RSA-OAEP-SHA256 a jeden REST POST.
 - **Neoverené** (overí prototyp): kontrola `Origin`, captcha pri `remote-auth/login`, reálne rámce po naskenovaní.
 - **Návrh upravený:** login cez QR, Playwright vypadol, cesty a keyring pre všetky OS
-  ([ADR 0005](rozhodnutia/0005-qr-login-bez-prehliadaca.md)). Pribudli otvorené rozhodnutia 7 (záložný login)
+  ([ADR 0005](decisions/0005-qr-login-without-a-browser.md)). Pribudli otvorené rozhodnutia 7 (záložný login)
   a 8 (`login` v agent režime).
 
 **Incident 3: passkey dialóg.** Login stránka pri každom zobrazení formulára sama volá passkey autofill
@@ -321,7 +321,7 @@ skončí chybou s radou na `--token`.
   - QR sa v termináli (PowerShell) dal naskenovať.
   - `timeout_ms` bol ~5,7 min, platnosť QR teda kolíše viac, než sa myslelo.
 - **`prototype/probe.py`** (13 API requestov, bez rate limitov a bez rate-limit hlavičiek), výsledky
-  v [analýze, sekcia 15](analyzy/discord-analyza.md#15-overenie-prototypom-2026-11-03):
+  v [analýze, sekcia 15](analyses/discord-analysis.md#15-overenie-prototypom-2026-11-03):
   - zoznam serverov aj kanálov ide cez REST, gateway nebude treba,
   - `limit` max 100,
   - `after` vracia najbližšie novšie správy zoradené od najnovšej,
@@ -354,14 +354,14 @@ skončí chybou s radou na `--token`.
     sú opravené.
   - Riešenie je otvorené rozhodnutie 9: výpočet prístupu z práv a rolí.
 
-**Zmena spôsobu práce** ([ADR 0010](rozhodnutia/0010-praca-cez-agentov.md)):
+**Zmena spôsobu práce** ([ADR 0010](decisions/0010-work-through-agents.md)):
 - Hlavná konverzácia pri implementácii minula kontext a musela sa zhrnúť.
 - Používateľ určil: prácu robia agenti, hlavný Claude ich riadi, kontroluje výsledok (diff, `uv run pytest`)
   a commituje.
 - Agenti necommitujú. Píšuci agenti nemenia rovnaké súbory a denník v bloku práce píše len jeden.
 - `CLAUDE.md` má novú sekciu „Práca cez agentov“ a aktuálny stav projektu.
 
-**Prieskum prístupu ku kanálom** → [analyzy/pristup-ku-kanalom.md](analyzy/pristup-ku-kanalom.md)
+**Prieskum prístupu ku kanálom** → [analyzy/channel-access.md](analyses/channel-access.md)
 - Robil ho agent z dokumentácie a cudzieho kódu, bez volaní Discord API.
 - REST vie vrátiť vypočítané práva cez `GET /guilds/{id}/channels?permissions=true` (Userdoccers).
 - Záložná cesta: roly z `GET /users/@me/guilds/{id}/member` a lokálny výpočet z `permission_overwrites`.
@@ -376,7 +376,7 @@ skončí chybou s radou na `--token`.
   ak by s ním boli problémy. Rozpracovaný `prototype/access_probe.py`, `src/discoop/permissions.py`
   a `tests/test_permissions.py` sa zahodili.
 
-**Rozhodnutia 4 až 6** ([ADR 0011](rozhodnutia/0011-predvolene-spravanie-messages.md)): používateľ potvrdil, že
+**Rozhodnutia 4 až 6** ([ADR 0011](decisions/0011-default-behaviour-of-messages.md)): používateľ potvrdil, že
 vlákna sa predvolene sťahujú, predvolené okno je 24 h (celá história len cez `--from all`) a formát v agent
 režime je `text`.
 
@@ -474,7 +474,7 @@ režime je `text`.
   - `cli.py`: nové prepínače `--safe`, `--fast` a `--delay` v `discoop messages`, vzájomná kontrola kolízie `--safe` a `--fast`, prenos režimu do `DiscordAPI` a prepojenie `on_pause` na Rich status / agent stderr notifikáciu.
   - `export.py` & `manifest.json`: manifest zaznamenáva použitý režim v objekte `query.mode` (`"safe"` / `"fast"`).
 
-**Premenovanie „agent mode“ na „plain mode“ (`--plain`, P15, [ADR 0012](rozhodnutia/0012-premenovanie-agent-mode-na-plain.md)):**
+**Premenovanie „agent mode“ na „plain mode“ (`--plain`, P15, [ADR 0012](decisions/0012-rename-agent-mode-to-plain.md)):**
 - Používateľ navrhol premenovať režim, aby jasne vyjadroval absenciu vykresľovania farieb a grafických prvkov, pričom v helpe ostáva informácia, že je vhodný pre AI agentov a skripty.
 - Schválené riešenie:
   - Primárny prepínač je `--plain` (Plain mode), premenná prostredia `DISCOOP_PLAIN=1`.
@@ -482,7 +482,7 @@ režime je `text`.
   - V helpe a sekcii `NOTE FOR AI AGENTS` je vysvetlené, že plain mode odstraňuje farby a rich formátovanie, čím šetrí tokeny a je ľahko parsovateľný.
 - Overené automatickými testami (232 testov).
 
-**Interaktívne terminálové rozhranie TUI (`discoop ui`, P16–P17, [ADR 0013](rozhodnutia/0013-tui-a-spolocna-vrstva.md)):**
+**Interaktívne terminálové rozhranie TUI (`discoop ui`, P16–P17, [ADR 0013](decisions/0013-tui-and-shared-service-layer.md)):**
 - Používateľ požadoval pre `--human` režim vizuálne prostredie v termináli v štýle Discordu/prieskumníka ovládané klávesnicou (šípky, `Space`, `Tab`, `Enter`, skratky), ktoré funguje ako nadstavba nad jadrom nástroja, dynamicky sa prispôsobuje zmene veľkosti okna a obsahuje vstavaný Help s návodom aj výpisom `discoop --help`.
 - **Spoločná servisná vrstva (`src/discoop/service.py`):**
   - Orchestrácia `list_servers`, `list_channels`, `load_all`, `resolve_targets`, `validate_export_target` a `run_messages` vyčlenená z `cli.py` do `service.py`.
@@ -503,7 +503,7 @@ Hotové z predchádzajúceho zoznamu: krok 3, jeho test používateľom, safe/fa
 
 ## 2026-11-02
 
-**Brainstorming.** Používateľ opísal požiadavky → [poziadavky.md](poziadavky.md) (P1–P11).
+**Brainstorming.** Používateľ opísal požiadavky → [requirements.md](requirements.md) (P1–P11).
 - Prezretý starý skript `discord-script.js` (FITSeeker):
   - spúšťal sa z konzoly prehliadača a volal `GET /api/v9/channels/{id}/messages`,
   - stránkoval cez `before` a časové okno počítal cez snowflake,

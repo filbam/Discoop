@@ -12,7 +12,7 @@ V Discorde existujú dva hlavné druhy kanálov obsahujúcich diskusie:
 
 V pôvodnej verzii Discoop nepodporoval čítanie vlákien; fóra a media kanály boli odmietané ako nečitateľné (hláška „threads come in a later version“). Na serveroch ako VUT FIT je však veľká časť kľúčových študijných informácií, otázok a odpovedí sústredená práve v príspevkoch na fórach a vo vláknach kanálov.
 
-ADR 0011 stanovilo, že vlákna sa majú sťahovať predvolene. Merania cez probe skript (`docs/analyzy/probe-vlakien-2026-11-04.md`) overili správanie Discord API pre používateľský účet:
+ADR 0011 stanovilo, že vlákna sa majú sťahovať predvolene. Merania cez probe skript (`docs/analyses/thread-probe-2026-11-04.md`) overili správanie Discord API pre používateľský účet:
 - Botovský endpoint `GET /guilds/{id}/threads/active` používateľský účet nemôže použiť (403, kód 20002).
 - Kanálový endpoint `GET /channels/{id}/threads/search` funguje pre používateľský účet na fórach aj v bežných textových kanáloch s `limit=25`.
 - Správy jednotlivých vlákien sa čítajú štandardnou cestou `GET /channels/{thread_id}/messages`.
@@ -67,7 +67,7 @@ Bolo potrebné dobudovať plnú podporu sťahovania vlákien do servisnej vrstvy
 - **Súkromie v priebehu (`Events.thread`):**
   - Pri `--progress-json` udalosť `thread` emituje výlučne technické identifikátory (`channel_id`, `thread_id`) a počty (`index`, `total`). Žiadne názvy kanálov, názvy vlákien ani texty správ sa v strojovom JSON progress výstupe neobjavujú.
 
-## Vzťah k zisteniam z probe (`docs/analyzy/probe-vlakien-2026-11-04.md`)
+## Vzťah k zisteniam z probe (`docs/analyses/thread-probe-2026-11-04.md`)
 
 - **[OVERENÉ]**
   - Používateľský účet nemôže pristupovať na `/guilds/{id}/threads/active` (403, kód 20002). Aktívne vlákna sa preto získavajú cez kanálový endpoint `/channels/{id}/threads/search?archived=false`.
@@ -75,7 +75,7 @@ Bolo potrebné dobudovať plnú podporu sťahovania vlákien do servisnej vrstvy
   - Polia `has_more` a `total_results` na `threads/search` sú nespoľahlivé (falošné `has_more: true` na poslednej strane, nezrovnalosti v `total_results`). Koniec stránkovania preto spoľahlivo určuje iba prázdna alebo neúplná strana (< 25 položiek).
   - Správy vlákien sa čítajú štandardným volaním `GET /channels/{thread_id}/messages`. Štartovacia správa fórumového postu má ID zhodné s ID vlákna.
   - Kanály a vlákna bez oprávnení vracajú HTTP 403 `Missing Access`. Discoop ich zachytáva a bezpečne hlási ako čiastočný výsledok (kód 9).
-  - Na reálnom účte (2026-11-04, [analýza](../analyzy/overenie-na-realnom-ucte-2026-11-04.md)): `discoop threads` na fóre vypísalo pri `--from 3d` 2 vlákna (5,9 s) a pri `--from 90d --refresh --format json` 61 unikátnych vlákien (50 archivovaných) zoradených podľa poslednej aktivity zostupne, na 4 stránky `threads/search` (1 aktívna + 3 archivované po 25), za 17 s. `has_more` bolo na poslednej archivovanej strane znova `true`, koniec našlo okno (`reached_start`), čo potvrdzuje nespoľahlivosť `has_more`. Vlákno, ktoré je ešte aktívne, ale staršie než okno, vypadlo vo filtri okna.
+  - Na reálnom účte (2026-11-04, [analýza](../analyses/real-account-check-2026-11-04.md)): `discoop threads` na fóre vypísalo pri `--from 3d` 2 vlákna (5,9 s) a pri `--from 90d --refresh --format json` 61 unikátnych vlákien (50 archivovaných) zoradených podľa poslednej aktivity zostupne, na 4 stránky `threads/search` (1 aktívna + 3 archivované po 25), za 17 s. `has_more` bolo na poslednej archivovanej strane znova `true`, koniec našlo okno (`reached_start`), čo potvrdzuje nespoľahlivosť `has_more`. Vlákno, ktoré je ešte aktívne, ale staršie než okno, vypadlo vo filtri okna.
   - Na reálnom účte (2026-11-04): export fóra (`messages -c <fórum> --from 3d --no-files --out DIR`) dal 2 príspevky a 22 správ za 11,6 s s úplným manifestom (`messages 0, threads 2, thread_messages 22`). Markdown má sekcie `## thread "..."` s riadkami hlavičky (vytvorenie, posledná aktivita, správy, súbory, tagy) a správy v `messages.jsonl` majú pole `thread: {id, name, parent_id, tags}` s názvami tagov fóra.
   - Na reálnom účte (2026-11-04): `message_count` v zozname vlákien nezahŕňa štartovaciu správu príspevku fóra. Zoznam ukázal 9 a 11, stiahnutie vrátilo 10 a 12 správ (pozorované na 2 príspevkoch).
 

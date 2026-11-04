@@ -14,8 +14,8 @@ Zdroj je uvedený v zátvorke.
   používateľov, kanálov ani vlákien, texty správ ani ID používateľov. Z ID tu stojí iba ID servera VUT FIT.
 - Starší beh `probe-threads-20261104-121242.json` som nepoužil.
 - Sekcie 2 až 6 opisujú hlavne 1. beh, sekcia 7 je 2. beh. Kde 2. beh niečo uzavrel, sekcie 2 až 6 na to odkazujú.
-- Súvisiace záznamy: [discord-analyza.md](discord-analyza.md) (sekcia 6 Vlákna a fóra, pozorovanie v prehliadači) a
-  [navrh-nastroja.md](../navrh-nastroja.md) (sekcia 8 Vlákna a fóra).
+- Súvisiace záznamy: [discord-analysis.md](discord-analysis.md) (sekcia 6 Vlákna a fóra, pozorovanie v prehliadači) a
+  [design.md](../design.md) (sekcia 8 Vlákna a fóra).
 
 ---
 
@@ -55,7 +55,7 @@ Stav po oboch behoch.
 - Parametre vyhľadávania vlákien: `archived`, `sort_by=last_message_time`, `sort_order=desc`, `limit`, `offset`
   **[OVERENÉ]**.
 - Zoradenie výsledkov probe nekontroloval. Že sú naozaj od najnovšieho vlákna, je **[PREDPOKLAD]** (parametre server
-  prijal, rovnaké posiela aj klient Discordu, pozri [discord-analyza.md](discord-analyza.md), sekcia 6).
+  prijal, rovnaké posiela aj klient Discordu, pozri [discord-analysis.md](discord-analysis.md), sekcia 6).
 
 ---
 
@@ -96,7 +96,7 @@ Stav po oboch behoch.
   skutočný počet. 2. beh to rozhodol: offset 1833 vrátil 0 vlákien, teda `has_more: true` na offsete 1808 bolo
   **falošne pozitívne** (sekcia 7.6) **[OVERENÉ]**.
 - Pri aktívnych vláknach `total_results` prevyšuje počet vrátených o 2, v oboch behoch rovnako **[OVERENÉ]**. Podobný
-  rozdiel (15 oproti 13) je zapísaný aj v [discord-analyza.md](discord-analyza.md), sekcia 14. Ďalšia strana (offset 25)
+  rozdiel (15 oproti 13) je zapísaný aj v [discord-analysis.md](discord-analysis.md), sekcia 14. Ďalšia strana (offset 25)
   bola prázdna, takže chýbajúce 2 vlákna nie sú na nej (sekcia 7.5). Prečo `total_results` hovorí 14, ostáva
   nevysvetlené.
 - **Dôsledok:** koniec stránkovania sa nesmie určovať z `has_more` ani z `total_results`. Hodí sa najviac ako hrubý
@@ -106,7 +106,7 @@ Stav po oboch behoch.
 
 - V 112 requestoch (53 + 59) nepadla ani jedna `202` **[OVERENÉ]** (`count_202: 0` v oboch behoch).
 - To nie je dôkaz, že nikdy nenastane. Pri vyhľadávaní správ sa `202` s `retry_after` očakáva
-  **[PREDPOKLAD]** ([discord-analyza.md](discord-analyza.md), sekcia 8). Pre `threads/search` to nikto neoveril.
+  **[PREDPOKLAD]** ([discord-analysis.md](discord-analysis.md), sekcia 8). Pre `threads/search` to nikto neoveril.
 
 ### 3.5 Tvar odpovede
 
@@ -153,13 +153,13 @@ fóra (guildový endpoint ani textový kanál nevrátili nič) **[OVERENÉ]**. *
 
 **Polia `thread_metadata`** **[OVERENÉ]**: `archive_timestamp`, `archived`, `auto_archive_duration`,
 `create_timestamp`, `locked` (v oboch behoch rovnaké). Pole `invitable`, ktoré sa objavilo v zázname z prehliadača
-([discord-analyza.md](discord-analyza.md), sekcia 6), tu nebolo.
+([discord-analysis.md](discord-analysis.md), sekcia 6), tu nebolo.
 
 - Absencia súkromných vlákien je slabý dôkaz. Vzorka je jedno fórum (najnovších 25 archivovaných a 12 aktívnych vlákien)
   a jeden textový kanál (25 archivovaných a 4 aktívne). Fórum navyše obsahuje len verejné vlákna (typ 11)
   **[PREDPOKLAD]** (dokumentácia). Používateľ tiež nemusí mať právo, ktoré súkromné vlákna odhaľuje **[PREDPOKLAD]**.
 - Polia `owner`, `owner_id` a `member_ids_preview` nesú údaje o ľuďoch **[PREDPOKLAD]** (z
-  [discord-analyza.md](discord-analyza.md), sekcia 6). Treba s nimi zaobchádzať podľa pravidiel o citlivých údajoch.
+  [discord-analysis.md](discord-analysis.md), sekcia 6). Treba s nimi zaobchádzať podľa pravidiel o citlivých údajoch.
 
 ---
 
@@ -188,7 +188,7 @@ načítal `GET /channels/{id}/messages?limit=1` **[OVERENÉ]**.
 - `last_message_id` je pri väčšine kanálov, kde dáva zmysel, vyplnené **[OVERENÉ]**. Pri kategóriách chýba (alebo je
   `null`) a tiež pri 4 textových a 1 hlasovom kanáli **[OVERENÉ]** (27 kanálov bez hodnoty).
 - Že je spoľahlivé, je **[PREDPOKLAD]**: dve vzorky nestačia.
-- Hodnota môže ukazovať na zmazanú správu. V [discord-analyza.md](discord-analyza.md), sekcia 14, je kanál, ktorého
+- Hodnota môže ukazovať na zmazanú správu. V [discord-analysis.md](discord-analysis.md), sekcia 14, je kanál, ktorého
   `last_message_id` bol novší než najnovšia čitateľná správa. Oficiálna dokumentácia hovorí, že nemusí ukazovať na
   existujúcu správu **[PREDPOKLAD]**. Takáto chyba je neškodná: zbytočne sa urobí jeden request.
 - Nebezpečná by bola opačná chyba, `last_message_id` staršie než skutočne najnovšia správa. Nepozorovali sme ju, ale
@@ -263,7 +263,7 @@ Tri volania `GET /channels/{thread_id}/messages`, všetky `200` **[OVERENÉ]**:
   probe neskúmal, či teda prílohy štartovacej správy prichádzajú už s vyhľadávaním, je **[PREDPOKLAD]**.
 - `members` je prítomné, ale prázdne (0 položiek) **[OVERENÉ]**.
 - Pre vlákna v textových kanáloch to neplatí automaticky a neskúšalo sa (v prehliadači `first_messages` pri textovom
-  kanáli chýbalo, [discord-analyza.md](discord-analyza.md), sekcia 6).
+  kanáli chýbalo, [discord-analysis.md](discord-analysis.md), sekcia 6).
 
 ### 7.5 Krátka strana je koniec
 
@@ -323,7 +323,7 @@ Tri volania `GET /channels/{thread_id}/messages`, všetky `200` **[OVERENÉ]**:
 5. **Prečo je `total_results` pri aktívnych vláknach o 2 vyššie** než počet vrátených (14 oproti 12).
 6. **Vlákno s viac ako 100 správami** a stránkovanie vo vlákne. Tiež ID prvej správy vlákna v textovom kanáli: vlákno
    vzniknuté zo správy má ID rovné ID tejto správy v rodičovskom kanáli **[PREDPOKLAD]**
-   ([navrh-nastroja.md](../navrh-nastroja.md), sekcia 8, `thread.id == message.id`), vo vlákne samom to neoverené ostáva.
+   ([design.md](../design.md), sekcia 8, `thread.id == message.id`), vo vlákne samom to neoverené ostáva.
 7. **Spoľahlivosť `last_message_id`:** iba 2 čitateľné vzorky, žiadna z fóra, oznamovacieho ani hlasového kanála.
 
 ---
@@ -345,7 +345,7 @@ Tri volania `GET /channels/{thread_id}/messages`, všetky `200` **[OVERENÉ]**:
 3. **`total_results`** používať najviac ako hrubý odhad pre ukazovateľ priebehu. Pri archivovanom zozname fóra
    sedelo, pri aktívnych nie (14 oproti 12).
 4. **Aktívne vlákna** čítať cez `threads/search?archived=false` po kanáloch. Guildový endpoint je len pre botov.
-   Overené vo fóre a v jednom textovom kanáli. Záložný zdroj z [navrh-nastroja.md](../navrh-nastroja.md), sekcia 8
+   Overené vo fóre a v jednom textovom kanáli. Záložný zdroj z [design.md](../design.md), sekcia 8
    (správy s objektom `thread`), môže ostať pre kanály, kde vyhľadávanie zlyhá.
 5. **`403` (kód `50001`) pri vyhľadávaní vlákien v jednom kanáli** brať ako „bez prístupu“ a ten kanál preskočiť, nie
    zrušiť celý beh. Pred volaním netreba hádať prístup, stačí spracovať odpoveď.

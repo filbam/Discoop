@@ -1,7 +1,7 @@
 # Návrh: `discoop`, CLI na sťahovanie správ z Discordu
 
-Stav: **návrh na diskusiu** (3. 11. 2026). Vychádza z [analyzy/discord-analyza.md](analyzy/discord-analyza.md).
-Prijaté rozhodnutia sú v [rozhodnutia/](rozhodnutia/README.md).
+Stav: **návrh na diskusiu** (3. 11. 2026). Vychádza z [analyzy/discord-analysis.md](analyses/discord-analysis.md).
+Prijaté rozhodnutia sú v [rozhodnutia/](decisions/README.md).
 Body označené **[PROTOTYP]** závisia od vecí, ktoré treba ešte overiť vlastnými API volaniami (analýza, sekcia 14).
 Prototyp 2026-11-03 väčšinu z nich overil (analýza, sekcia 15). Overené body sú označené **[OVERENÉ]**.
 
@@ -34,11 +34,11 @@ Nástroj beží na **Windows, Linuxe aj macOS** (P13). Žiadna časť nesmie zá
 | CLI | Typer | príkazy, parametre a help z type hintov |
 | UI pre človeka | Rich | tabuľky, stromy, progress bary, farby |
 | HTTP | httpx | timeouty, retry, streamované sťahovanie súborov |
-| Login | QR cez remote auth gateway: `websockets` + `cryptography` + `segno` (QR v termináli) | bez prehliadača, na všetkých OS ([ADR 0005](rozhodnutia/0005-qr-login-bez-prehliadaca.md)) |
+| Login | QR cez remote auth gateway: `websockets` + `cryptography` + `segno` (QR v termináli) | bez prehliadača, na všetkých OS ([ADR 0005](decisions/0005-qr-login-without-a-browser.md)) |
 | Uloženie tokenu | keyring (Windows Credential Manager, macOS Keychain, Linux Secret Service) | token nie je v čitateľnom súbore. Na Linuxe bez Secret Service fallback, sekcia 10 |
 | Cesty k dátam | platformdirs | správny adresár na každom OS |
 | Cache a stav | SQLite (stdlib `sqlite3`) | jeden súbor, rýchle vyhľadávanie mien |
-| Inštalácia | `uv tool install git+https://github.com/filbam/Discoop` | príkaz `discoop` dostupný globálne na Windows, Linuxe aj macOS ([ADR 0015](rozhodnutia/0015-verejne-repo-a-instalacia.md)) |
+| Inštalácia | `uv tool install git+https://github.com/filbam/Discoop` | príkaz `discoop` dostupný globálne na Windows, Linuxe aj macOS ([ADR 0015](decisions/0015-public-repo-and-installation.md)) |
 
 ## 4. Príkazy
 
@@ -59,7 +59,7 @@ discoop profiles              správa pomenovaných profilov nastavení
 
 **Globálne prepínače:** `--plain` (alias `--agent`), `--human`, `--quiet`, `--verbose`, `--debug`, `--log FILE`.
 
-Prepínače `--debug` a `--log FILE` (prípadne premenné prostredia `DISCOOP_DEBUG=1` a `DISCOOP_LOG=cesta`) zapínajú voliteľné štruktúrované diagnostické logovanie na stderr, resp. do súboru ([ADR 0018](rozhodnutia/0018-logovanie.md)). Vďaka hoistingu prepínačov fungujú pred aj za podpríkazom (napr. `discoop messages --debug ...`). Pri `--debug` sa automaticky vypne Rich animovaný spinner, aby logy nepoškodzovali terminál. Príkaz `discoop ui --debug` je odmietnutý s kódom 8 (UI plne ovláda obrazovku), ale `discoop ui --log FILE` je povolené.
+Prepínače `--debug` a `--log FILE` (prípadne premenné prostredia `DISCOOP_DEBUG=1` a `DISCOOP_LOG=cesta`) zapínajú voliteľné štruktúrované diagnostické logovanie na stderr, resp. do súboru ([ADR 0018](decisions/0018-logging.md)). Vďaka hoistingu prepínačov fungujú pred aj za podpríkazom (napr. `discoop messages --debug ...`). Pri `--debug` sa automaticky vypne Rich animovaný spinner, aby logy nepoškodzovali terminál. Príkaz `discoop ui --debug` je odmietnutý s kódom 8 (UI plne ovláda obrazovku), ale `discoop ui --log FILE` je povolené.
 
 Server a kanál sa zadávajú cez **pomenované parametre** `-s/--server` a `-c/--channel`, nie pozične.
 Pre agentov je to jednoznačnejšie. Hodnota môže byť ID alebo meno (pozri sekciu 5).
@@ -69,8 +69,8 @@ Pre agentov je to jednoznačnejšie. Hodnota môže byť ID alebo meno (pozri se
 
 ### 4.1 `login`, `logout`, `status`
 
-Hlavná cesta je **QR login bez prehliadača** (P14, [ADR 0005](rozhodnutia/0005-qr-login-bez-prehliadaca.md)).
-Protokol popisuje [analyzy/discord-login.md](analyzy/discord-login.md).
+Hlavná cesta je **QR login bez prehliadača** (P14, [ADR 0005](decisions/0005-qr-login-without-a-browser.md)).
+Protokol popisuje [analyzy/discord-login.md](analyses/discord-login.md).
 
 1. `login` sa pripojí na `wss://remote-auth-gateway.discord.gg/?v=2` (s `Origin: https://discord.com`),
    vygeneruje kľúč RSA-2048 a prejde handshake (`hello` → `init` → `nonce_proof` → `pending_remote_init`).
@@ -131,14 +131,14 @@ discoop channels [-s SERVER] [--refresh] [--type text,forum,...] [--flat] [--for
 ```
 discoop threads -s SERVER -c CHANNEL [--from WHEN] [--to WHEN] [--refresh] [--format text|json]
 ```
-Príkaz na prehľadný výpis vlákien kanála a príspevkov vo fórach bez sťahovania správ ([ADR 0019](rozhodnutia/0019-vlakna.md)):
+Príkaz na prehľadný výpis vlákien kanála a príspevkov vo fórach bez sťahovania správ ([ADR 0019](decisions/0019-threads.md)):
 - **Podporované kanály:** fórum (typ 15), mediálny kanál (typ 16), textový kanál (typ 0) a oznamovací kanál (typ 5). Ak zadaný kanál nepodporuje vlákna, príkaz skončí s kódom 8 (`BAD_ARGS`).
 - **Časové okno:** predvolené okno je 30 dní (`--from 30d`), celá história sa zobrazí cez `--from all`.
 - **Formáty:**
   - *Human režim:* Rich tabuľka so stĺpcami `ID`, `Archived`, `Messages`, `Last activity` (v miestnom čase), `Tags` (názvy tagov vo fóre) a `Name`.
   - *Plain režim:* riadky oddelené tabulátorom (TSV) s hlavičkou.
   - *JSON formát (`--format json`):* pole JSON objektov `{id, name, parent_id, type, archived, locked, message_count, created, last_activity, tags}`.
-- **Počet správ (`Messages`, `message_count`):** pri príspevku fóra nezahŕňa štartovaciu správu. `[OVERENÉ]` na reálnom účte 2026-11-04 na 2 príspevkoch: zoznam ukázal 9 a 11, stiahnutie vrátilo 10 a 12 správ ([analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md)).
+- **Počet správ (`Messages`, `message_count`):** pri príspevku fóra nezahŕňa štartovaciu správu. `[OVERENÉ]` na reálnom účte 2026-11-04 na 2 príspevkoch: zoznam ukázal 9 a 11, stiahnutie vrátilo 10 a 12 správ ([analýza](analyses/real-account-check-2026-11-04.md)).
 
 ### 4.5 `messages`
 
@@ -183,25 +183,25 @@ discoop messages -c "isc-*" --since-last --agent
   `--format text|md|json|jsonl`, `--include-system`, `--max-messages`, `--out DIR`, `--zip FILE`, `--print`,
   `--no-files`, `--max-file-size MB`, `--safe`, `--fast`, `--delay SEC`, `--progress-json`,
   `--max-tokens N`, `--profile NAME`, `--save-profile NAME`.
-- **Odolný export po kanáloch, staging `.partial` a kód 9 ([ADR 0017](rozhodnutia/0017-spolahlivy-export-a-ciastocny-uspech.md)):**
+- **Odolný export po kanáloch, staging `.partial` a kód 9 ([ADR 0017](decisions/0017-reliable-export-and-partial-success.md)):**
   - Trieda `ExportWriter` (`src/discoop/export.py`) zapisuje priebežne po kanáloch do staging priečinka `<cieľ>.partial` (pri zipe `<názov>.zip.partial`), bez držania celého exportu v pamäti.
   - Hotový export sa publikuje až po `close(complete=True)`. Predchádzajúci hotový export sa nikdy neprepíše prerušeným behom.
   - Automatická obnova (resume): opätovné spustenie rovnakého príkazu automaticky nadviaže na rozpracovaný beh a preskočí už hotové kanály a ich prílohy. Relatívne časové okná sa počítajú od pôvodného času `created`.
   - Kombinácia `--print` s obnovou, kde už sú hotové kanály, je odmietnutá s kódom 8 ešte pred sťahovaním správ.
   - Nový kód ukončenia `9` (`ExitCode.PARTIAL`) pri preskočení nedostupného kanála (403/404), zlyhanej prílohe alebo chybe vlákna. Súbory vynechané cez `--no-files` alebo `--max-file-size` kód 9 nevyvolávajú.
-- **Plná podpora vlákien a fór ([ADR 0019](rozhodnutia/0019-vlakna.md)):**
+- **Plná podpora vlákien a fór ([ADR 0019](decisions/0019-threads.md)):**
   - Predvolene zapnuté (`request.threads = True`), vypnutie cez `--no-threads`.
   - Fóra (typ 15) a mediálne kanály (typ 16) sú plnohodnotnými cieľmi `messages` (sťahujú svoje vlákna). Fórum s `--no-threads` je odmietnuté kódom 8. V TUI sa vyberajú ako ostatné kanály, pri Threads = no sa štart odmietne už vo formulári (bez volania Discordu).
-  - Sťahovanie aktívnych aj archivovaných vlákien cez `threads/search` s `limit=25`, stránkovaním podľa offsetu a detekciou konca prázdnou/neúplnou stranou (podľa [docs/analyzy/probe-vlakien-2026-11-04.md](analyzy/probe-vlakien-2026-11-04.md)).
+  - Sťahovanie aktívnych aj archivovaných vlákien cez `threads/search` s `limit=25`, stránkovaním podľa offsetu a detekciou konca prázdnou/neúplnou stranou (podľa [docs/analyses/thread-probe-2026-11-04.md](analyses/thread-probe-2026-11-04.md)).
   - Limity `--max-messages` a `--last N` platia nezávisle na kanál a na každé vlákno.
-- **Prírastkové sťahovanie `--since-last` ([ADR 0020](rozhodnutia/0020-since-last.md)):**
+- **Prírastkové sťahovanie `--since-last` ([ADR 0020](decisions/0020-since-last.md)):**
   - Sťahuje len správy novšie ako posledný úspešný export. Stav sa ukladá do `sync-state.json` viazaného na ID používateľského účtu v `paths.data_dir()` nezávisle od `cache.db` (prežije `clear_cache`).
   - Exkluzívna spodná hranica snowflake `saved_id + 1` chráni pred duplikátmi. Stav sa posúva až po úspešnom dokončení exportu kanála.
   - Preskakovanie neaktívnych kanálov: zoznam kanálov servera sa pri `--since-last` obnoví a ak má kanál uložený stav a `Channel.last_message_id <= saved_id`, v kanáli samotnom nič nepribudlo:
     - kanál, ktorý nemôže mať vlákna, alebo akýkoľvek kanál pri `--no-threads`: preskočí sa úplne (0 requestov),
     - textový alebo oznamovací kanál so zapnutými vláknami: jeho vlastné správy sa nesťahujú, ale zoznam jeho vlákien sa načíta a vlákna sa stiahnu ako inak,
     - fórum a media kanál sa nepreskakujú nikdy.
-    - `[PREDPOKLAD]` `last_message_id` textového kanála je spoľahlivé (posunie sa s každou novou správou): potvrdené na dvoch vzorkách z probe vlákien a v kontrole na reálnom účte 2026-11-04 (20 z 25 čitateľných kanálov sedelo, v 4 ukazovalo na novšiu správu, v 1 bola správa novšia než pole; [analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md)).
+    - `[PREDPOKLAD]` `last_message_id` textového kanála je spoľahlivé (posunie sa s každou novou správou): potvrdené na dvoch vzorkách z probe vlákien a v kontrole na reálnom účte 2026-11-04 (20 z 25 čitateľných kanálov sedelo, v 4 ukazovalo na novšiu správu, v 1 bola správa novšia než pole; [analýza](analyses/real-account-check-2026-11-04.md)).
   - Po prerušenom a obnovenom behu si kanály uložené prerušeným behom ponechajú starý stav a pri najbližšom `--since-last` sa stiahnu znova (duplicity, nič sa nestratí). Beh na to upozorní poznámkou.
   - Preventívna kontrola voľného miesta na disku pred stiahnutím príloh každého kanála: počíta sa len to, čo sa naozaj stiahne (`ExportWriter.bytes_to_download`), a odmietne sa s kódom 1, ak nezostane aspoň 50 MB bezpečnostná rezerva (`service._check_disk_space`).
 - **Delenie na tokeny a odhad tokenov:**
@@ -223,14 +223,14 @@ discoop messages -c "isc-*" --since-last --agent
   - **Holé ID bez `-s`** sa hľadá v cache všetkých serverov. Ak tam nie je, nástroj zavolá `GET /channels/{id}`
     **[PREDPOKLAD]**, z `guild_id` zistí server a stiahne jeho zoznam kanálov. `default-server` sa pri ID nepoužije.
   - Čítajú sa textové, hlasové a stage kanály, oznamy a vlákna zadané cez ID. Fórum (typ 15) a media kanál (typ 16)
-    sú tiež platné ciele, sťahujú len svoje vlákna ([ADR 0019](rozhodnutia/0019-vlakna.md)). Kategória skončí
+    sú tiež platné ciele, sťahujú len svoje vlákna ([ADR 0019](decisions/0019-threads.md)). Kategória skončí
     kódom `8`. Vzor, ktorý nájde len kanály, z ktorých sa nedá čítať (napr. kategórie), skončí kódom `4`.
   - **`--all-channels` zatiaľ nie je.** REST vracia aj nedostupné kanály a bez výpočtu prístupu (rozhodnutie 9, odložené)
     by skončil stovkami `403`.
 - **Časové okno:**
   - Formáty podľa návrhu, navyše `now`, čas so zónou (`2026-10-01T14:00+02:00`, `…Z`) a medzera namiesto `T`.
   - Relatívny čas má len jednotky `h`, `d`, `w`. `1m` je chyba, lebo sa dá čítať ako minúta aj mesiac.
-  - **Bez `--from` je okno 24 h pred `--to`.** Pri predvolenom `--to now` sú to posledné 24 h ([ADR 0011](rozhodnutia/0011-predvolene-spravanie-messages.md)).
+  - **Bez `--from` je okno 24 h pred `--to`.** Pri predvolenom `--to now` sú to posledné 24 h ([ADR 0011](decisions/0011-default-behaviour-of-messages.md)).
   - `--from` platí vrátane, `--to` bez.
   - **`--last N`** sa dá kombinovať s `--from`/`--to`: vráti N najnovších správ v okne. Bez `--from` berie celú
     históriu, nie 24 h.
@@ -243,7 +243,7 @@ discoop messages -c "isc-*" --since-last --agent
   a kontextové príkazy). Návrh mal len 0 a 19. `--include-system` ukáže aj ostatné.
 - **Formát `text`** je podľa 6.2 s týmito odchýlkami a doplnkami:
   - Príloha je `[file] meno veľkosť URL` (alebo lokálna cesta pri exporte s `--print`).
-  - Hlavička má `threads: N (M messages)` len vtedy, keď kanál má vlákna ([ADR 0019](rozhodnutia/0019-vlakna.md)). Zóna je ako posun `UTC+01:00`, nie meno
+  - Hlavička má `threads: N (M messages)` len vtedy, keď kanál má vlákna ([ADR 0019](decisions/0019-threads.md)). Zóna je ako posun `UTC+01:00`, nie meno
     (IANA meno sa na Windows bez ďalšej knižnice spoľahlivo zistiť nedá).
   - Riadok autora môže mať značky `[bot]`, `(edited)`, `(pinned)`, `(forwarded)`, `(system message, type N)`.
   - `[thread] "meno" N messages` pri správe, z ktorej vzniklo vlákno.
@@ -285,7 +285,7 @@ Uložené v `config.toml` v konfiguračnom adresári (sekcia 10).
 - **`default-server`** sa pri `set` vyhľadá ako server (meno alebo ID) a uloží sa jeho **ID**, takže
   premenovanie servera nastavenie nerozbije.
 - **`export-dir`** (pridané v kroku 3): priečinok pre relatívne cesty `--out`/`--zip`. Ukladá sa ako absolútna cesta.
-  V TUI je to predvolený priečinok exportov, bez neho `Documents/discoop` ([ADR 0016](rozhodnutia/0016-predvoleny-priecinok-exportov-v-tui.md)).
+  V TUI je to predvolený priečinok exportov, bez neho `Documents/discoop` ([ADR 0016](decisions/0016-default-export-folder-in-tui.md)).
   CLI bez neho ostáva pri aktuálnom priečinku.
 - **Strojový výstup:** `discoop config list --format json` vráti konfiguráciu ako JSON objekt na stdout.
 - **Neznámy kľúč** alebo zlá hodnota skončí kódom `8`.
@@ -321,15 +321,15 @@ discoop ui
 discoop --ui
 ```
 
-Interaktívne terminálové rozhranie (TUI) postavené na knižnici Textual (P16, P17, [ADR 0013](rozhodnutia/0013-tui-a-spolocna-vrstva.md)). Slúži ako vizuálna nadstavba pre `--human` režim. V `--plain` režime alebo pri nespustení v termináli (`not sys.stdout.isatty()`) skončí kódom `8`.
+Interaktívne terminálové rozhranie (TUI) postavené na knižnici Textual (P16, P17, [ADR 0013](decisions/0013-tui-and-shared-service-layer.md)). Slúži ako vizuálna nadstavba pre `--human` režim. V `--plain` režime alebo pri nespustení v termináli (`not sys.stdout.isatty()`) skončí kódom `8`.
 
-**Rozloženie ([ADR 0014](rozhodnutia/0014-tui-klavesnica-jeden-strom.md), nahrádza tri stĺpce z ADR 0013):**
+**Rozloženie ([ADR 0014](decisions/0014-tui-keyboard-one-tree.md), nahrádza tri stĺpce z ADR 0013):**
 - **Jeden strom** servery → kategórie → kanály, všetko predvolene zbalené. Vpravo panel *Export* (zoznam výberu a formulár: časové okno, režim `safe`/`fast`, cieľ `folder`/`zip`/`preview`, formát, prílohy, Max MB, Start).
 - Dole log (vždy viditeľný), pod ním riadok s ekvivalentným CLI príkazom `discoop messages ...` a Footer s klávesmi (klikateľný myšou). V úzkom okne (< 95 stĺpcov) sa ukazuje jeden panel naraz.
 - **Vzhľad:** téma Textual `ansi-dark` (farby terminálu, Ctrl+P mení tému), CSS bez hex farieb, ovládacie prvky vysoké jeden riadok (`compact=True`), bez emoji a veľkých tlačidiel. Pri Target=preview sú skryté Attachments a Max MB. Pri QR sa formulár nahradí kódom (pod 27 riadkov zmizne rámik a Footer, aby sa QR zmestil do 80×24).
 - **Klávesy:** primárne klávesnica, myš je doplnok. Úplná tabuľka (šípky, Space, Enter, Tab, `/`, `e`, `x`/`X`, `a`, `r`, `R`, `L`, `F5`, Esc, `c`, F1–F3, `q`) je v ADR 0014. Klávesy `P`, `p` a `o` (profily a otvorenie priečinka exportu) a prípony riadkov kanálov v strome sú v jeho sekcii „Doplnenie 2026-11-04“.
 
-**Priečinok a názov exportu (P21, P23, [ADR 0016](rozhodnutia/0016-predvoleny-priecinok-exportov-v-tui.md)):**
+**Priečinok a názov exportu (P21, P23, [ADR 0016](decisions/0016-default-export-folder-in-tui.md)):**
 - Formulár má pri Target=folder a zip dva samostatné riadky v tomto poradí: `Folder` a `Name` (obidva predvolene prázdne, pri preview skryté). `Name` nikdy nie je cesta.
 - **`Folder`:** prázdny = predvolený priečinok. Ten je `export-dir` z configu, inak `discoop` v Dokumentoch používateľa (`platformdirs.user_documents_dir()`, na Windows, Linuxe aj macOS rovnakým kódom, nič sa nevytvára pri zobrazení, priečinok vznikne pri exporte). `~` sa rozbalí, absolútna cesta sa použije ako je, relatívna leží vo vnútri predvoleného priečinka. Placeholder ukazuje skutočný predvolený priečinok, dlhý sa skráti zľava (`TailInput`), aby ostal jeho koniec.
 - **`Name`:** prázdny = `discord-export-<dátum a čas>` (`YYYY-MMDD-HHMM`, miestny čas, napr. `discord-export-2026-1104-0108`), zafixuje sa pri `F5`. Zadaný názov sa prečistí cez `safe_name` (lomky a neplatné znaky sa nahradia `_`), takže nikdy nevyjde z priečinka. Placeholder ukazuje aktuálny názov. Placeholdery a riadok s CLI príkazom sa obnovujú každých 30 s.
@@ -358,7 +358,7 @@ Interaktívne terminálové rozhranie (TUI) postavené na knižnici Textual (P16
 
 **Fóra a media kanály v TUI (2026-11-04):** vyberajú sa ako ostatné kanály (výber berie `MESSAGE_TYPES` aj `FORUM_TYPES`; kategória sa nevyberá, jej výber vyberie jej kanály). Ich príspevky sú vlákna, preto pri Threads = no a vybranom fóre formulár ukáže varovanie a `F5` štart odmietne hláškou ešte pred prvým volaním Discordu (služba by to odmietla s kódom 8). Overené testami s falošným Discordom (`tests/test_tui_forums.py`), na reálnom účte zatiaľ nie.
 
-**Známe obmedzenia:** TUI nemá `--since-last` ani `--max-tokens`; Esc počas bežiacej HTTP požiadavky zaberie až po jej skončení (timeout 20 s); pauzy pri opakovaní sťahovania príloh sa nedajú prerušiť hneď; v šírke 80 stĺpcov sa Footer nezmestí celý; CLI príkaz má vždy `--delay` z configu. Beh `discoop ui` na reálnom účte a QR prihlásenie v TUI potvrdil používateľ 2026-11-04 ([analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md)). Ctrl+C v TUI, výber fór a prepínač Threads na reálnom účte a Linux či macOS ostávajú neoverené.
+**Známe obmedzenia:** TUI nemá `--since-last` ani `--max-tokens`; Esc počas bežiacej HTTP požiadavky zaberie až po jej skončení (timeout 20 s); pauzy pri opakovaní sťahovania príloh sa nedajú prerušiť hneď; v šírke 80 stĺpcov sa Footer nezmestí celý; CLI príkaz má vždy `--delay` z configu. Beh `discoop ui` na reálnom účte a QR prihlásenie v TUI potvrdil používateľ 2026-11-04 ([analýza](analyses/real-account-check-2026-11-04.md)). Ctrl+C v TUI, výber fór a prepínač Threads na reálnom účte a Linux či macOS ostávajú neoverené.
 
 ### 4.9 `doctor`
 
@@ -481,7 +481,7 @@ Cesty k prílohám v `.md` a `.jsonl` sú relatívne (`files/...`). V `channels/
 **Pravidlá exportu a zvolené defaulty (krok 3):**
 - **Ochrana cieľa:** cieľový priečinok alebo zip nesmie prepísať existujúce súbory, ktoré nepochádzajú z discoop exportu (kontrola prítomnosti `manifest.json` s `"tool": "discoop"`). Neplatný cieľ skončí kódom `8` ešte pred dotazom na Discord.
 - **Opakovaný export:** do existujúceho priečinka alebo zipu sa súbory so zhodným `attachment_id` a veľkosťou znova nesťahujú (`present`).
-- **Atomický zápis po kanáloch a staging priečinok `<cieľ>.partial` ([ADR 0017](rozhodnutia/0017-spolahlivy-export-a-ciastocny-uspech.md)):**
+- **Atomický zápis po kanáloch a staging priečinok `<cieľ>.partial` ([ADR 0017](decisions/0017-reliable-export-and-partial-success.md)):**
   - `ExportWriter` zapisuje správy a súbory priebežne kanál po kanáli priamo do `<cieľ>.partial` (pri zipe `<názov>.zip.partial`).
   - Publikovanie do cieľového priečinka alebo súboru prebehne atomicky až pri `close(complete=True)`. Starší hotový export sa nikdy neprepíše ani nepoškodí prerušeným behom.
   - Súbory z CDN sa sťahujú s príponou `.part` a premenujú sa po úspešnom stiahnutí.
@@ -509,9 +509,9 @@ Cesty k prílohám v `.md` a `.jsonl` sú relatívne (`files/...`). V `channels/
 - `--max-file-size` (predvolene 50 MB, `0` = bez limitu) chráni pred obrovskými videami.
 - **Odolnosť voči chybám:** chyba pri sťahovaní jednotlivej prílohy nezastaví export celého kanála. Príloha sa označí ako `failed` v manifeste a súhrn chýb sa vypíše na stderr.
 
-## 8. Vlákna a fóra ([ADR 0019](rozhodnutia/0019-vlakna.md))
+## 8. Vlákna a fóra ([ADR 0019](decisions/0019-threads.md))
 
-Podrobné overenie správania Discord API na používateľskom účte popisuje [docs/analyzy/probe-vlakien-2026-11-04.md](analyzy/probe-vlakien-2026-11-04.md).
+Podrobné overenie správania Discord API na používateľskom účte popisuje [docs/analyses/thread-probe-2026-11-04.md](analyses/thread-probe-2026-11-04.md).
 
 - **Vlákna sa sťahujú predvolene** v príkaze `discoop messages` (`request.threads = True`). Vypnúť sa dajú cez `--no-threads`.
 - **Fóra (typ 15) a mediálne kanály (typ 16)** nemajú vlastné správy – ich obsahom sú výhradne vlákna. Sú plnohodnotnými cieľmi `messages` (v TUI sa vyberajú ako ostatné kanály, pri Threads = no sa štart odmietne už vo formulári). Fórum zadané s `--no-threads` je odmietnuté s kódom 8 (`BAD_ARGS`).
@@ -532,12 +532,12 @@ Podrobné overenie správania Discord API na používateľskom účte popisuje [
 **Časové okno:** dátumy sa prevedú na syntetické snowflake (`(ms − 1420070400000) << 22`).
 - Bežné okno: od `--to` dozadu cez `before=<najstaršie_id>&limit=100` **[OVERENÉ: max 100]**, kým ID nie je staršie
   ako `--from`.
-- `--since-last` ([ADR 0020](rozhodnutia/0020-since-last.md)):
+- `--since-last` ([ADR 0020](decisions/0020-since-last.md)):
   - Prírastkové sťahovanie, ktoré sťahuje správy s ID väčším ako uložené ID (`Window.min_id = int(saved_id) + 1`, exkluzívna hranica zamedzujúca duplikátom).
   - Stav synchronizácie sa ukladá do `sync-state.json` v `paths.data_dir()`, kľúčovaný ID používateľského účtu (jedno volanie `GET /users/@me`). Nezávislý od SQLite cache (prežije `clear_cache()`).
   - Pre kanál bez stavu sa použije predvolené 24-hodinové okno s informačnou poznámkou.
   - Stav sa posunie až po úplnom a úspešnom dokončení kanála (nie pri prerušení, chybe, ani pri `truncated`).
-  - Preskakovanie neaktívnych kanálov: ak má kanál `Channel.last_message_id <= saved_id`, kanál bez podpory vlákien (alebo akýkoľvek kanál pri `--no-threads`) sa preskočí úplne (0 requestov). Textový alebo oznamovací kanál so zapnutými vláknami nesťahuje vlastné správy, ale jeho vlákna sa čítajú ďalej. Fórum a media kanál sa nepreskakujú nikdy. `[PREDPOKLAD]` `last_message_id` je spoľahlivé a nové odpovede vo vláknach ho v rodičovskom kanáli neposúvajú (z probe vlákien malá vzorka; na reálnom účte 2026-11-04 pole sedelo v 20 z 25 čitateľných kanálov, kým odpovede vo vláknach vzorka nerozhodla, [analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md)).
+  - Preskakovanie neaktívnych kanálov: ak má kanál `Channel.last_message_id <= saved_id`, kanál bez podpory vlákien (alebo akýkoľvek kanál pri `--no-threads`) sa preskočí úplne (0 requestov). Textový alebo oznamovací kanál so zapnutými vláknami nesťahuje vlastné správy, ale jeho vlákna sa čítajú ďalej. Fórum a media kanál sa nepreskakujú nikdy. `[PREDPOKLAD]` `last_message_id` je spoľahlivé a nové odpovede vo vláknach ho v rodičovskom kanáli neposúvajú (z probe vlákien malá vzorka; na reálnom účte 2026-11-04 pole sedelo v 20 z 25 čitateľných kanálov, kým odpovede vo vláknach vzorka nerozhodla, [analýza](analyses/real-account-check-2026-11-04.md)).
   - Po prerušenom a obnovenom behu si kanály uložené prerušeným behom ponechajú starý stav a nabudúce sa stiahnu znova (duplicity, nič sa nestratí).
   - Kontrola voľného miesta na disku: pred stiahnutím príloh každého kanála sa spočíta, čo sa naozaj stiahne (`ExportWriter.bytes_to_download`), a porovná s voľným miestom cez `shutil.disk_usage`. Ak nezostáva aspoň 50 MB bezpečnostná rezerva, beh zlyhá s kódom 1 pred požiadavkami na CDN.
 
@@ -561,11 +561,11 @@ Podrobné overenie správania Discord API na používateľskom účte popisuje [
 - `200 []` môže znamenať aj chýbajúce `READ_MESSAGE_HISTORY`. Odlíšiť sa to dá až výpočtom prístupu (rozhodnutie 9, odložené).
 - `403` pri kanáli bez `VIEW_CHANNEL` je **[OVERENÉ]** 2026-11-03: `discoop messages` na kanáli
   `1549737445002584094` skončil `NO_ACCESS` (kód `5`). Presný kód (`50001` alebo `50013`) výstup neukazuje.
-- Ostatné kódy chýb sú **[PREDPOKLAD]** podľa [analyzy/pristup-ku-kanalom.md](analyzy/pristup-ku-kanalom.md), sekcia 7.
+- Ostatné kódy chýb sú **[PREDPOKLAD]** podľa [analyzy/channel-access.md](analyses/channel-access.md), sekcia 7.
 
 **Rozsah volaní:** nástroj nikdy nevolá `ack`, `science`, `metrics` ani nič, čo zapisuje.
 
-## 9.1 Diagnostické logovanie ([ADR 0018](rozhodnutia/0018-logovanie.md))
+## 9.1 Diagnostické logovanie ([ADR 0018](decisions/0018-logging.md))
 
 Diagnostické logovanie slúži na detailné sledovanie sieťových požiadaviek, stránkovania a sťahovania príloh pri riešení problémov (rate limity HTTP 429, chyby siete alebo CDN).
 
@@ -605,7 +605,7 @@ Obsah:
 - `config.toml`: nastavenia (`default-server`, `delay`, `export-dir`, `mode`).
 - `profiles.json` (konfiguračný adresár): pomenované profily nastavení (`server`, `channels`, `from`, `to`, `last`, `mode`), spoločné pre CLI aj TUI.
 - `tui-state.json` (konfiguračný adresár): stav TUI podľa ID účtu (výber, časové okná, režim, `Folder`/`Name`, vlákna, dátumy posledných exportov kanálov).
-- `sync-state.json` (dátový adresár): stav `--since-last` podľa ID účtu, pre každý kanál a vlákno `last_message_id` a čas `updated` ([ADR 0020](rozhodnutia/0020-since-last.md)). Je oddelený od `cache.db`, aby prežil jej zmazanie.
+- `sync-state.json` (dátový adresár): stav `--since-last` podľa ID účtu, pre každý kanál a vlákno `last_message_id` a čas `updated` ([ADR 0020](decisions/0020-since-last.md)). Je oddelený od `cache.db`, aby prežil jej zmazanie.
 - `cache.db`: SQLite s tabuľkami (schéma 2):
   - **teraz:** `servers`, `channels` (typ, kategória, pozícia, téma, `last_message_id`, tagy fóra), `threads`, `thread_lists` (od kedy je zoznam vlákien kanála načítaný) a `fetched` (kedy sa čo obnovilo).
     Normalizované mená sa počítajú v Pythone, kanálov je pár stoviek.
@@ -718,7 +718,7 @@ Scoop/
 - `service.py`: spoločná servisná vrstva pre orchestráciu načítania serverov, kanálov a sťahovania správ,
 - `tui/`: interaktívne terminálové rozhranie Textual (`discoop ui`, jeden strom ovládaný klávesnicou podľa ADR 0014, panel Export, náhľad, live CLI bar, Help s `--help`).
 - **Pridané 2026-11-04 (Antigravity kolo 1):**
-  - `logs.py`: voliteľné diagnostické logovanie na stderr (`--debug`) alebo do súboru (`--log FILE`), ochrana pred únikom citlivých údajov ([ADR 0018](rozhodnutia/0018-logovanie.md)),
+  - `logs.py`: voliteľné diagnostické logovanie na stderr (`--debug`) alebo do súboru (`--log FILE`), ochrana pred únikom citlivých údajov ([ADR 0018](decisions/0018-logging.md)),
   - `progress.py`: kalkulácie percent a odhadu času (ETA) pre sťahovanie správ podľa snowflake ID,
   - `profiles.py`: správa profilov v `profiles.json` s atomickým ukladaním,
   - `tokens.py`: odhad počtu tokenov a ich formátovanie,
@@ -726,10 +726,10 @@ Scoop/
   - `output.py`: unifikovaný výstup `Output.json()` pre strojové spracovanie,
   - `cli.py`: diagnostický príkaz `discoop doctor`, prepínač `--progress-json` pre `messages`, prepínač `--format text|json` pre `servers`, `channels`, `status` a `config list`.
 - **Pridané 2026-11-04 (Antigravity kolo 2 a kontrola hlavným Claudom):**
-  - `export.py`: `ExportWriter` (zápis po kanáloch do `<cieľ>.partial`, obnova, kód 9, časti pre `--max-tokens` v staging priečinku, `bytes_to_download` pre kontrolu disku) a `request_fingerprint` aj s `threads` a `since_last` ([ADR 0017](rozhodnutia/0017-spolahlivy-export-a-ciastocny-uspech.md)),
-  - `threads.py`, `models.py` (`Thread`, `ChannelMessages.threads`), `cache.py` (schéma 2) a `render/*`: vlákna a fóra ([ADR 0019](rozhodnutia/0019-vlakna.md)),
+  - `export.py`: `ExportWriter` (zápis po kanáloch do `<cieľ>.partial`, obnova, kód 9, časti pre `--max-tokens` v staging priečinku, `bytes_to_download` pre kontrolu disku) a `request_fingerprint` aj s `threads` a `since_last` ([ADR 0017](decisions/0017-reliable-export-and-partial-success.md)),
+  - `threads.py`, `models.py` (`Thread`, `ChannelMessages.threads`), `cache.py` (schéma 2) a `render/*`: vlákna a fóra ([ADR 0019](decisions/0019-threads.md)),
   - `service.py`: `run_messages` je rozdelená na malé funkcie (trieda `_Run` s krokmi `open_export`, `fetch_channels`, `fetch_channel`, `finish` a ďalšie, správanie sa nezmenilo), `--since-last` a `_check_disk_space`,
-  - `syncstate.py` ([ADR 0020](rozhodnutia/0020-since-last.md)), `split.py` (`split_markdown`), `agent_guide.py` a `tui/tuistate.py`.
+  - `syncstate.py` ([ADR 0020](decisions/0020-since-last.md)), `split.py` (`split_markdown`), `agent_guide.py` a `tui/tuistate.py`.
 
 ## 14. Postup implementácie
 
@@ -749,7 +749,7 @@ Scoop/
 5. **Human režim** (Rich), `agent-guide`, help texty, TUI vylepšenia (2026-11-04: **hotové**).
 6. **`--since-last`**, delenie na tokeny, profily v CLI (2026-11-04: **hotové**, ADR 0020).
 
-Kroky 4 až 6 a odolný export (ADR 0017) sú overené testami s falošným Discordom (`httpx.MockTransport`) a čiastočne na reálnom účte 2026-11-04 ([analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md)): fórum a vlákna, `threads`, `--since-last`, prerušenie skriptom a obnova, `--max-tokens` so zipom, `doctor`, `--debug`/`--log`, `--progress-json` a beh `discoop ui` s QR prihlásením. Na reálnom účte ešte chýba skutočné Ctrl+C z konzoly, Ctrl+C a výber fór v TUI, export veľkého fóra, nová odpoveď vo vlákne medzi dvoma behmi `--since-last`, súkromné vlákna a HTTP 202, export s množstvom príloh a Linux či macOS.
+Kroky 4 až 6 a odolný export (ADR 0017) sú overené testami s falošným Discordom (`httpx.MockTransport`) a čiastočne na reálnom účte 2026-11-04 ([analýza](analyses/real-account-check-2026-11-04.md)): fórum a vlákna, `threads`, `--since-last`, prerušenie skriptom a obnova, `--max-tokens` so zipom, `doctor`, `--debug`/`--log`, `--progress-json` a beh `discoop ui` s QR prihlásením. Na reálnom účte ešte chýba skutočné Ctrl+C z konzoly, Ctrl+C a výber fór v TUI, export veľkého fóra, nová odpoveď vo vlákne medzi dvoma behmi `--since-last`, súkromné vlákna a HTTP 202, export s množstvom príloh a Linux či macOS.
 
 **Testy:** unit testy (snowflake, parsovanie času, resolve, renderery, sťahovanie, export) nad anonymizovanými fixtures a MockTransport, bez živého API.
 
@@ -757,15 +757,15 @@ Kroky 4 až 6 a odolný export (ADR 0017) sú overené testami s falošným Disc
 
 | # | Otázka | Návrh |
 |---|---|---|
-| 1 | Jazyk | Python: **prijaté** ([ADR 0006](rozhodnutia/0006-python.md)) |
-| 2 | Názov príkazu | `discoop`: **prijaté** ([ADR 0004](rozhodnutia/0004-nazov-discoop.md)) |
-| 3 | Jazyk helpu a hlášok | angličtina: **prijaté** ([ADR 0007](rozhodnutia/0007-anglictina-v-nastroji.md)) |
-| 4 | Vlákna predvolene | zapnuté: **prijaté** ([ADR 0011](rozhodnutia/0011-predvolene-spravanie-messages.md)) |
-| 5 | Predvolené časové okno | 24 h, celá história len cez `--from all`: **prijaté** ([ADR 0011](rozhodnutia/0011-predvolene-spravanie-messages.md)) |
-| 6 | Predvolený formát v agent režime | `text` (JSON cez `--format json`): **prijaté** ([ADR 0011](rozhodnutia/0011-predvolene-spravanie-messages.md)) |
-| 7 | Záložný login | **prijaté** ([ADR 0008](rozhodnutia/0008-zalozny-login-token.md)): `discoop login --token`, token zo skrytého promptu alebo stdin, nie z argumentu, aby neostal v histórii shellu. Prihlásenie cez prehliadač nie vo v1 (ťažká závislosť na každom OS). Email a heslo nie (captcha, práca s heslom) |
-| 9 | Kanály bez prístupu v `channels` | **Odložené** (2026-11-03, nízka priorita): používateľ to nepovažuje za dôležité a Discord podľa changelogu 2026-08-12 plánuje, že REST prestane vracať nedostupné kanály aj používateľom. Podklady: [analyzy/pristup-ku-kanalom.md](analyzy/pristup-ku-kanalom.md).<br>Pôvodný návrh: vypočítať prístup (`VIEW_CHANNEL`, pri čítaní aj `READ_MESSAGE_HISTORY`):<br>• základné práva servera z `permissions` v `/users/@me/guilds`, vlastník servera má všetky práva,<br>• prepisy `permission_overwrites` pre @everyone, roly používateľa a jeho samotného.<br>Roly používateľa treba získať (`GET /users/@me/guilds/{id}/member`, overiť). Nedostupné kanály predvolene skryť, `--include-hidden` ich ukáže |
-| 8 | `login` v agent režime | **prijaté** ([ADR 0009](rozhodnutia/0009-login-v-agent-rezime.md)): odmietnuť s kódom `2` a pokynom „požiadaj používateľa, nech spustí `discoop login`“. Prihlásenie potrebuje človeka s mobilom a QR je citlivý |
+| 1 | Jazyk | Python: **prijaté** ([ADR 0006](decisions/0006-python.md)) |
+| 2 | Názov príkazu | `discoop`: **prijaté** ([ADR 0004](decisions/0004-name-discoop.md)) |
+| 3 | Jazyk helpu a hlášok | angličtina: **prijaté** ([ADR 0007](decisions/0007-english-in-the-tool.md)) |
+| 4 | Vlákna predvolene | zapnuté: **prijaté** ([ADR 0011](decisions/0011-default-behaviour-of-messages.md)) |
+| 5 | Predvolené časové okno | 24 h, celá história len cez `--from all`: **prijaté** ([ADR 0011](decisions/0011-default-behaviour-of-messages.md)) |
+| 6 | Predvolený formát v agent režime | `text` (JSON cez `--format json`): **prijaté** ([ADR 0011](decisions/0011-default-behaviour-of-messages.md)) |
+| 7 | Záložný login | **prijaté** ([ADR 0008](decisions/0008-fallback-login-token.md)): `discoop login --token`, token zo skrytého promptu alebo stdin, nie z argumentu, aby neostal v histórii shellu. Prihlásenie cez prehliadač nie vo v1 (ťažká závislosť na každom OS). Email a heslo nie (captcha, práca s heslom) |
+| 9 | Kanály bez prístupu v `channels` | **Odložené** (2026-11-03, nízka priorita): používateľ to nepovažuje za dôležité a Discord podľa changelogu 2026-08-12 plánuje, že REST prestane vracať nedostupné kanály aj používateľom. Podklady: [analyzy/channel-access.md](analyses/channel-access.md).<br>Pôvodný návrh: vypočítať prístup (`VIEW_CHANNEL`, pri čítaní aj `READ_MESSAGE_HISTORY`):<br>• základné práva servera z `permissions` v `/users/@me/guilds`, vlastník servera má všetky práva,<br>• prepisy `permission_overwrites` pre @everyone, roly používateľa a jeho samotného.<br>Roly používateľa treba získať (`GET /users/@me/guilds/{id}/member`, overiť). Nedostupné kanály predvolene skryť, `--include-hidden` ich ukáže |
+| 8 | `login` v agent režime | **prijaté** ([ADR 0009](decisions/0009-login-in-agent-mode.md)): odmietnuť s kódom `2` a pokynom „požiadaj používateľa, nech spustí `discoop login`“. Prihlásenie potrebuje človeka s mobilom a QR je citlivý |
 
 **Nápady na neskôr (v2):** lokálny archív všetkých správ v SQLite s fulltextom, `discoop sync` pre zoznam
 sledovaných kanálov, zhlukovanie po sebe idúcich správ jedného autora (menej tokenov), filter `--author`,

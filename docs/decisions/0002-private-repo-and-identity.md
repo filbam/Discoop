@@ -4,7 +4,7 @@
 - **Dátum:** 2026-11-03
 - **Rozhodol:** používateľ
 
-> **Poznámka (2026-11-04):** Repo je odteraz verejné ([ADR 0015](0015-verejne-repo-a-instalacia.md)). Git identita
+> **Poznámka (2026-11-04):** Repo je odteraz verejné ([ADR 0015](0015-public-repo-and-installation.md)). Git identita
 > `filbam` a prihlásenie na GitHub ako `filbam` ostávajú platné.
 
 ## Kontext

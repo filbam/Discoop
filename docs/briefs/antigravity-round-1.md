@@ -55,12 +55,12 @@ Príkazy: `uv run pytest`, `uv run pytest tests/test_xyz.py`.
 
 | Balík | Fáza | Súbory, ktoré smie meniť |
 |---|---|---|
-| AG-A logovanie jadro | 1 | nový `src/discoop/logs.py`, `src/discoop/api.py`, `src/discoop/scrape.py`, `src/discoop/attachments.py` (**len** riadky logovania v `_download` a `_fetch`), nový `tests/test_logs.py`, `tests/test_api.py` (len pridať), nový `docs/rozhodnutia/0018-logovanie.md`, jeden riadok v `docs/rozhodnutia/README.md` |
+| AG-A logovanie jadro | 1 | nový `src/discoop/logs.py`, `src/discoop/api.py`, `src/discoop/scrape.py`, `src/discoop/attachments.py` (**len** riadky logovania v `_download` a `_fetch`), nový `tests/test_logs.py`, `tests/test_api.py` (len pridať), nový `docs/decisions/0018-logging.md`, jeden riadok v `docs/decisions/README.md` |
 | AG-B pomocné moduly | 1 | nové `src/discoop/progress.py`, `profiles.py`, `tokens.py`, `src/discoop/resolve.py`, nové `tests/test_progress.py`, `tests/test_profiles.py`, `tests/test_tokens.py`, `tests/test_resolve.py` (len pridať) |
 | AG-C probe skript | 1 | nový `prototype/probe_threads.py`, `prototype/README.md` (len pridať sekciu) |
 | AG-E1 logovanie v CLI a upratanie | 2 | `src/discoop/cli.py`, nový `tests/test_cli_logging.py` |
 | AG-E2 JSON zoznamy, doctor, priebeh | 2, po E1 | `src/discoop/cli.py`, `src/discoop/output.py`, `tests/test_servers_channels.py` (len pridať), nové `tests/test_doctor.py`, `tests/test_progress_json.py` |
-| AG-DOC dokumentácia | 3 | `CHANGELOG.md`, `docs/dennik.md`, `docs/navrh-nastroja.md`, `docs/poziadavky.md`, `README.md`, `docs/odovzdanie-stavu.md`, riadok stavu v `CLAUDE.md` |
+| AG-DOC dokumentácia | 3 | `CHANGELOG.md`, `docs/journal.md`, `docs/design.md`, `docs/requirements.md`, `README.md`, `docs/handover.md`, riadok stavu v `CLAUDE.md` |
 
 ## 4. Zadanie jednotlivých balíkov
 
@@ -101,9 +101,9 @@ Testy `tests/test_logs.py` (povinné):
 4. Riadok z API má očakávané polia (`status`, `attempt`, `ms`) a cesta nemá `?`.
 5. `tests/test_api.py`: pridaj aspoň jeden test, že pri zapnutom logovaní sa 429 aj sieťové opakovanie zapíšu a správanie `DiscordAPI` (počet pokusov, čakanie) sa nezmenilo.
 
-`docs/rozhodnutia/0018-logovanie.md`: ADR podľa vzoru `0016-predvoleny-priecinok-exportov-v-tui.md` (stav **Prijaté**, dátum 2026-11-04, kontext, rozhodnutie, dôsledky).
+`docs/decisions/0018-logging.md`: ADR podľa vzoru `0016-default-export-folder-in-tui.md` (stav **Prijaté**, dátum 2026-11-04, kontext, rozhodnutie, dôsledky).
 Obsah: voliteľné, predvolene vypnuté, `--debug` na stderr a `--log FILE`, allowlist polí, čo sa nikdy neloguje, log obsahuje ID súkromných serverov, preto sa nemá zverejňovať.
-Pridaj jeden riadok do indexu `docs/rozhodnutia/README.md` v rovnakom tvare ako ostatné.
+Pridaj jeden riadok do indexu `docs/decisions/README.md` v rovnakom tvare ako ostatné.
 
 ### AG-B Pomocné moduly (čisté funkcie, žiadna sieť, žiadne zápisy mimo `tmp_path` v testoch)
 
@@ -182,12 +182,12 @@ Testy: nové `tests/test_doctor.py` a `tests/test_progress_json.py` (obe cez `cl
 
 ### AG-DOC Dokumentácia (po fázach 1 a 2, píše sa po slovensky)
 
-- `docs/poziadavky.md`: pridaj na koniec tabuľky
+- `docs/requirements.md`: pridaj na koniec tabuľky
   `P24 | 2026-11-04 | Voliteľné logovanie diagnostiky: predvolene vypnuté, zapína sa parametrom (--debug, --log FILE), log neobsahuje token, podpísané URL ani texty správ.`
   a `P25 | 2026-11-04 | Nástroj je „inteligentný“: strojovo čitateľné zoznamy (--format json), diagnostika (discoop doctor), percentá a odhad času pri sťahovaní, návrhy pri preklepe v mene.`
-- `CHANGELOG.md` (`[Unreleased]`): všetko z balíkov A, B, E1, E2. `docs/dennik.md`: nová sekcia pre tento blok (dátum 2026-11-04), **nemaž** existujúci blok „Ďalej“, len doplň.
-- `docs/navrh-nastroja.md`: príkazy a prepínače (`doctor`, `--format json`, `--debug`, `--log`, `--progress-json`), sekcia o logovaní s tým, čo sa loguje a čo nikdy.
-- `README.md`: krátka sekcia o logovaní a diagnostike. `docs/odovzdanie-stavu.md`: aktuálny stav. `CLAUDE.md`: iba riadok „Stav“.
+- `CHANGELOG.md` (`[Unreleased]`): všetko z balíkov A, B, E1, E2. `docs/journal.md`: nová sekcia pre tento blok (dátum 2026-11-04), **nemaž** existujúci blok „Ďalej“, len doplň.
+- `docs/design.md`: príkazy a prepínače (`doctor`, `--format json`, `--debug`, `--log`, `--progress-json`), sekcia o logovaní s tým, čo sa loguje a čo nikdy.
+- `README.md`: krátka sekcia o logovaní a diagnostike. `docs/handover.md`: aktuálny stav. `CLAUDE.md`: iba riadok „Stav“.
 - Skontroluj, že v dokumentoch nie je token, cookies ani cudzie mená či texty. Texty vychádzajú z toho, čo je v kóde, nič si nevymýšľaj.
 
 ## 5. Správa (povinná)

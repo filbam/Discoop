@@ -1,6 +1,6 @@
 """Anonymized Discord messages, a fake Discord API and a fake CDN for tests.
 
-Shapes follow docs/analyzy/discord-analyza.md (sections 4, 5, 15). Names, texts and files are made up.
+Shapes follow docs/analyses/discord-analysis.md (sections 4, 5, 15). Names, texts and files are made up.
 """
 
 import json

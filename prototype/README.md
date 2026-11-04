@@ -1,6 +1,6 @@
 # Prototyp: QR login a overenie API
 
-Jednorazové overenie otvorených bodov z [docs/analyzy/](../docs/analyzy/). Všetko spúšťaš ty, lebo to beží
+Jednorazové overenie otvorených bodov z [docs/analyses/](../docs/analyses/). Všetko spúšťaš ty, lebo to beží
 na tvojom Discord účte. Výstupy idú do `prototype/out/`, ktorý git ignoruje.
 
 ## 1. Prihlásenie

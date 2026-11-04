@@ -6,12 +6,12 @@ verzie podľa [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Pridané
-- **Overenie na reálnom účte (2026-11-04, [analýza](docs/analyzy/overenie-na-realnom-ucte-2026-11-04.md)):** funkcie kola 2 sa vyskúšali na reálnom účte (server VUT FIT, režim `safe`, malé okná, exporty v dočasnom priečinku zmazanom po behu).
+- **Overenie na reálnom účte (2026-11-04, [analýza](docs/analyses/real-account-check-2026-11-04.md)):** funkcie kola 2 sa vyskúšali na reálnom účte (server VUT FIT, režim `safe`, malé okná, exporty v dočasnom priečinku zmazanom po behu).
   - `[OVERENÉ]`: `doctor` (6 kontrol OK), `status`, `servers`, `channels`, `threads` a export fóra, prerušenie vyvolané skriptom (kód 130) a obnova z `.partial`, `--since-last`, `--zip` s `--max-tokens`, logy `--debug --log` bez únikov, `--progress-json`. Používateľ potvrdil `discoop ui` a QR prihlásenie v TUI.
   - Nové zistenia: `message_count` v zozname vlákien nezahŕňa štartovaciu správu príspevku fóra. `has_more` bolo na poslednej archivovanej strane znova `true` (koniec našlo okno).
   - **Známe obmedzenie (neopravené):** príloha, ktorú API popíše inak než CDN (iná veľkosť a typ obsahu), sa pri opakovanom exporte do toho istého priečinka stiahne znova, lebo opätovné použitie podľa ID a veľkosti ju nepozná. Pozorované na jedinej prílohe, neškodné.
   - Neoverené: skutočné Ctrl+C z konzoly, Ctrl+C a výber fór v TUI, export veľkého fóra, nová odpoveď vo vlákne medzi dvoma behmi `--since-last`, súkromné vlákna a HTTP 202, export s množstvom príloh, Linux a macOS.
-- **Odolný export po kanáloch, staging priečinok a automatická obnova (P26, [ADR 0017](docs/rozhodnutia/0017-spolahlivy-export-a-ciastocny-uspech.md)):**
+- **Odolný export po kanáloch, staging priečinok a automatická obnova (P26, [ADR 0017](docs/decisions/0017-reliable-export-and-partial-success.md)):**
   - Trieda `ExportWriter` (`src/discoop/export.py`) zapisuje exportované dáta po kanáloch do staging umiestnenia `<cieľ>.partial` (pri zip archíve `<názov>.zip.partial`), bez držania celej histórie v pamäti.
   - Atomické publikovanie na cieľovú cestu po úplnom a úspešnom dokončení (`close(complete=True)`). Predchádzajúci hotový export sa nikdy neprepíše ani nepoškodí prerušeným behom.
   - Automatická obnova (resume) bez nového prepínača: ak cieľový `.partial` zodpovedá požiadavke (`request_fingerprint`), beh automaticky nadviaže na rozpracovaný export a hotové kanály a ich prílohy sa znova nesťahujú. Odtlačok zahŕňa aj voľby `threads` (`--no-threads`) a `since_last` (`--since-last`): prerušený export s vláknami teda nepokračuje beh s `--no-threads` a beh `--since-last` nenadviaže na normálny (a opačne), začne odznova.
@@ -19,15 +19,15 @@ verzie podľa [SemVer](https://semver.org/).
   - Kombinácia `--print` s obnovou čiastočného exportu, kde už sú hotové kanály, sa odmietne s kódom 8 ešte pred sťahovaním správ.
   - Nový kód ukončenia `9` (`ExitCode.PARTIAL`) v CLI pri preskočení nedostupného kanála (403 `NO_ACCESS`, 404 `NOT_FOUND`), chybe sťahovania prílohy alebo preskočení vlákna. Súbory vynechané používateľom cez `--no-files` alebo `--max-file-size` kód 9 nevyvolávajú.
   - Rozšírenie `manifest.json` o polia `request`, `targets`, `skipped_channels`, `interrupted`, `partial` a `complete`.
-- **Plná podpora vlákien a fórum postov v exporte a CLI (P27, [ADR 0019](docs/rozhodnutia/0019-vlakna.md)):**
+- **Plná podpora vlákien a fórum postov v exporte a CLI (P27, [ADR 0019](docs/decisions/0019-threads.md)):**
   - Vlákna sú v `discoop messages` predvolene zapnuté (`request.threads = True`), možnosť ich vypnúť prepínačom `--no-threads`.
   - Podpora fórumových kanálov (typ 15) a mediálnych kanálov (typ 16) ako plnohodnotných cieľov pre `messages`; fórum s `--no-threads` sa odmietne s kódom 8 a radou.
-  - Sťahovanie aktívnych aj archivovaných vlákien cez `threads/search` s `limit=25`, stránkovaním podľa offsetu a detekciou konca prázdnou alebo neúplnou stranou (podľa analýzy [probe-vlakien-2026-11-04.md](docs/analyzy/probe-vlakien-2026-11-04.md)).
+  - Sťahovanie aktívnych aj archivovaných vlákien cez `threads/search` s `limit=25`, stránkovaním podľa offsetu a detekciou konca prázdnou alebo neúplnou stranou (podľa analýzy [thread-probe-2026-11-04.md](docs/analyses/thread-probe-2026-11-04.md)).
   - Vnorenie vlákien v exporte: `channels/<kanál>.md` obsahuje podsekcie jednotlivých vlákien s tagmi fóra, `messages.md` a `messages.jsonl` sú ploché s identifikáciou vlákna, prílohy vlákien smerujú do `files/<rodič>/`.
   - Limity `--max-messages` a `--last N` sa uplatňujú nezávisle na rodičovský kanál aj na každé jedno vlákno.
   - Nový príkaz `discoop threads -s SERVER -c CHANNEL [--from ...] [--to ...] [--refresh] [--format text|json]` na rýchly výpis vlákien a fórum postov (id, archived, messages, last_activity, tags, name) v human, plain aj JSON formáte.
   - Udalosť `thread` pre `--progress-json` obsahujúca číselné identifikátory a počty bez úniku mien a textov.
-- **Prírastkové sťahovanie `--since-last` a kontrola miesta na disku (P28, [ADR 0020](docs/rozhodnutia/0020-since-last.md)):**
+- **Prírastkové sťahovanie `--since-last` a kontrola miesta na disku (P28, [ADR 0020](docs/decisions/0020-since-last.md)):**
   - Nový prepínač `discoop messages --since-last` (vylučuje sa s `--from`, `--to`, `--last`), ktorý sťahuje len správy novšie ako posledný úspešný export každého kanála a vlákna.
   - Perzistentný súbor `sync-state.json` v `paths.data_dir()` oddelený od SQLite cache (prežije `clear_cache`), kľúčovaný ID používateľského účtu.
   - Exkluzívna spodná hranica snowflake `saved_id + 1` pre zamedzenie duplicitného stiahnutia poslednej videné správy.
@@ -53,7 +53,7 @@ verzie podľa [SemVer](https://semver.org/).
     - Klávesová skratka `o` otvorí priečinok posledného exportu v prieskumníkovi systému (`os.startfile` / `xdg-open` / `open`). Je aktívna po dokončenom exporte a nie počas behu úlohy.
     - Pri každom kanáli v strome stlmená prípona zarovnaná doprava: čas od poslednej aktivity (`now`, `5m`, `3h`, `2d`, `4mo`, `1y`, z `Channel.last_message_id`) a pri kanáli exportovanom z tohto účtu dátum posledného exportu (`exp 11-03`, s rokom, ak je z iného roka). V úzkom riadku vypadne najprv dátum exportu, potom aktivita, názov kanála sa nikdy nekráti. Pripony sa obnovia po exporte, po obnovení stavu a každých 60 s.
     - Zobrazenie percent dokončenia a odhadu času (ETA) pri sťahovaní podľa `progress.py`.
-- **Voliteľné diagnostické logovanie (P24, [ADR 0018](docs/rozhodnutia/0018-logovanie.md)):**
+- **Voliteľné diagnostické logovanie (P24, [ADR 0018](docs/decisions/0018-logging.md)):**
   - Nový modul `src/discoop/logs.py` s funkciami `setup_logging`, `teardown_logging` a `DiscoopFormatter`. Predvolene je logovanie vypnuté (na logger `discoop` nie je pripojený žiadny handler), po zapnutí sa pripája výhradne naň (`propagate=False`).
   - Globálne CLI prepínače `--debug` (štruktúrovaný log na `stderr`) a `--log FILE` (append do súboru v UTF-8), ktoré fungujú pred aj za podpríkazom (`_hoist_mode_flags`).
   - Podpora premenných prostredia `DISCOOP_DEBUG=1` a `DISCOOP_LOG=cesta` (prepínač má prednosť).
@@ -79,8 +79,8 @@ verzie podľa [SemVer](https://semver.org/).
   - `src/discoop/resolve.py`: automatické návrhy pri preklepe v názve servera alebo kanála (`Did you mean: ...?`) cez `difflib.get_close_matches` pri `NotFoundError`.
 - **Výskumný probe skript pre vlákna a fóra (`prototype/probe_threads.py`):**
   - Read-only probe skript a sekcia 4 v `prototype/README.md` pre overenie správania Discord API pri vláknach a fórach (`threads/search`, offsety, typy vlákien, porovnanie `last_message_id`).
-- **Inštalácia z GitHubu (P22, [ADR 0015](docs/rozhodnutia/0015-verejne-repo-a-instalacia.md)):** `uv tool install git+https://github.com/filbam/Discoop` dá príkaz `discoop` bez `uv run`. README má návod pre Windows, Linux a macOS (inštalácia, aktualizácia, odinštalovanie) a sekciu Vývoj. Repo `filbam/Discoop` je verejné.
-- **Priečinok a názov exportu v TUI (P21, P23, [ADR 0016](docs/rozhodnutia/0016-predvoleny-priecinok-exportov-v-tui.md)):** riadok formulára `Path` je nahradený dvoma samostatnými riadkami `Folder` a `Name` (v tomto poradí, obidva predvolene prázdne, pri Target=preview skryté).
+- **Inštalácia z GitHubu (P22, [ADR 0015](docs/decisions/0015-public-repo-and-installation.md)):** `uv tool install git+https://github.com/filbam/Discoop` dá príkaz `discoop` bez `uv run`. README má návod pre Windows, Linux a macOS (inštalácia, aktualizácia, odinštalovanie) a sekciu Vývoj. Repo `filbam/Discoop` je verejné.
+- **Priečinok a názov exportu v TUI (P21, P23, [ADR 0016](docs/decisions/0016-default-export-folder-in-tui.md)):** riadok formulára `Path` je nahradený dvoma samostatnými riadkami `Folder` a `Name` (v tomto poradí, obidva predvolene prázdne, pri Target=preview skryté).
   - Prázdny `Name`: `discord-export-<dátum a čas>` v miestnom čase, napr. `discord-export-2026-1104-0108` (`YYYY-MMDD-HHMM`). Názov sa zafixuje pri `F5`. Kolízia automatického názvu v tej istej minúte pridá `-2`, `-3`.
   - Zadaný `Name` je vždy len názov, nikdy cesta: prečistí sa cez `safe_name` (lomky a neplatné znaky sa nahradia `_`). Kolíziu nerieši, opakovaný export do neho pokračuje. Zip dostane príponu `.zip` (nikdy `.zip.zip`).
   - Prázdny `Folder`: predvolený priečinok `discoop` v Dokumentoch používateľa (`platformdirs.user_documents_dir()`), rovnako na Windows, Linuxe aj macOS. Config `export-dir`, ak je nastavený, má prednosť. Priečinok vznikne až pri prvom exporte.
@@ -88,12 +88,12 @@ verzie podľa [SemVer](https://semver.org/).
   - Placeholdery ukazujú skutočný predvolený priečinok (dlhá cesta sa skráti zľava, aby ostal koniec) a názov. Obnovujú sa spolu s riadkom s CLI príkazom každých 30 s. Cesty v `--out`/`--zip` sú absolútne a s lomkami. Log ukáže skutočnú cestu (`Saving to ...`).
   - CLI sa nezmenilo: `discoop messages --out/--zip` ostáva relatívne k aktuálnemu priečinku alebo `export-dir`. Popis kľúča `export-dir` spomína predvolený priečinok TUI.
   - Nová `paths.documents_dir()` a `paths.default_export_dir()`, nový `TailInput` v `widgets.py`.
-- **Interaktívne terminálové rozhranie (`discoop ui`, TUI) a spoločná servisná vrstva ([ADR 0013](docs/rozhodnutia/0013-tui-a-spolocna-vrstva.md)):**
+- **Interaktívne terminálové rozhranie (`discoop ui`, TUI) a spoločná servisná vrstva ([ADR 0013](docs/decisions/0013-tui-and-shared-service-layer.md)):**
   - **Príkaz `discoop ui` a prepínač `--ui`:**
     - Plnohodnotné vizuálne terminálové prostredie postavené na knižnici Textual pre pohodlné interaktívne ovládanie klávesnicou (šípky, Enter, Space).
     - V `--plain` režime alebo mimo interaktívneho terminálu skončí kódom 8 (`BAD_ARGS`). Samotné `discoop` bez argumentov naďalej vypisuje help.
     - Lazy import knižnice `Textual`: bežné CLI príkazy neplatia žiadnu réžiu inicializácie TUI frameworku.
-  - **Rozloženie ([ADR 0014](docs/rozhodnutia/0014-tui-klavesnica-jeden-strom.md)):**
+  - **Rozloženie ([ADR 0014](docs/decisions/0014-tui-keyboard-one-tree.md)):**
     - Jeden strom (servery, kategórie, kanály; všetko predvolene zbalené), vpravo panel Export (zoznam výberu a formulár), dole log, riadok s CLI príkazom a Footer s klávesmi.
     - V úzkom okne (< 95 stĺpcov) sa ukazuje jeden panel naraz.
     - Ovládanie primárne klávesnicou (šípky, Space, Enter, Tab, `/` filter), myš je doplnok. Tabuľka klávesov je v ADR 0014.
@@ -185,24 +185,24 @@ verzie podľa [SemVer](https://semver.org/).
   - Testy (42): kryptografia, celý QR tok proti falošnému gatewayu, trace bez tajomstiev, CLI, token store.
 - `prototype/probe.py`: jednorazové overenie otvorených bodov API.
 - ADR 0006–0009: Python, angličtina v nástroji, záložný `login --token`, login v agent režime.
-- Analýza dát Discord web klienta: [docs/analyzy/discord-analyza.md](docs/analyzy/discord-analyza.md).
-- Návrh nástroja `discoop`: [docs/navrh-nastroja.md](docs/navrh-nastroja.md).
+- Analýza dát Discord web klienta: [docs/analyses/discord-analysis.md](docs/analyses/discord-analysis.md).
+- Návrh nástroja `discoop`: [docs/design.md](docs/design.md).
 - Štruktúra dokumentácie:
   - pravidlá v `CLAUDE.md`,
   - `CHANGELOG.md` a `README.md`,
-  - požiadavky (`docs/poziadavky.md`) a denník (`docs/dennik.md`),
-  - rozhodnutia ADR 0001–0004 v `docs/rozhodnutia/`.
+  - požiadavky (`docs/requirements.md`) a denník (`docs/journal.md`),
+  - rozhodnutia ADR 0001–0004 v `docs/decisions/`.
 - `.gitignore` (Python, lokálne nastavenia, exporty z Discordu).
 - Požiadavky P13 (Windows, Linux, macOS) a P14 (QR login v termináli).
-- Analýza prihlásenia (QR remote auth, email/heslo, MFA, passkey): [docs/analyzy/discord-login.md](docs/analyzy/discord-login.md).
+- Analýza prihlásenia (QR remote auth, email/heslo, MFA, passkey): [docs/analyses/discord-login.md](docs/analyses/discord-login.md).
 - ADR 0005: QR login v termináli bez prehliadača.
 
 ### Zmenené
-- **Odolný export, kód 9 a spracovanie po kanáloch (2026-11-04, [ADR 0017](docs/rozhodnutia/0017-spolahlivy-export-a-ciastocny-uspech.md)):**
+- **Odolný export, kód 9 a spracovanie po kanáloch (2026-11-04, [ADR 0017](docs/decisions/0017-reliable-export-and-partial-success.md)):**
   - CLI vracia `ExitCode.PARTIAL = 9` pri čiastočnom výsledku (nedostupný kanál 403 `NO_ACCESS` / 404 `NOT_FOUND` pri viacerých cieľoch, zlyhaná príloha alebo vynechané vlákno). Kód 0 ostáva vyhradený pre úplný úspech alebo zámerné používateľské filtre (`--no-files`, `--max-file-size`).
   - Sťahovanie príloh a obnova URL z CDN prebieha v `ExportWriter` priebežne po jednotlivých kanáloch, namiesto jednej globálnej dávky na konci exportu.
   - V TUI sa po prerušení alebo čiastočnom výsledku automaticky generovaný názov zafixuje v poli `Name`, takže ďalšie stlačenie `F5` nadviaže na rozpracovaný `<cieľ>.partial`.
-- **Fóra a mediálne kanály ako ciele správ (2026-11-04, [ADR 0019](docs/rozhodnutia/0019-vlakna.md)):**
+- **Fóra a mediálne kanály ako ciele správ (2026-11-04, [ADR 0019](docs/decisions/0019-threads.md)):**
   - Kanály typu fórum (15) a média (16) sú plnohodnotnými cieľmi pre `discoop messages` (sťahujú svoje vlákna). Odstránené obmedzenie „threads come in a later version“. Fórum v kombinácii s `--no-threads` je odmietnuté s kódom 8.
 - **Doplnenie (2026-11-04): fóra a media kanály sa dajú vybrať aj v TUI.** `SelectionState.is_selectable` berie okrem `MESSAGE_TYPES` aj `FORUM_TYPES` (kategória sa naďalej nevyberá). Pri Threads = no a vybranom fóre formulár ukáže varovanie (`#threads-warning`) a `F5` štart odmietne hláškou ešte pred volaním Discordu, namiesto zlyhania s `BAD_ARGS` zo služby (`forums_without_threads` v `tui/state.py`). Log pri kanáli s vláknami uvádza aj ich počet. Help opravený: hlasové a stage kanály sa vybrať dajú. Overené len testami s falošným Discordom (`tests/test_tui_forums.py`).
 - **ADR 0014 doplnený (2026-11-04):** sekcia „Doplnenie 2026-11-04“ s klávesmi `P` (uložiť profil), `p` (načítať profil) a `o` (otvoriť priečinok posledného exportu) a s príponami riadkov kanálov v strome. Pôvodné rozhodnutie a jeho stav sa nezmenili.
@@ -210,7 +210,7 @@ verzie podľa [SemVer](https://semver.org/).
 - **Upratanie CLI a rozšírenie testov (2026-11-04):**
   - Z `src/discoop/cli.py` bol odstránený nepoužívaný kód (`_export_target`, `_export`, `_message_targets`, `_progress`, `_unreadable`, `_local_time`).
   - Rozšírenie testovacieho balíka na 511 automatizovaných testov (85 nových testov pokrývajúcich diagnostické logovanie, doctor, JSON formáty, profily, pomocné moduly a návrhy pri preklepe).
-- **TUI prerobené podľa [ADR 0014](docs/rozhodnutia/0014-tui-klavesnica-jeden-strom.md) (2026-11-04)** na základe skúšky používateľa:
+- **TUI prerobené podľa [ADR 0014](docs/decisions/0014-tui-keyboard-one-tree.md) (2026-11-04)** na základe skúšky používateľa:
   - Rozloženie: jeden strom namiesto troch stĺpcov, panel Export, log vždy dole. Pôvodný „Discord-inspired“ layout z ADR 0013 nahradený.
   - Vzhľad: téma `ansi-dark` (farby terminálu), Ctrl+P mení tému. CSS bez hex farieb, prvky vysoké 1 riadok (`compact=True`), bez emoji a veľkých tlačidiel.
   - Nový `tui/widgets.py` (`ChoiceRow`, `InputRow`, `ActionRow`, `ConfirmRow`, `FormPanel`, `FilterInput`, `SelectedList`, `ChannelTree`, `TextView`, `display_name()`).
@@ -219,7 +219,7 @@ verzie podľa [SemVer](https://semver.org/).
   - Nové: `X` vymaže celý výber, po zmene prihlásenia sa výber vyčistí, `e` a uloženie okna na nevybranom kanáli ho aj vyberie, Esc v strome vymaže aktívny filter, pri Target=preview sú skryté Attachments a Max MB, pri QR sa formulár nahradí kódom (pod 27 riadkov bez rámika a Footera).
   - Zhrnutie behu uvádza kanály, správy, preskočené, orezané a stav príloh.
   - 376 testov, nový `tests/test_tui_modals.py`.
-- **Premenovanie „agent mode“ na „plain mode“ (`--plain`, [ADR 0012](docs/rozhodnutia/0012-premenovanie-agent-mode-na-plain.md)):**
+- **Premenovanie „agent mode“ na „plain mode“ (`--plain`, [ADR 0012](docs/decisions/0012-rename-agent-mode-to-plain.md)):**
   - Globálny prepínač `--plain` poskytuje čistý textový výstup bez farieb, Rich tabuliek a efektov, s chybami a notifikáciami na stderr a stabilnými exit kódmi.
   - V helpe a dokumentácii je explicitne uvedené, že plain mode je ideálny pre AI agentov a automatizované skripty (menej tokenov, jednoduchý parsing).
   - Prepínač `--agent` a premenná prostredia `DISCOOP_AGENT` zostávajú zachované ako spätná kompatibilita (nová premenná je `DISCOOP_PLAIN`).
@@ -232,10 +232,10 @@ verzie podľa [SemVer](https://semver.org/).
 - Návrh a denník: rozhodnutie 9 (výpočet prístupu ku kanálom) je odložené s nízkou prioritou.
 - `CLAUDE.md`: aktuálny stav projektu namiesto „návrh, zatiaľ bez kódu“.
 - Analýzy doplnené o výsledky prototypu:
-  - `discord-analyza.md`, sekcia 15,
+  - `discord-analysis.md`, sekcia 15,
   - `discord-login.md`, sekcia 7: reálny QR login bez captchy.
 - Návrh: overené body [PROTOTYP] sú teraz [OVERENÉ].
-- Analýza presunutá z `docs/discord-analyza.md` do `docs/analyzy/discord-analyza.md`.
+- Analýza presunutá z `docs/discord-analysis.md` do `docs/analyses/discord-analysis.md`.
 - Návrh prerobený pre prihlásenie a podporu všetkých OS:
   - login cez QR v termináli namiesto Playwright,
   - cesty k dátam cez `platformdirs`,

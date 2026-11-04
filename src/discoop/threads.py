@@ -1,7 +1,7 @@
 """Listing the threads and forum posts of a channel, newest activity first, inside a time window.
 
 Source: `GET /channels/{parent_id}/threads/search?archived=true|false&sort_by=last_message_time&sort_order=desc
-&limit=25&offset=N` (docs/analyzy/discord-analyza.md, sections 6 and 15; probe of 2026-11-04).
+&limit=25&offset=N` (docs/analyses/discord-analysis.md, sections 6 and 15; probe of 2026-11-04).
 
 Verified [OVERENÉ]:
 - it works with a user token for archived (`archived=true`) and active (`archived=false`) threads;

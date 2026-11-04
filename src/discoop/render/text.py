@@ -1,4 +1,4 @@
-"""The `text` format (docs/navrh-nastroja.md, section 6.2): compact for agents, the same layout with colors for humans,
+"""The `text` format (docs/design.md, section 6.2): compact for agents, the same layout with colors for humans,
 and as Markdown (`md`, used by exports).
 
     === VUT FIT / #isc-public ===

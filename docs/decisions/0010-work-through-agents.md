@@ -6,7 +6,7 @@
 
 ## Kontext
 
-Hlavná konverzácia pri implementácii minula kontext a musela sa zhrnúť ([denník 2026-11-03](../dennik.md)).
+Hlavná konverzácia pri implementácii minula kontext a musela sa zhrnúť ([denník 2026-11-03](../journal.md)).
 Používateľ chce, aby prácu robili agenti (subagenti) a hlavný Claude ich riadil.
 
 ## Rozhodnutie
@@ -31,7 +31,7 @@ Používateľ chce, aby prácu robili agenti (subagenti) a hlavný Claude ich ri
 
 **Discord:** pravidlá z `CLAUDE.md` platia pre agentov rovnako:
 - Discord API volá len nástroj alebo prototyp, ktorý spúšťa používateľ (výnimka `login --handshake-only`).
-- Agent v prehliadači používateľa smie pracovať len podľa [ADR 0003](0003-pravidla-pre-agentov-v-prehliadaci.md)
+- Agent v prehliadači používateľa smie pracovať len podľa [ADR 0003](0003-rules-for-agents-in-the-users-browser.md)
   a len keď o to používateľ požiada.
 
 ## Dôsledky

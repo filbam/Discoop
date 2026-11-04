@@ -1,4 +1,4 @@
-"""One-off probe of the open API questions (docs/analyzy/*.md, "verify with a prototype").
+"""One-off probe of the open API questions (docs/analyses/*.md, "verify with a prototype").
 
 Run it yourself after `discoop login`:
 

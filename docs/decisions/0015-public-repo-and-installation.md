@@ -23,7 +23,7 @@ Windows, Linuxe aj macOS a sťahoval sa z GitHubu. Povedal, že repo `github.com
 - Inštalácia pre používateľov: `uv tool install git+https://github.com/filbam/Discoop`, aktualizácia
   `uv tool upgrade discoop`. Postup pre každý OS je v [README.md](../../README.md).
 - `uv run` ostáva pre vývoj v repe.
-- Git identita `filbam` z [ADR 0002](0002-sukromne-repo-a-identita.md) ostáva.
+- Git identita `filbam` z [ADR 0002](0002-private-repo-and-identity.md) ostáva.
 
 ## Dôsledky
 

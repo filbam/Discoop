@@ -10,7 +10,7 @@ NOW = datetime(2026, 11, 3, 11, 0, tzinfo=UTC)  # 12:00 CET
 
 
 def test_snowflake_time_matches_the_analysis():
-    # docs/analyzy/discord-analyza.md, section 11
+    # docs/analyses/discord-analysis.md, section 11
     assert to_time("1566570336659439696") == datetime(2026, 11, 1, 21, 51, 13, 729000, tzinfo=UTC)
     assert from_time(datetime(2026, 10, 1, 22, 0, tzinfo=UTC)) == 1555338520166400000
 
