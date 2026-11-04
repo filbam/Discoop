@@ -36,7 +36,7 @@ Doterajší prístup mal niekoľko nedostatkov:
   - Hotové kanály sa preskočia – ich správy ani prílohy sa znova nesťahujú.
   - Udalosť `Events.resumed(done, total)` informuje CLI aj TUI o počte prevzatých kanálov. CLI vypíše poznámku: `Continuing an unfinished export: N of M channels are already saved.`
   - Relatívne časové okno (napr. `--from 1d`) sa pri obnove počíta od času vytvorenia pôvodného behu (`Resume.created`), aby sa nezmenil obsah okna.
-  - Voľba `--print` v kombinácii s obnovou, kde už existujú hotové kanály, sa odmietne s `ExitCode.BAD_ARGS` (kód 8) ešte pred akýmkoľvek volaním Discord API, pretože správy hotových kanálov nie sú v pamäti na vytlačenie.
+  - Voľba `--print` v kombinácii s obnovou, kde už existujú hotové kanály, sa odmietne s `ExitCode.BAD_ARGS` (kód 8) ešte pred sťahovaním správ (zoznam kanálov sa môže načítať z cache alebo z API a pri `--since-last` sa zistí ID účtu, správy sa ale ešte nesťahujú), pretože správy hotových kanálov nie sú v pamäti na vytlačenie.
 
 - **Prerušenie behu:**
   - Pri prerušení (používateľské Ctrl+C, `Cancelled` v TUI alebo neočakávaná výnimka) sa `ExportWriter` uzavrie s `complete=False`.

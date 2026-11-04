@@ -77,3 +77,24 @@ Kláves `X` bol doplnený 2026-11-04 po kontrole, lebo hromadné zrušenie výbe
 - Help v TUI (F1 / ?) sa riadi tabuľkou klávesov z tohto ADR.
 - Ovládacie prvky sa robia cez `compact=True` (bez rámika, výška jeden riadok), nie cez `height: 1`, aby text nezmizol.
 - Dlhé operácie musia bežať vo workeroch a pohyb kurzorom nesmie spúšťať sieťové volania, čo rieši zadrhávanie.
+
+## Doplnenie 2026-11-04
+
+Pôvodné rozhodnutie sa nemení. Doplnenie opisuje, čo pribudlo v 2. kole (P30) popri tabuľke klávesov vyššie. Tabuľka v Helpe (`GUIDE_KEYS` v `tui/modals.py`) tieto klávesy už obsahuje.
+
+### Ďalšie klávesy
+
+| Kláves | Kde | Akcia |
+|---|---|---|
+| P | globálne | uloží aktuálny výber, časové okno a režim ako pomenovaný profil (`profiles.json` v konfiguračnom priečinku, rovnaký súbor ako `discoop messages --save-profile`) |
+| p | globálne | načíta uložený profil: nahradí výber, časové okno a režim. Ručne upravený profil so zlými typmi hodnôt TUI toleruje |
+| o | globálne | otvorí priečinok posledného exportu v správcovi súborov (pri zipe priečinok, v ktorom leží). Je aktívny až po dokončenom exporte a nie počas behu úlohy. Náhľad (Target=preview) nič neukladá, preto nie je „posledným exportom“ |
+
+- `L` ostáva „načíta kanály všetkých serverov“. Na profily nie je.
+- `P`, `p` a `o` nevolajú Discord, pravidlá správania vyššie sa nemenia.
+
+### Pripony riadkov kanálov v strome
+
+- Každý riadok kanála má stlmenú príponu zarovnanú doprava: čas od poslednej aktivity (`now`, `5m`, `3h`, `2d`, `4mo`, `1y`, podľa `Channel.last_message_id`) a pri kanáli, ktorý sa z tohto účtu už exportoval, dátum posledného exportu (`exp 11-03`, miestny dátum, s rokom, ak je z iného roka). Kategórie a servery ju nemajú (server má vpravo počet kanálov, `not loaded` alebo `no access`).
+- Ak je riadok príliš úzky, vypadne najprv dátum exportu, potom aj aktivita. Názov kanála sa kvôli prípone nikdy nekráti.
+- Pripony sa obnovia po exporte, po obnovení uloženého stavu a každých 60 s. Dátum posledného exportu sa ukladá v `tui-state.json` (podľa ID kanála a účtu) a pri náhľade sa nezapisuje.
