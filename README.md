@@ -1,19 +1,19 @@
 # Discoop
 
-CLI nástroj na sťahovanie správ a príloh z Discord serverov, ktorých je používateľ členom. Slúži na AI analýzu
-študijných informácií. Osobný projekt na študijné účely.
+CLI tool for downloading messages and attachments from Discord servers the user is a member of. Used for AI analysis
+of study information. Personal project for study purposes.
 
-**Upozornenie:** scraping porušuje podmienky Discordu. Nástroj používaš na vlastné riziko, hrozí zablokovanie účtu.
+**Warning:** scraping violates Discord's Terms of Service. You use the tool at your own risk; account suspension is possible.
 
-**Stav:** rozpracované. Funguje `login` (QR kód v termináli alebo `--token`), `status`, `logout`,
-`servers`, `channels`, `threads`, `config`, `messages` (výpis správ do konzoly, sťahovanie príloh a odolný export do priečinka
-alebo zipu s manifestom a automatickou obnovou, režimy sťahovania `safe` a `fast`, prírastkové sťahovanie `--since-last`, delenie na tokeny `--max-tokens`), interaktívne terminálové rozhranie `discoop ui` (TUI), diagnostika `doctor`, diagnostické logovanie, správa profilov a referencia `discoop agent-guide`. Vlákna a fóra sú plne podporované.
+**Status:** work in progress. Working features include `login` (QR code in terminal or `--token`), `status`, `logout`,
+`servers`, `channels`, `threads`, `config`, `messages` (printing messages to console, downloading attachments and resilient export to folder
+or zip with manifest and automatic resume, download modes `safe` and `fast`, incremental download `--since-last`, token splitting `--max-tokens`), interactive terminal user interface `discoop ui` (TUI), diagnostics `doctor`, diagnostic logging, profile management, and reference `discoop agent-guide`. Threads and forums are fully supported.
 
-## Inštalácia
+## Installation
 
-Python netreba inštalovať zvlášť: [uv](https://docs.astral.sh/uv/) použije Python 3.12+ a ak chýba, sám si ho stiahne.
+No need to install Python separately: [uv](https://docs.astral.sh/uv/) uses Python 3.12+ and will download it automatically if missing.
 
-**1. Nainštaluj uv** (len raz), potom otvor nový terminál.
+**1. Install uv** (once only), then open a new terminal.
 
 Windows:
 
@@ -21,19 +21,19 @@ Windows:
 winget install --id astral-sh.uv -e
 ```
 
-Linux a macOS:
+Linux and macOS:
 
 ```
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-macOS cez Homebrew (alternatíva):
+macOS via Homebrew (alternative):
 
 ```
 brew install uv
 ```
 
-**2. Nainštaluj discoop** (rovnako na všetkých OS):
+**2. Install discoop** (same on all operating systems):
 
 ```
 uv tool install git+https://github.com/filbam/Discoop
@@ -43,142 +43,142 @@ uv tool install git+https://github.com/filbam/Discoop
 uv tool update-shell
 ```
 
-Otvor nový terminál a over inštaláciu:
+Open a new terminal and verify the installation:
 
 ```
 discoop --version
 ```
 
-**Aktualizácia:**
+**Upgrade:**
 
 ```
 uv tool upgrade discoop
 ```
 
-**Odinštalovanie:** najprv `discoop logout` (zmaže uložený token), potom:
+**Uninstall:** first `discoop logout` (removes the stored token), then:
 
 ```
 uv tool uninstall discoop
 ```
 
-Reláciu v Discorde zruš v Settings → Devices.
+Revoke the Discord session in Settings → Devices.
 
-Na Linuxe bez keyringu (Secret Service) sa token uloží do súboru s právami `0600`.
+On Linux without keyring (Secret Service), the token is stored in a file with `0600` permissions.
 
-## Použitie
+## Usage
 
 ```
 discoop --help
-discoop login         # QR kód naskenuj v Discord appke: Settings → Scan QR Code
+discoop login         # scan QR code in Discord app: Settings → Scan QR Code
 discoop status
-discoop ui            # interaktívne terminálové rozhranie (TUI)
+discoop ui            # interactive terminal user interface (TUI)
 discoop servers
 discoop channels -s "VUT FIT"
-discoop threads -s "VUT FIT" -c help-center       # zoznam vlákien a fórum príspevkov
-discoop agent-guide   # kompaktná textová referencia pre AI agentov
-discoop profiles      # zoznam uložených profilov nastavení
+discoop threads -s "VUT FIT" -c help-center       # list of threads and forum posts
+discoop agent-guide   # compact text reference for AI agents
+discoop profiles      # list of saved configuration profiles
 discoop config set default-server "VUT FIT"
-discoop config set export-dir ~/discord-exports   # priečinok exportov (TUI: predvolený, CLI: pre relatívne cesty)
-discoop config set mode safe               # režim: safe (predvolený) alebo fast
+discoop config set export-dir ~/discord-exports   # export folder (TUI: default, CLI: for relative paths)
+discoop config set mode safe               # mode: safe (default) or fast
 ```
 
-Interaktívne terminálové rozhranie (TUI ovládané klávesnicou: jeden strom serverov, kategórií a kanálov, šípky na pohyb,
-Space/Enter na výber, Tab na prepnutie panelu, `F5` spustí export, `P` uloží výber ako profil a `p` ho načíta, `o` otvorí priečinok posledného exportu, Help cez `F1`; farby podľa terminálu):
+Interactive terminal user interface (keyboard-controlled TUI: single tree of servers, categories, and channels, arrow keys for navigation,
+Space/Enter to select, Tab to switch panels, `F5` starts export, `P` saves selection as a profile and `p` loads it, `o` opens the folder of the last export, Help via `F1`; colours according to terminal):
 
 ```
 discoop ui
 ```
 
-Export z TUI ide predvolene do priečinka `discoop` v Dokumentoch (Windows `C:\Users\<meno>\Documents\discoop`, Linux
-a macOS `~/Documents/discoop`) pod názvom `discord-export-<dátum a čas>`. Pole `Folder` zmení priečinok pre jeden export,
-pole `Name` názov (nikdy nie cestu). Predvolený priečinok trvalo zmeníš v Settings (`F2`, `Export folder`) alebo cez
-`discoop config set export-dir <priečinok>`. Príkaz `discoop messages --out/--zip` sa tým nemení, jeho relatívne cesty
-platia od aktuálneho priečinka (alebo od `export-dir`, ak je nastavený).
+TUI export goes by default into the `discoop` folder in Documents (Windows `C:\Users\<username>\Documents\discoop`, Linux
+and macOS `~/Documents/discoop`) under the name `discord-export-<date and time>`. The `Folder` field changes the folder for a single export,
+the `Name` field changes the name (never a path). You can permanently change the default folder in Settings (`F2`, `Export folder`) or via
+`discoop config set export-dir <folder>`. The `discoop messages --out/--zip` command is unaffected; its relative paths
+apply from the current working directory (or from `export-dir`, if configured).
 
-Správy do konzoly (predvolene posledných 24 hodín, od najstaršej):
+Messages to console (last 24 hours by default, from oldest):
 
 ```
-discoop messages -s "VUT FIT" -c isc-public              # posledných 24 h (safe režim, vrátane vlákien)
-discoop messages -s "VUT FIT" -c isc-public --no-threads  # vypnutie sťahovania vlákien
-discoop messages -s "VUT FIT" -c isc-public --since-last  # len nové správy od posledného exportu
-discoop messages -s "VUT FIT" -c isc-public --fast       # rýchly režim (100 správ/dávka)
+discoop messages -s "VUT FIT" -c isc-public              # last 24 h (safe mode, including threads)
+discoop messages -s "VUT FIT" -c isc-public --no-threads  # disable downloading threads
+discoop messages -s "VUT FIT" -c isc-public --since-last  # only new messages since last export
+discoop messages -s "VUT FIT" -c isc-public --fast       # fast mode (100 messages/batch)
 discoop messages -s "VUT FIT" -c isc-public --from 7d
 discoop messages -c 1286436864789843999 --from 2026-10-01 --to 2026-10-31
-discoop messages -s "VUT FIT" -c "isc-*" --last 20       # 20 najnovších z každého kanála
+discoop messages -s "VUT FIT" -c "isc-*" --last 20       # 20 newest from each channel
 discoop messages -s "VUT FIT" -c isc-public --format json
 discoop messages -s "VUT FIT" -c isc-public --format md   # Markdown
-discoop --plain messages -s "VUT FIT" -c isc-public      # úsporný čistý text (pre AI agentov a skripty)
+discoop --plain messages -s "VUT FIT" -c isc-public      # plain mode (no colours), token-efficient (for AI agents and scripts)
 ```
 
-Export správ a stiahnutie príloh:
+Exporting messages and downloading attachments:
 
 ```
 discoop messages -s "VUT FIT" -c isc-public --from 30d --out exports/isc
 discoop messages -c 1286436864789843999 --from all --zip exports/isc.zip
-discoop messages -s "VUT FIT" -c isc-public --out exports/isc --print    # uloží a vypíše správy
-discoop messages -s "VUT FIT" -c isc-public --out exports/isc --no-files # len text a manifest
-discoop messages -s "VUT FIT" -c isc-public --out exports/isc --max-file-size 10 # vynechá súbory > 10 MB
-discoop messages -s "VUT FIT" -c isc-public --out exports/isc --max-tokens 50000 # rozdelí do parts/part-NNN.md
-discoop messages --save-profile fit-study -s "VUT FIT" -c "isc-*" --from 7d      # uloženie profilu
-discoop messages --profile fit-study                                             # načítanie profilu
+discoop messages -s "VUT FIT" -c isc-public --out exports/isc --print    # save and print messages
+discoop messages -s "VUT FIT" -c isc-public --out exports/isc --no-files # text and manifest only
+discoop messages -s "VUT FIT" -c isc-public --out exports/isc --max-file-size 10 # skip files > 10 MB
+discoop messages -s "VUT FIT" -c isc-public --out exports/isc --max-tokens 50000 # split into parts/part-NNN.md
+discoop messages --save-profile fit-study -s "VUT FIT" -c "isc-*" --from 7d      # save profile
+discoop messages --profile fit-study                                             # load profile
 ```
 
-- `--safe` (predvolené): imituje ľudské scrollovanie – menšie dávky (25 správ), náhodné pauzy 2–4,5 s medzi požiadavkami, pauzy na čítanie 8–15 s každých 5–8 strán, rozostupy medzi prepnutím kanálov (3–6 s) a medzi sťahovaním súborov z CDN (1–3 s).
-- `--fast`: rýchle dávkové sťahovanie (100 správ na požiadavku, pevný interval).
-- `--plain`: čistý textový výstup bez farieb, Rich tabuliek a efektov (menej tokenov, strojovo čitateľný; ideálny pre AI agentov a skripty; `--agent` funguje ako spätný alias).
-- `--delay SEC`: nastavenie intervalu požiadaviek (predvolene 1,0 s; v safe režime škáluje náhodné intervaly).
-- `--from`/`--to`: dátum (`2026-10-01`), dátum a čas (`2026-10-01T14:00`), relatívny čas (`48h`, `7d`, `2w`),
-  `now`, pri `--from` aj `all` (celá história). Čas je lokálny, holý dátum v `--to` zahŕňa celý deň.
-- `--last N`: N najnovších správ, bez `--from` z celej histórie.
-- `--max-messages N` (predvolene 5000 na kanál) chráni pred obrovským výstupom.
-- `--out DIR` / `--zip FILE`: vytvorí priečinok alebo zip s `manifest.json`, `messages.md`, `messages.jsonl`, `channels/*.md` a prílohami v `files/<kanál>/`. Opakovaný export do existujúceho cieľa použije už stiahnuté súbory. Bez `--out`/`--zip` sú prílohy len odkazy na Discord CDN, ktoré platia 12 až 24 h.
-- `--threads` / `--no-threads`: sťahovanie vlákien a príspevkov vo fórach (predvolene zapnuté). Fórum vyžaduje zapnuté vlákna.
-- `--since-last`: prírastkové sťahovanie – nadviaže na posledný úspešný export každého kanála (stav uložený v `sync-state.json`). Vylučuje sa s `--from`, `--to` a `--last`. Kanál, v ktorom od posledného behu nič nepribudlo, sa preskočí bez požiadaviek (kanál s vláknami len svoje vlastné správy, jeho vlákna sa čítajú ďalej, fórum sa nepreskakuje).
-- `--max-tokens N`: s `--out` aj `--zip` pridá do exportu súbory `parts/part-NNN.md`, v ktorých je `messages.md` rozdelený na časti po najviac N odhadovaných tokenoch (delí sa len medzi správami, správa ostane celá). Bez `--out`/`--zip` skončí chybou.
-- `--profile NAME` / `--save-profile NAME`: načítanie a uloženie pomenovaného profilu parametrov.
-- **Odolný export a návratový kód `9` (`PARTIAL`):**
-  - Export sa zapisuje priebežne po kanáloch do dočasného umiestnenia `<cieľ>.partial`. Hotový export sa publikuje až po úspešnom dokončení celého behu, takže predchádzajúci hotový export sa nikdy nepoškodí.
-  - Ak bol export prerušený (Ctrl+C, výpadok siete), opätovné spustenie rovnakého príkazu automaticky pokračuje od neuložených kanálov bez ich opätovného sťahovania.
-  - Ak sú niektoré kanály nedostupné (HTTP 403 `NO_ACCESS` / 404 `NOT_FOUND`), vynechané vlákno alebo zlyhá stiahnutie niektorej prílohy, Discoop poctivo vráti kód ukončenia `9` (`ExitCode.PARTIAL`) a vypíše odporúčanie pre používateľa/agenta.
+- `--safe` (default): mimics human scrolling – smaller batches (25 messages), randomised pauses of 2–4.5 s between requests, reading pauses of 8–15 s every 5–8 pages, spacing between channel switches (3–6 s) and between downloading files from CDN (1–3 s).
+- `--fast`: fast batch downloading (100 messages per request, fixed interval).
+- `--plain`: plain mode (no colours) without Rich tables or effects (token-efficient, machine-readable; ideal for AI agents and scripts; `--agent` works as a backward-compatible alias).
+- `--delay SEC`: request interval configuration (default 1.0 s; scales randomised intervals in safe mode).
+- `--from`/`--to`: date (`2026-10-01`), datetime (`2026-10-01T14:00`), relative time (`48h`, `7d`, `2w`),
+  `now`, and for `--from` also `all` (entire history). Time is local; a bare date in `--to` covers the entire day.
+- `--last N`: N newest messages, from entire history when `--from` is omitted.
+- `--max-messages N` (default 5000 per channel): protects against huge outputs.
+- `--out DIR` / `--zip FILE`: creates a folder or zip containing `manifest.json`, `messages.md`, `messages.jsonl`, `channels/*.md`, and attachments in `files/<channel>/`. Repeated export into an existing destination reuses already downloaded files. Without `--out`/`--zip`, attachments are only Discord CDN links, which expire after 12 to 24 h.
+- `--threads` / `--no-threads`: downloading threads and forum posts (enabled by default). Forums require threads enabled.
+- `--since-last`: incremental downloading – resumes from the last successful export of each channel (state stored in `sync-state.json`). Mutually exclusive with `--from`, `--to`, and `--last`. A channel with no new messages since the last run is skipped without requests (a channel with threads skips only its own messages, its threads continue to be read; forums are never skipped).
+- `--max-tokens N`: with both `--out` and `--zip`, adds `parts/part-NNN.md` files to the export, splitting `messages.md` into parts of at most N estimated tokens (splits only between messages; individual messages stay intact). Fails with an error without `--out`/`--zip`.
+- `--profile NAME` / `--save-profile NAME`: load and save a named parameter profile.
+- **Resilient export and exit code `9` (`PARTIAL`):**
+  - The export is written channel by channel into a temporary staging folder `<destination>.partial`. The finished export is published only upon successful completion of the entire run, so a previous finished export is never damaged.
+  - If the export was interrupted (Ctrl+C, network outage), rerunning the same command automatically resumes from unsaved channels without re-downloading finished ones.
+  - If some channels are inaccessible (HTTP 403 `NO_ACCESS` / 404 `NOT_FOUND`), a thread is skipped, or an attachment download fails, Discoop faithfully returns exit code `9` (`ExitCode.PARTIAL`) and prints recommendations for the user/agent.
 
-Overenie API prototypom popisuje [prototype/README.md](prototype/README.md).
+API verification via prototype is described in [prototype/README.md](prototype/README.md).
 
-## Logovanie a diagnostika
+## Logging and diagnostics
 
-Nástroj obsahuje diagnostické príkazy na kontrolu stavu a voliteľné bezpečné logovanie:
+The tool includes diagnostic commands for checking status and optional safe logging:
 
 ```
-discoop doctor                         # diagnostika prihlásenia, siete, export priečinka a disku
-discoop servers --format json          # strojovo čitateľný JSON výstup (aj pre channels, status, config list)
-discoop messages ... --progress-json   # JSONL udalosti o priebehu na stderr pre skripty
-discoop --debug messages ...           # podrobný diagnostický log na stderr (vypne spinner)
-discoop --log discoop.log messages ... # zápis diagnostického logu do súboru
+discoop doctor                         # diagnostics for login, network, export folder, and disk space
+discoop servers --format json          # machine-readable JSON output (also for channels, status, config list)
+discoop messages ... --progress-json   # JSONL progress events on stderr for scripts
+discoop --debug messages ...           # detailed diagnostic log on stderr (disables spinner)
+discoop --log discoop.log messages ... # write diagnostic log to file
 ```
 
-- `--debug` a `--log FILE`: voliteľné logovanie (predvolene vypnuté). Možno aktivovať aj premennými `DISCOOP_DEBUG=1` a `DISCOOP_LOG=cesta`. Log **nikdy neobsahuje** autentifikačný token, podpisy CDN URL, texty správ ani mená používateľov (iba číselné ID).
-- `discoop doctor`: overí 6 bodov: prihlásenie (`login`), dostupnosť Discord API (`network`), zapisovateľnosť priečinka exportov (`export_dir`), voľné miesto (`disk_space`, FAIL pod 100 MB), vek cache (`cache`) a verziu nástroja (`version`). Plain režim vypíše riadky oddelené tabulátorom, human režim tabuľku.
-- `--format json`: strojový JSON výstup pre `servers`, `channels`, `status` a `config list`.
-- `--progress-json`: štruktúrované JSONL správy o priebehu sťahovania na `stderr` s percentami a odhadom zostávajúceho času (ETA).
+- `--debug` and `--log FILE`: optional logging (disabled by default). Can also be activated via environment variables `DISCOOP_DEBUG=1` and `DISCOOP_LOG=path`. The log **never contains** authentication tokens, CDN URL signatures, message texts, or usernames (numeric IDs only).
+- `discoop doctor`: checks 6 items: login (`login`), Discord API availability (`network`), export folder writability (`export_dir`), available disk space (`disk_space`, FAIL below 100 MB), cache age (`cache`), and tool version (`version`). Plain mode outputs tab-separated lines; human mode outputs a table.
+- `--format json`: machine-readable JSON output for `servers`, `channels`, `status`, and `config list`.
+- `--progress-json`: structured JSONL messages about download progress on `stderr` with percentages and estimated time of arrival (ETA).
 
-## Vývoj
+## Development
 
-Vývoj v repe ide cez `uv run` (príkaz `discoop` je potom `uv run discoop`):
+Development in the repo uses `uv run` (the `discoop` command is then `uv run discoop`):
 
 ```
 git clone https://github.com/filbam/Discoop
 cd Discoop
-uv sync                      # závislosti do .venv
+uv sync                      # dependencies into .venv
 uv run discoop --help
-uv run pytest                # testy
+uv run pytest                # tests
 ```
 
-## Dokumentácia
+## Documentation
 
-| Dokument | Obsah |
+| Document | Content |
 |---|---|
-| [docs/requirements.md](docs/requirements.md) | čo má nástroj robiť |
-| [docs/design.md](docs/design.md) | príkazy, výstupy, architektúra, postup implementácie |
-| [docs/analyses/](docs/analyses/) | analýzy (napr. dáta Discord web klienta) |
-| [docs/decisions/](docs/decisions/README.md) | rozhodnutia (ADR) |
-| [docs/journal.md](docs/journal.md) | priebeh práce, incidenty, ďalšie kroky |
-| [CHANGELOG.md](CHANGELOG.md) | zmeny projektu |
+| [docs/requirements.md](docs/requirements.md) | what the tool should do |
+| [docs/design.md](docs/design.md) | commands, outputs, architecture, implementation roadmap |
+| [docs/analyses/](docs/analyses/) | analyses (e.g. Discord web client data) |
+| [docs/decisions/](docs/decisions/README.md) | decisions (ADR) |
+| [docs/journal.md](docs/journal.md) | work progress, incidents, next steps |
+| [CHANGELOG.md](CHANGELOG.md) | project changes |

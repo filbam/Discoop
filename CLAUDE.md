@@ -1,88 +1,92 @@
 # Discoop
 
-CLI nástroj na sťahovanie správ a príloh z Discord serverov, ktorých je používateľ členom. Výstup slúži na AI
-analýzu študijných informácií (hlavne server VUT FIT). Je to osobný projekt na študijné účely. Používateľ vie,
-že scraping porušuje podmienky Discordu.
+CLI tool for downloading messages and attachments from Discord servers the user is a member of. The output serves
+for AI analysis of study materials (mainly the VUT FIT server). It is a personal project for study purposes. The user knows
+that scraping violates Discord's Terms of Service.
 
-Stav (2026-11-04): implementované sú `login` (QR aj `--token`), `status`, `logout`, `servers`, `channels`, `threads` a `config` so SQLite cache, `messages` do konzoly aj s odolným exportom príloh do priečinka a zipu (`--out`, `--zip`, manifest, automatická obnova cez `.partial`, kód 9 `PARTIAL`), plná podpora vlákien a fór ([ADR 0019](docs/decisions/0019-threads.md)), prírastkové sťahovanie `--since-last` so `sync-state.json` a kontrola disku ([ADR 0020](docs/decisions/0020-since-last.md)), delenie na tokeny `--max-tokens` s `--out` aj `--zip` a profily v CLI (`discoop profiles`), referencia pre AI `discoop agent-guide`, režimy sťahovania `safe` (predvolený) a `fast`, interaktívne terminálové rozhranie TUI (`discoop ui`, perzistentný stav `tui-state.json`, profily `P` uloží a `p` načíta, otvorenie priečinka posledného exportu `o`, v strome pri kanáli čas poslednej aktivity a dátum posledného exportu, ovládané klávesnicou, jeden strom, [ADR 0014](docs/decisions/0014-tui-keyboard-one-tree.md)), diagnostika `doctor`, diagnostické logovanie `--debug`/`--log`, strojové výstupy `--format json` a `--progress-json` a pomocné moduly. Všetkých 870 testov prechádza. Overené je to testami s falošným Discordom a čiastočne aj na reálnom účte (2026-11-04, režim `safe`, malé okná: [analýza](docs/analyses/real-account-check-2026-11-04.md)). Na reálnom účte ešte nie je overené napríklad skutočné Ctrl+C z konzoly, výber fór a Ctrl+C v TUI, export veľkého fóra a Linux či macOS.
-Aktuálne ďalšie kroky sú v bloku „Ďalej“ najnovšej sekcie [denníka](docs/journal.md). Začni od [docs/requirements.md](docs/requirements.md) a
+Status (2026-11-04): implemented are `login` (both QR and `--token`), `status`, `logout`, `servers`, `channels`, `threads`, and `config` with SQLite cache, `messages` to console as well as resilient export of attachments to folder and zip (`--out`, `--zip`, manifest, automatic resume via `.partial`, exit code 9 `PARTIAL`), full support for threads and forums ([ADR 0019](docs/decisions/0019-threads.md)), incremental downloading `--since-last` with `sync-state.json` and disk check ([ADR 0020](docs/decisions/0020-since-last.md)), splitting by tokens `--max-tokens` with both `--out` and `--zip` and profiles in the CLI (`discoop profiles`), reference for AI `discoop agent-guide`, download modes `safe` (default) and `fast`, interactive terminal user interface TUI (`discoop ui`, persistent state `tui-state.json`, profiles: `P` saves and `p` loads, opening the folder of the last export `o`, in the tree by the channel the time of last activity and date of last export, keyboard-controlled, single tree, [ADR 0014](docs/decisions/0014-tui-keyboard-one-tree.md)), diagnostics `doctor`, diagnostic logging `--debug`/`--log`, machine-readable outputs `--format json` and `--progress-json`, and utility modules. All 870 tests pass. Verified by tests with fake Discord and partially on a real account (2026-11-04, `safe` mode, small windows: [analysis](docs/analyses/real-account-check-2026-11-04.md)). On a real account, not yet verified are, for example, actual Ctrl+C from console, forum selection and Ctrl+C in TUI, exporting a large forum, and Linux or macOS.
+Current next steps are in the "Next" block of the latest section of the [journal](docs/journal.md). Start from [docs/requirements.md](docs/requirements.md) and
 [docs/design.md](docs/design.md).
 
-## Dokumentácia: zaznamenávaj všetko
+## Language: the repository is English only
 
-Používateľ chce mať všetko zapísané v repe a verzované v gite ([ADR 0001](docs/decisions/0001-record-everything-and-version-it.md)).
+Everything that is committed is English (docs, code, comments, identifiers, commit messages, tests and fixtures, file and folder names, tool texts). The conversation with the user may be in Slovak or any language, but nothing of it enters the repository. Quoted Discord content in tests and docs is made up and English, except small fixtures that test Unicode handling (accents, emoji, normalisation), which state so in a comment. See [ADR 0021](docs/decisions/0021-english-only-repository.md).
 
-| Čo | Kam |
+## Documentation: record everything
+
+The user wants everything recorded in the repo and versioned in git ([ADR 0001](docs/decisions/0001-record-everything-and-version-it.md)).
+
+| What | Where |
 |---|---|
-| Požiadavky používateľa | [docs/requirements.md](docs/requirements.md) |
-| Návrh nástroja | [docs/design.md](docs/design.md) |
-| Analýzy, prieskumy, merania | `docs/analyses/<tema>.md` |
-| Rozhodnutia (ADR) | `docs/decisions/NNNN-nazov.md` + riadok v [indexe](docs/decisions/README.md) |
-| Zmeny projektu | [CHANGELOG.md](CHANGELOG.md), sekcia `[Unreleased]` |
-| Priebeh práce, incidenty, ďalšie kroky | [docs/journal.md](docs/journal.md) |
+| The user's requirements | [docs/requirements.md](docs/requirements.md) |
+| Tool design | [docs/design.md](docs/design.md) |
+| Analyses, research, measurements | `docs/analyses/<topic>.md` |
+| Decisions (ADR) | `docs/decisions/NNNN-name.md` + line in the [index](docs/decisions/README.md) |
+| Project changes | [CHANGELOG.md](CHANGELOG.md), `[Unreleased]` section |
+| Work progress, incidents, next steps | [docs/journal.md](docs/journal.md) |
 
-Pravidlá:
-- **Kedy zapisovať:** záznam aktualizuj v tom istom kroku ako samotnú zmenu, nie dodatočne.
-  - Nová požiadavka od používateľa → `requirements.md`.
-  - Rozhodnutie → ADR.
-  - Hotová zmena → `CHANGELOG.md`.
-  - Na konci pracovného bloku → zápis do `journal.md`.
-- **Stav ADR:**
-  - `Prijaté` = rozhodol alebo jasne súhlasil používateľ.
-  - `Navrhnuté` = tvoj návrh bez jeho súhlasu.
-  - Zmenené rozhodnutie nemaž. Nový ADR ho nahradí a starý dostane stav `Nahradené ADR NNNN`.
-- **Analýzy:** pri každom fakte rozlišuj `[OVERENÉ]` a `[PREDPOKLAD]`.
-- **Dátumy:** vždy absolútne (`2026-11-03`).
-- **Jazyk:** dokumenty po slovensky, technické termíny, kód a commit správy po anglicky.
-- **Bez citlivých údajov:** žiadny token, cookies ani mená či texty správ iných ľudí. Príklady anonymizuj.
+Rules:
+- **When to record:** update the record in the same step as the change itself, not retroactively.
+  - New requirement from the user → `requirements.md`.
+  - Decision → ADR.
+  - Finished change → `CHANGELOG.md`.
+  - At the end of a work block → entry in `journal.md`.
+- **ADR status:**
+  - `Accepted` = decided by or clearly agreed to by the user.
+  - `Proposed` = your proposal without their agreement.
+  - Do not delete a modified decision. A new ADR replaces it and the old one receives the status `Superseded by ADR NNNN`.
+- **Analyses:** distinguish `[VERIFIED]` and `[ASSUMPTION]` for every fact.
+- **Dates:** always absolute (`2026-11-03`).
+- **Language:** English only (see section above and [ADR 0021](docs/decisions/0021-english-only-repository.md)).
+- **No sensitive data:** no tokens, cookies, or other people's names or message texts. Anonymise examples.
 
-## Práca cez agentov
+## Working through agents
 
-Hlavný Claude prácu nerobí sám, vysiela agentov a riadi ich ([ADR 0010](docs/decisions/0010-work-through-agents.md)).
-- **Hlavný Claude:**
-  - hovorí s používateľom, delí prácu na kroky a píše agentom samostatné zadania
-    (čo je hotové, ktoré súbory, čo má byť výsledkom, ako to overiť),
-  - výsledok kontroluje sám (diff, `uv run pytest`), správa agenta nie je dôkaz,
-  - sám nepíše kód ani dokumenty, chyby vracia agentovi. Výnimka: triviálna oprava pri kontrole.
-- **Agenti:**
-  - robia celý krok vrátane testov a záznamov podľa tohto súboru,
-  - necommitujú a nepushujú,
-  - na konci vrátia stručnú správu: čo zmenili, ako to overili, čo ostalo otvorené.
-- **Súbežnosť:** čítajúci agenti môžu bežať naraz. Píšuci agenti nikdy nemenia rovnaké súbory, inak idú za sebou.
-  Denník v jednom bloku práce píše len jeden agent.
-- **Discord:** pravidlá pre Discord API (sekcia Vývoj) a sekcia Práca s Discordom platia pre agentov rovnako.
-  Agent v prehliadači používateľa pracuje len podľa ADR 0003 a len keď o to používateľ požiada.
+The main Claude does not do the work directly; he dispatches agents and manages them ([ADR 0010](docs/decisions/0010-work-through-agents.md)).
+- **The main Claude:**
+  - talks with the user, splits work into steps, and writes standalone briefs for agents
+    (what is done, which files, what the expected result is, how to verify it),
+  - inspects the result himself (diff, `uv run pytest`); an agent's report is not proof,
+  - does not write code or documents himself; returns errors to the agent. Exception: trivial fix during inspection.
+- **Agents:**
+  - complete the entire step including tests and records according to this file,
+  - never commit and never push,
+  - at the end, return a concise report: what they changed, how they verified it, what remained open.
+- **Concurrency:** read-only agents may run concurrently. Writing agents never modify the same files; otherwise they run sequentially.
+  Only one agent writes the journal in a single work block.
+- **Discord:** rules for the Discord API (Development section) and the Working with Discord section apply equally to agents.
+  An agent in the user's browser only works according to ADR 0003 and only when requested by the user.
 
 ## Git
 
-- Repo: `github.com/filbam/Discoop` (verejné), vetva `main` ([ADR 0002](docs/decisions/0002-private-repo-and-identity.md), [ADR 0015](docs/decisions/0015-public-repo-and-installation.md)).
-- **Autor:** commity píše `filbam <f.bambura@gmail.com>` (lokálny `git config`).
-- **Prihlásenie na GitHub:** ako `filbam` (`credential.https://github.com.username`). Push ide cez tento účet,
-  predvolený je `FilipBambura`.
-- **Commit správy:** po anglicky, s Co-Authored-By riadkom.
-- **Commit:** sám po každom hotovom a otestovanom kroku (dohodnuté 2026-11-03). Commituje hlavný Claude
-  po kontrole práce agenta ([ADR 0010](docs/decisions/0010-work-through-agents.md)).
-- **Push:** iba na pokyn používateľa.
+- Repo: `github.com/filbam/Discoop` (public), `main` branch ([ADR 0002](docs/decisions/0002-private-repo-and-identity.md), [ADR 0015](docs/decisions/0015-public-repo-and-installation.md)).
+- **Author:** commits are written by `filbam <f.bambura@gmail.com>` (local `git config`).
+- **GitHub login:** as `filbam` (`credential.https://github.com.username`). Push goes through this account,
+  default is `FilipBambura`.
+- **Commit messages:** in English, with a Co-Authored-By line.
+- **Commit:** alone after each finished and tested step (agreed 2026-11-03). The main Claude commits
+  after inspecting the agent's work ([ADR 0010](docs/decisions/0010-work-through-agents.md)).
+- **Push:** only on the user's instruction.
 
-## Vývoj
+## Development
 
-- **Jazyk a nástroje:** Python 3.12+, balíky cez uv ([ADR 0006](docs/decisions/0006-python.md)), kód v `src/discoop/`, testy v `tests/`.
-- **uv mimo PATH:** v shelli Claude môže chýbať. Vtedy
+- **Language and tools:** Python 3.12+, packages via uv ([ADR 0006](docs/decisions/0006-python.md)), code in `src/discoop/`, tests in `tests/`.
+- **uv missing from PATH:** might be missing in Claude's shell. In that case:
   `export PATH="$PATH:/c/Users/Filip/AppData/Local/Microsoft/WinGet/Packages/astral-sh.uv_Microsoft.Winget.Source_8wekyb3d8bbwe"`.
-- **Príkazy:** `uv sync`, `uv run pytest`, `uv run discoop …`.
-- **Help a hlášky nástroja** sú po anglicky ([ADR 0007](docs/decisions/0007-english-in-the-tool.md)).
-- **Discord API** volá len prototyp alebo nástroj, ktorý spúšťa používateľ. Výnimka: `login --handshake-only`
-  (neprihlásené spojenie s QR gatewayom) na overenie spojenia.
-- **Výstupy prototypu** (`prototype/out/`) sú anonymizované a gitom ignorované.
+- **Commands:** `uv sync`, `uv run pytest`, `uv run discoop …`.
+- **Tool help and messages** are in English ([ADR 0007](docs/decisions/0007-english-in-the-tool.md)).
+- **Discord API** is called only by the prototype or the tool executed by the user. Exception: `login --handshake-only`
+  (unauthenticated connection to the QR gateway) to verify connectivity.
+- **Prototype outputs** (`prototype/out/`) are anonymised and ignored by git.
 
-## Práca s Discordom používateľa
+## Working with the user's Discord
 
-Platí po incidentoch z 2026-11-03 ([ADR 0003](docs/decisions/0003-rules-for-agents-in-the-users-browser.md)):
-- **Žiadna klávesnica.** Agent v prehliadači používateľa na Discorde nesmie písať ani stláčať klávesy.
-- **Klikanie len na navigáciu:** kanály v sidebare, tlačidlá v hlavičke kanála, zatvorenie panelov.
-  Nikdy nie na zoznam správ, reakcie, composer, Follow ani Join.
-- **Nikdy nezatváraj karty ani okná** (`tabs_close_mcp` dvakrát zhodil celý Chrome). Kartu nechaj otvorenú používateľovi.
-- **Iba čítanie.** Token ani cookies nikdy nečítaj a nepoužívaj.
-- **Overenia cez vlastné API volania** robí prototyp, ktorý spúšťa používateľ na svojom účte.
-- **Passkey dialóg na login stránke:** `discord.com/login` vo vstavanom prehliadači na Windows sám vyvolá systémové
-  okno Windows Security. Používateľa vopred upozorni, nech ho zruší. Po analýze kartu presmeruj z login stránky preč (napr. `https://example.com`), inak generuje nové QR.
+Applies after incidents from 2026-11-03 ([ADR 0003](docs/decisions/0003-rules-for-agents-in-the-users-browser.md)):
+- **No keyboard.** An agent in the user's browser on Discord must not type or press keys.
+- **Clicking only for navigation:** channels in the sidebar, buttons in the channel header, closing panels.
+  Never on the message list, reactions, composer, Follow, or Join.
+- **Never close tabs or windows** (`tabs_close_mcp` crashed all of Chrome twice). Leave the tab open for the user.
+- **Read-only.** Never read or use tokens or cookies.
+- **Verifications via custom API calls** are performed by the prototype, which the user runs on their account.
+- **Passkey dialog on the login page:** `discord.com/login` in the embedded browser on Windows automatically opens the
+  Windows Security system window. Warn the user in advance to cancel it. After the analysis, navigate the tab away from the login page (e.g. `https://example.com`), otherwise it generates new QRs.
