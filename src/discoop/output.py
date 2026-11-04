@@ -3,6 +3,7 @@
 Data goes to stdout, everything else (notes, errors) to stderr, in both modes.
 """
 
+import json
 import os
 import sys
 from collections.abc import Iterable, Mapping, Sequence
@@ -73,6 +74,10 @@ class Output:
     @agent.setter
     def agent(self, value: bool) -> None:
         self._plain = bool(value)
+
+    def json(self, data: object) -> None:
+        """Machine-readable JSON on stdout in both plain and human modes."""
+        print(json.dumps(data, ensure_ascii=False, indent=2))
 
     def fields(self, values: Mapping[str, object], title: str | None = None) -> None:
         """Key/value result: `key: value` lines for plain mode, a small table for humans."""

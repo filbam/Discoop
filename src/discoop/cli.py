@@ -1,6 +1,10 @@
 """Command line entry point."""
 
+import json
+import os
+import shutil
 import sys
+import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime, tzinfo
@@ -17,17 +21,18 @@ from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn, Trans
 from rich.text import Text
 from rich.tree import Tree
 
-from discoop import __version__, export, login as login_flow, paths
+from discoop import __version__, export, login as login_flow, logs, paths
 from discoop.api import DiscordAPI
 from discoop.attachments import DOWNLOADED, FAILED, NO_FILES, PRESENT, SKIPPED, FileJob, cdn_client
 from discoop.attachments import Progress as DownloadProgress
-from discoop.cache import Cache, clear_cache
+from discoop.cache import Cache, cache_path, clear_cache
 from discoop.config import DESCRIPTIONS, Config, check_key, parse_value
 from discoop.directory import Directory
 from discoop.errors import DiscoopError, ExitCode, auth_required
-from discoop.models import CATEGORY, LISTABLE_TYPES, MESSAGE_TYPES, Channel, ChannelMessages, Server, group_by_category
+from discoop.models import LISTABLE_TYPES, MESSAGE_TYPES, Channel, ChannelMessages, Server, group_by_category
 from discoop.normalize import Normalizer, known_users
 from discoop.output import Output, detect_plain_mode
+from discoop.progress import eta_seconds, format_eta, fraction_done, window_start_id
 from discoop.render import Query, jsonout, text as text_render
 from discoop.render.text import size_label
 from discoop.resolve import is_pattern
@@ -36,11 +41,9 @@ from discoop.service import (
     Events,
     MessagesOutcome,
     MessagesRequest,
-    resolve_targets,
     run_messages,
-    validate_export_target,
 )
-from discoop.snowflake import parse_window, to_local, to_time, utc_now
+from discoop.snowflake import Window, parse_window, to_local, to_time, utc_now
 from discoop.tokenstore import TokenStore
 
 SUMMARY = "Download messages and files from Discord servers you are a member of."
@@ -125,7 +128,14 @@ MB = 1024 * 1024
 # Local time zone for parsing and showing times; None = the system zone (tests set a fixed one).
 LOCAL_ZONE: tzinfo | None = None
 
-_MODE_FLAGS = {"--plain", "--agent", "--human", "--verbose", "-v"}
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _env_truthy(key: str) -> bool:
+    return os.environ.get(key, "").strip().lower() in _TRUTHY
+
+
+_MODE_FLAGS = {"--plain", "--agent", "--human", "--verbose", "-v", "--debug"}
 _CONTEXT = {"help_option_names": ["-h", "--help"]}
 
 app = typer.Typer(add_completion=False, pretty_exceptions_enable=False, context_settings=_CONTEXT)
@@ -145,6 +155,8 @@ def _root(
     agent: bool = typer.Option(False, "--agent", hidden=True, help="Alias for --plain."),
     human: bool = typer.Option(False, "--human", help="Force the rich output for humans."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show progress notes in plain mode."),
+    debug: bool = typer.Option(False, "--debug", help="Write diagnostic logs to stderr."),
+    log_file: Path | None = typer.Option(None, "--log", metavar="FILE", dir_okay=False, help="Append diagnostic logs to this file."),
     version: bool = typer.Option(False, "--version", help="Show the version and exit."),
     ui_flag: bool = typer.Option(False, "--ui", help="Start the interactive terminal UI."),
 ) -> None:
@@ -155,11 +167,33 @@ def _root(
     if version:
         out.message(f"discoop {__version__}")
         raise typer.Exit()
+    if not ui_flag and ctx.invoked_subcommand is None:
+        typer.echo(ctx.get_help())
+        raise typer.Exit()
+
+    effective_debug = debug or _env_truthy("DISCOOP_DEBUG")
+    if log_file is not None:
+        effective_log: Path | None = log_file
+    else:
+        env_log = os.environ.get("DISCOOP_LOG", "").strip()
+        effective_log = Path(env_log) if env_log else None
+
+    if effective_log is not None and effective_log.is_dir():
+        raise DiscoopError(ExitCode.BAD_ARGS, f'Log path "{effective_log}" is a directory, not a file.')
+
+    is_ui = ui_flag or ctx.invoked_subcommand == "ui"
+    if is_ui and effective_debug:
+        raise DiscoopError(
+            ExitCode.BAD_ARGS,
+            "discoop ui cannot be used with --debug.",
+            "Use --log FILE: the terminal UI owns the screen.",
+        )
+
+    out.debug = effective_debug
+    logs.setup_logging(effective_debug, effective_log)
+
     if ui_flag:
         ui(ctx)
-        raise typer.Exit()
-    if ctx.invoked_subcommand is None:
-        typer.echo(ctx.get_help())
         raise typer.Exit()
 
 
@@ -167,6 +201,12 @@ def _root(
 def ui(ctx: typer.Context) -> None:
     """Start the interactive terminal user interface."""
     out: Output = ctx.obj
+    if getattr(out, "debug", False):
+        raise DiscoopError(
+            ExitCode.BAD_ARGS,
+            "discoop ui cannot be used with --debug.",
+            "Use --log FILE: the terminal UI owns the screen.",
+        )
     if out.plain:
         raise DiscoopError(
             ExitCode.BAD_ARGS,
@@ -213,25 +253,45 @@ def login(
         out.note(f"Anonymized trace written to {trace}.")
 
 
+def _parse_list_format(raw: str) -> str:
+    value = raw.strip().lower()
+    if value not in ("text", "json"):
+        raise DiscoopError(ExitCode.BAD_ARGS, f'Unknown format "{raw}".', "Use one of: text, json.")
+    return value
+
+
 @app.command()
-def status(ctx: typer.Context) -> None:
+def status(
+    ctx: typer.Context,
+    output_format: str = typer.Option("text", "--format", help="Output format: text or json."),
+) -> None:
     """Check that the stored login still works."""
     out: Output = ctx.obj
+    fmt = _parse_list_format(output_format)
     stored = TokenStore.default().load()
     if stored is None:
         raise auth_required()
     with DiscordAPI(stored.token) as api:
         me = api.get_me()
-    out.fields(
-        {
+    if fmt == "json":
+        out.json({
             "logged_in": "yes",
             "user": display_name(me),
             "user_id": me.get("id", "?"),
             "token_storage": stored.location,
-            "data_dir": paths.data_dir(),
-        },
-        title="discoop status",
-    )
+            "data_dir": str(paths.data_dir()),
+        })
+    else:
+        out.fields(
+            {
+                "logged_in": "yes",
+                "user": display_name(me),
+                "user_id": me.get("id", "?"),
+                "token_storage": stored.location,
+                "data_dir": paths.data_dir(),
+            },
+            title="discoop status",
+        )
 
 
 @app.command()
@@ -245,17 +305,149 @@ def logout(ctx: typer.Context) -> None:
 
 
 @app.command()
-def servers(ctx: typer.Context, refresh: bool = _REFRESH_OPTION) -> None:
+def doctor(ctx: typer.Context) -> None:
+    """Check authentication, network connectivity, and system requirements."""
+    out: Output = ctx.obj
+
+    stored = TokenStore.default().load()
+    if stored is None:
+        login_ok = False
+        login_detail = "not logged in (run discoop login)"
+        login_code = ExitCode.AUTH_REQUIRED
+        network_ok = True
+        network_detail = "skipped (not logged in)"
+        network_code = 0
+    else:
+        try:
+            with DiscordAPI(stored.token) as api:
+                me = api.get_me()
+            login_ok = True
+            login_detail = f"{display_name(me)} ({me.get('id', '?')})"
+            login_code = 0
+            network_ok = True
+            network_detail = "Discord API reachable"
+            network_code = 0
+        except DiscoopError as e:
+            if e.code == ExitCode.AUTH_REQUIRED:
+                login_ok = False
+                login_detail = e.message
+                login_code = ExitCode.AUTH_REQUIRED
+                network_ok = True
+                network_detail = "Discord API reachable"
+                network_code = 0
+            elif e.code == ExitCode.NETWORK:
+                login_ok = True
+                login_detail = f"token stored in {stored.location} (unverified)"
+                login_code = 0
+                network_ok = False
+                network_detail = e.message
+                network_code = ExitCode.NETWORK
+            else:
+                login_ok = False
+                login_detail = e.message
+                login_code = ExitCode.ERROR
+                network_ok = False
+                network_detail = e.message
+                network_code = ExitCode.ERROR
+        except Exception as e:
+            login_ok = False
+            login_detail = str(e)
+            login_code = ExitCode.ERROR
+            network_ok = False
+            network_detail = str(e)
+            network_code = ExitCode.ERROR
+
+    raw_export_dir = Config.default().get("export-dir")
+    target_dir = Path(raw_export_dir).expanduser().resolve() if raw_export_dir else Path.cwd().resolve()
+    probe_dir = target_dir
+    while not probe_dir.exists() and probe_dir.parent != probe_dir:
+        probe_dir = probe_dir.parent
+
+    if target_dir.exists() and not target_dir.is_dir():
+        export_ok = False
+        export_detail = f"{target_dir} is not a directory"
+        export_code = ExitCode.ERROR
+    elif probe_dir.is_dir() and os.access(probe_dir, os.W_OK):
+        export_ok = True
+        export_detail = str(target_dir)
+        export_code = 0
+    else:
+        export_ok = False
+        export_detail = f"{target_dir} is not writable"
+        export_code = ExitCode.ERROR
+
+    try:
+        usage = shutil.disk_usage(probe_dir)
+        if usage.free < 100 * MB:
+            disk_ok = False
+            disk_detail = f"{usage.free // MB} MB free (< 100 MB)"
+            disk_code = ExitCode.ERROR
+        else:
+            disk_ok = True
+            disk_detail = f"{usage.free // MB} MB free"
+            disk_code = 0
+    except OSError as e:
+        disk_ok = False
+        disk_detail = f"cannot check disk space: {e}"
+        disk_code = ExitCode.ERROR
+
+    if cache_path().exists():
+        with Cache.default() as cache:
+            fetched = cache.fetched_at("servers")
+        age = (time.time() - fetched) if fetched is not None else None
+        cache_detail = _ago(age) if age is not None else "empty"
+    else:
+        cache_detail = "no cache file"
+    cache_ok = True
+    cache_code = 0
+
+    version_ok = True
+    version_detail = __version__
+    version_code = 0
+
+    checks = [
+        ("login", login_ok, login_detail, login_code),
+        ("network", network_ok, network_detail, network_code),
+        ("export_dir", export_ok, export_detail, export_code),
+        ("disk_space", disk_ok, disk_detail, disk_code),
+        ("cache", cache_ok, cache_detail, cache_code),
+        ("version", version_ok, version_detail, version_code),
+    ]
+
+    if out.plain:
+        for name, ok, detail, _ in checks:
+            print(f"{name}\t{'OK' if ok else 'FAIL'}\t{detail}")
+    else:
+        out.rows(
+            ("check", "status", "detail"),
+            [(name, "OK" if ok else "FAIL", detail) for name, ok, detail, _ in checks],
+            title="discoop doctor",
+        )
+
+    first_failed = next((code for _, ok, _, code in checks if not ok), 0)
+    raise typer.Exit(code=int(first_failed))
+
+
+@app.command()
+def servers(
+    ctx: typer.Context,
+    refresh: bool = _REFRESH_OPTION,
+    output_format: str = typer.Option("text", "--format", help="Output format: text or json."),
+) -> None:
     """List your servers: name, ID and member count."""
     out: Output = ctx.obj
+    fmt = _parse_list_format(output_format)
     with _directory() as directory:
         items = directory.servers(refresh=refresh)
         age = directory.cache_age("servers")
-    out.rows(
-        ("id", "members", "name"),
-        [(s.id, s.member_count, s.name) for s in items],
-        title=f"Your servers ({len(items)})",
-    )
+    if fmt == "json":
+        out.json([{"id": s.id, "name": s.name, "member_count": s.member_count} for s in items])
+    else:
+        out.rows(
+            ("id", "members", "name"),
+            [(s.id, s.member_count, s.name) for s in items],
+            title=f"Your servers ({len(items)})",
+        )
     _cache_note(out, age)
 
 
@@ -268,9 +460,11 @@ def channels(
     ),
     flat: bool = typer.Option(False, "--flat", help="A table instead of the category tree."),
     refresh: bool = _REFRESH_OPTION,
+    output_format: str = typer.Option("text", "--format", help="Output format: text or json."),
 ) -> None:
     """List the channels of a server, grouped by category."""
     out: Output = ctx.obj
+    fmt = _parse_list_format(output_format)
     wanted = _parse_types(type_filter)
     with _directory() as directory:
         target = directory.server(_server_query(server))
@@ -282,7 +476,20 @@ def channels(
     ]
     groups = [(category, members) for category, members in groups if members]
     count = sum(len(members) for _, members in groups)
-    if out.agent or flat:
+    if fmt == "json":
+        out.json([
+            {
+                "id": c.id,
+                "name": c.name,
+                "type": c.type,
+                "type_name": c.type_name,
+                "category": category.name if category else None,
+                "position": c.position,
+            }
+            for category, members in groups
+            for c in members
+        ])
+    elif out.agent or flat:
         rows = [
             (c.id, c.type_name, category.name if category else "", c.name)
             for category, members in groups
@@ -350,6 +557,9 @@ def messages(
         help=f"With --out/--zip: skip larger attachments. Default {DEFAULT_MAX_FILE_SIZE_MB:g}, 0 = no limit.",
         show_default=False,
     ),
+    progress_json: bool = typer.Option(
+        False, "--progress-json", help="Write machine-readable progress events (JSON lines) to stderr."
+    ),
 ) -> None:
     out: Output = ctx.obj
     output_format = _parse_format(output_format)
@@ -375,7 +585,12 @@ def messages(
         max_file_size=max_file_size,
         output_format=output_format,
     )
-    events = _CliEvents(out, tz=LOCAL_ZONE)
+    try:
+        window = parse_window(from_, to, now=utc_now(), tz=LOCAL_ZONE, whole_history=last is not None)
+    except DiscoopError:
+        window = None
+
+    events = _CliEvents(out, tz=LOCAL_ZONE, window=window, last=last, progress_json=progress_json)
     try:
         with _directory(delay=effective_delay, mode=selected_mode) as directory:
             outcome = run_messages(
@@ -396,20 +611,27 @@ def messages(
         if print_messages:
             _print_messages(out, outcome.exported.results, outcome.query, output_format)
         _export_report(out, outcome.exported, summary_on_stdout=not print_messages)
-    if from_ is None and last is None:
+    if from_ is None and last is None and not progress_json:
         out.note("Messages from the last 24 hours. For more use --from 7d, --from 2026-10-01 or --from all.")
 
 
 @config_app.command("list")
-def config_list(ctx: typer.Context) -> None:
+def config_list(
+    ctx: typer.Context,
+    output_format: str = typer.Option("text", "--format", help="Output format: text or json."),
+) -> None:
     """Show all settings and their current values."""
     out: Output = ctx.obj
+    fmt = _parse_list_format(output_format)
     config = Config.default()
-    out.rows(
-        ("key", "value", "description"),
-        [(key, config.get(key), description) for key, description in DESCRIPTIONS.items()],
-        title=f"Settings ({config.path})",
-    )
+    if fmt == "json":
+        out.json({key: config.get(key) for key in DESCRIPTIONS})
+    else:
+        out.rows(
+            ("key", "value", "description"),
+            [(key, config.get(key), description) for key, description in DESCRIPTIONS.items()],
+            title=f"Settings ({config.path})",
+        )
 
 
 @config_app.command("get")
@@ -514,43 +736,6 @@ def _print_plain(out: Output, data: str) -> None:
         out.console.print(Text(data), soft_wrap=True)
 
 
-def _export_target(
-    out_dir: str | None, zip_file: str | None, print_messages: bool, no_files: bool, max_file_size: float | None
-) -> tuple[Path, bool] | None:
-    return validate_export_target(
-        out_dir, zip_file, print_messages, no_files, max_file_size, export_dir=Config.default().get("export-dir")
-    )
-
-
-def _export(
-    out: Output,
-    directory: Directory,
-    export_to: tuple[Path, bool],
-    results: list[ChannelMessages],
-    query: Query,
-    no_files: bool,
-    max_file_size: float | None,
-) -> export.Exported:
-    limit = DEFAULT_MAX_FILE_SIZE_MB if max_file_size is None else max_file_size
-    options = export.Options(files=not no_files, max_file_size=int(limit * MB) if limit > 0 else None)
-    progress = _AgentDownloads(out) if out.agent else _HumanDownloads(out)
-    path, as_zip = export_to
-    with cdn_client() as cdn:
-        return export.export(
-            path,
-            as_zip,
-            results,
-            query,
-            api=directory.api(),
-            cdn=cdn,
-            options=options,
-            created=utc_now(),
-            tz=LOCAL_ZONE,
-            now=lambda: utc_now().timestamp(),
-            progress=progress,
-        )
-
-
 def _export_report(out: Output, exported: export.Exported, summary_on_stdout: bool) -> None:
     """The summary (stdout, or a stderr note when --print put the messages there) and warnings about files."""
     jobs = exported.jobs
@@ -649,16 +834,60 @@ class _HumanDownloads(DownloadProgress):
 class _CliEvents(Events):
     """Event handler for the CLI: progress indicators, notes, warnings."""
 
-    def __init__(self, out: Output, tz: tzinfo | None = None) -> None:
-        super().__init__(downloads=_AgentDownloads(out) if out.agent else _HumanDownloads(out))
+    def __init__(
+        self,
+        out: Output,
+        tz: tzinfo | None = None,
+        window: Window | None = None,
+        last: int | None = None,
+        progress_json: bool = False,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        plain_progress = out.agent or getattr(out, "debug", False)
+        if progress_json:
+            downloads = DownloadProgress()
+        elif plain_progress:
+            downloads = _AgentDownloads(out)
+        else:
+            downloads = _HumanDownloads(out)
+        super().__init__(downloads=downloads)
         self.out = out
         self.tz = tz
+        self.window = window
+        self.last = last
+        self.progress_json = progress_json
+        self._clock = clock
         self._status = None
         self._label = ""
+        self._channel_id: str | None = None
+        self._index: int = 0
+        self._total: int = 0
+        self._started_at: float | None = None
+        self._start_id: int | None = None
+        self._end_id: int | None = None
+
+    def _emit_json(self, data: dict[str, Any]) -> None:
+        print(json.dumps(data, ensure_ascii=False), file=sys.stderr)
 
     def channel_start(self, index: int, total: int, server: Server, channel: Channel) -> None:
+        self._index = index
+        self._total = total
+        self._channel_id = channel.id
+        self._started_at = self._clock()
+        self._start_id = window_start_id(self.window, channel.id, last=self.last) if self.window is not None else None
+        self._end_id = self.window.before_id if self.window is not None else None
         self._label = f"#{channel.name} ({channel.id}) in {server.name}"
-        if self.out.agent:
+
+        if self.progress_json:
+            self._emit_json({
+                "event": "channel_start",
+                "index": index,
+                "total": total,
+                "channel_id": channel.id,
+            })
+            return
+
+        if self.out.agent or getattr(self.out, "debug", False):
             self.out.note(f"Fetching {self._label}")
         else:
             if self._status is not None:
@@ -667,15 +896,56 @@ class _CliEvents(Events):
             self._status.start()
 
     def page(self, kept: int, oldest_id: int) -> None:
+        frac = (
+            fraction_done(self._start_id, self._end_id, oldest_id)
+            if (self._start_id is not None and self._end_id is not None)
+            else None
+        )
+        elapsed = (self._clock() - self._started_at) if self._started_at is not None else 0.0
+        eta = eta_seconds(elapsed, frac)
+
+        if self.progress_json:
+            self._emit_json({
+                "event": "page",
+                "index": self._index,
+                "total": self._total,
+                "channel_id": self._channel_id,
+                "messages": kept,
+                "oldest_id": str(oldest_id),
+                "fraction": frac,
+                "eta_seconds": eta,
+            })
+            return
+
         time_str = to_local(to_time(oldest_id), self.tz).strftime("%Y-%m-%d %H:%M")
-        msg = f"Fetching {self._label}: {kept} messages, back to {time_str}"
-        if self.out.agent:
+        extra = ""
+        if frac is not None and round(frac * 100) >= 1:
+            pct = round(frac * 100)
+            eta_str = format_eta(eta) if (eta is not None and eta > 0) else ""
+            if eta_str:
+                extra = f", ~{pct}%, about {eta_str} left"
+            else:
+                extra = f", ~{pct}%"
+
+        msg = f"Fetching {self._label}: {kept} messages, back to {time_str}{extra}"
+        if self.out.agent or getattr(self.out, "debug", False):
             self.out.note(msg)
         elif self._status is not None:
             self._status.update(msg)
 
     def pause(self, seconds: float, reason: str) -> None:
-        if self.out.agent:
+        if self.progress_json:
+            self._emit_json({
+                "event": "pause",
+                "index": self._index,
+                "total": self._total,
+                "channel_id": self._channel_id,
+                "seconds": round(seconds, 3),
+                "reason": reason,
+            })
+            return
+
+        if self.out.agent or getattr(self.out, "debug", False):
             self.out.note(f"Pausing {seconds:.1f}s ({reason})")
         elif self._status is not None:
             prefix = f"Fetching {self._label}: " if self._label else ""
@@ -686,72 +956,55 @@ class _CliEvents(Events):
             self._status.stop()
             self._status = None
 
+        if self.progress_json:
+            self._emit_json({
+                "event": "channel_done",
+                "index": self._index,
+                "total": self._total,
+                "channel_id": result.channel.id,
+                "messages": len(result.messages),
+                "files": sum(len(m.attachments) for m in result.messages),
+                "truncated": result.truncated,
+            })
+
     def skipped(self, error: DiscoopError) -> None:
         if self._status is not None:
             self._status.stop()
             self._status = None
+
+        if self.progress_json:
+            self._emit_json({
+                "event": "skipped",
+                "index": self._index,
+                "total": self._total,
+                "channel_id": self._channel_id,
+                "code": error.name,
+            })
+            return
+
         self.out.warning(f"Skipped: {error.message}")
 
     def warning(self, text: str) -> None:
+        if self.progress_json:
+            self._emit_json({
+                "event": "warning",
+                "index": self._index,
+                "total": self._total,
+                "channel_id": self._channel_id,
+            })
+            return
+
         self.out.warning(text)
 
     def note(self, text: str) -> None:
+        if self.progress_json:
+            return
         self.out.note(text)
 
     def close(self) -> None:
         if self._status is not None:
             self._status.stop()
             self._status = None
-
-
-def _message_targets(directory: Directory, server: str | None, queries: list[str]) -> list[tuple[Server, Channel]]:
-    return resolve_targets(directory, server, queries, default_server=Config.default().get("default-server"))
-
-
-def _unreadable(channel: Channel) -> DiscoopError:
-    if channel.type == CATEGORY:
-        return DiscoopError(
-            ExitCode.BAD_ARGS,
-            f"#{channel.name} is a category, not a channel.",
-            'List its channels with `discoop channels`, or use a pattern such as -c "isc-*".',
-        )
-    return DiscoopError(
-        ExitCode.BAD_ARGS,
-        f"#{channel.name} is a {channel.type_name} channel: discoop cannot read its messages yet.",
-        "Forum posts are threads; threads come in a later version.",
-    )
-
-
-@contextmanager
-def _progress(out: Output, label: str, api: DiscordAPI | None = None) -> Iterator[Callable[[int, int], None]]:
-    """Progress while paging: a spinner for humans, --verbose notes for agents."""
-
-    def describe(count: int, oldest_id: int) -> str:
-        return f"Fetching {label}: {count} messages, back to {_local_time(to_time(oldest_id))}"
-
-    old_on_pause = getattr(api, "on_pause", None) if api else None
-    if out.agent:
-        if api is not None:
-            api.on_pause = lambda s, reason: out.note(f"Pausing {s:.1f}s ({reason})")
-        out.note(f"Fetching {label}")
-        try:
-            yield lambda count, oldest_id: out.note(describe(count, oldest_id))
-        finally:
-            if api is not None:
-                api.on_pause = old_on_pause
-        return
-    with out.err_console.status(f"Fetching {label}") as status:
-        if api is not None:
-            api.on_pause = lambda s, reason: status.update(f"Fetching {label}: pausing {s:.1f}s ({reason})")
-        try:
-            yield lambda count, oldest_id: status.update(describe(count, oldest_id))
-        finally:
-            if api is not None:
-                api.on_pause = old_on_pause
-
-
-def _local_time(when: datetime) -> str:
-    return to_local(when, LOCAL_ZONE).strftime("%Y-%m-%d %H:%M")
 
 
 def _parse_types(raw: str | None) -> set[int] | None:
@@ -802,32 +1055,55 @@ def main(argv: list[str] | None = None) -> None:
     if plain:
         _use_utf8_streams()
     out = Output(plain=plain)
+    out.debug = False
     for typer_app in (app, config_app):
         typer_app.rich_markup_mode = None if plain else "rich"
     app.info.help = _help_text(plain)
     try:
-        code = app(args=args, prog_name="discoop", standalone_mode=False, obj=out)
-    except DiscoopError as e:
-        out.error(e)
-        sys.exit(int(e.code))
-    except typer.TyperException as e:
-        # Typer's usage errors (unknown command, bad option) carry exit_code 2.
-        if getattr(e, "exit_code", 1) == 2:
-            out.error(DiscoopError(ExitCode.BAD_ARGS, e.format_message(), "Run `discoop --help`."))
-            sys.exit(int(ExitCode.BAD_ARGS))
-        out.error(DiscoopError(ExitCode.ERROR, e.format_message()))
-        sys.exit(int(ExitCode.ERROR))
-    except (typer.Abort, KeyboardInterrupt):
-        out.error(DiscoopError(ExitCode.ERROR, "Interrupted."))
-        sys.exit(130)
-    sys.exit(code if isinstance(code, int) else 0)
+        try:
+            code = app(args=args, prog_name="discoop", standalone_mode=False, obj=out)
+        except DiscoopError as e:
+            out.error(e)
+            sys.exit(int(e.code))
+        except typer.TyperException as e:
+            # Typer's usage errors (unknown command, bad option) carry exit_code 2.
+            if getattr(e, "exit_code", 1) == 2:
+                out.error(DiscoopError(ExitCode.BAD_ARGS, e.format_message(), "Run `discoop --help`."))
+                sys.exit(int(ExitCode.BAD_ARGS))
+            out.error(DiscoopError(ExitCode.ERROR, e.format_message()))
+            sys.exit(int(ExitCode.ERROR))
+        except (typer.Abort, KeyboardInterrupt):
+            out.error(DiscoopError(ExitCode.ERROR, "Interrupted."))
+            sys.exit(130)
+        sys.exit(code if isinstance(code, int) else 0)
+    finally:
+        logs.teardown_logging()
 
 
 def _hoist_mode_flags(args: list[str]) -> list[str]:
     """Accept global flags anywhere (`discoop status --agent`), as agents often put them last."""
     end = args.index("--") if "--" in args else len(args)
-    flags = [a for a in args[:end] if a in _MODE_FLAGS]
-    rest = [a for a in args[:end] if a not in _MODE_FLAGS]
+    flags: list[str] = []
+    rest: list[str] = []
+    i = 0
+    while i < end:
+        a = args[i]
+        if a in _MODE_FLAGS:
+            flags.append(a)
+            i += 1
+        elif a == "--log":
+            flags.append(a)
+            if i + 1 < end:
+                flags.append(args[i + 1])
+                i += 2
+            else:
+                i += 1
+        elif a.startswith("--log="):
+            flags.append(a)
+            i += 1
+        else:
+            rest.append(a)
+            i += 1
     return flags + rest + args[end:]
 
 

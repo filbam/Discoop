@@ -143,3 +143,99 @@ def test_config_list_and_unset(capsys):
 def test_group_by_category_ignores_unknown_parents():
     groups = group_by_category([Channel("1", FIT, "orphan", 0, parent_id="999")])
     assert groups == [(None, [Channel("1", FIT, "orphan", 0, parent_id="999")])]
+
+
+import json
+
+
+def test_servers_format_json(capsys, discord):
+    code, out, _ = run(capsys, "servers", "--format", "json")
+    assert code == 0
+    data = json.loads(out)
+    assert data == [
+        {"id": "2", "name": "Gaming", "member_count": 12},
+        {"id": FIT, "name": "VUT FIT", "member_count": 5000},
+    ]
+    # Cache note goes to stderr, stdout is clean JSON
+    code, out, err = run(capsys, "-v", "servers", "--format", "json")
+    assert code == 0
+    assert json.loads(out) == data
+    assert "From the local cache" in err
+
+
+def test_channels_format_json(capsys, discord):
+    code, out, _ = run(capsys, "channels", "-s", "vut fit", "--format", "json")
+    assert code == 0
+    data = json.loads(out)
+    assert data == [
+        {"id": "204", "name": "help-center", "type": 15, "type_name": "forum", "category": None, "position": 2},
+        {"id": "203", "name": "aeu-private🔒", "type": 0, "type_name": "text", "category": "volitelne", "position": 0},
+        {"id": "202", "name": "2bit-terminy", "type": 0, "type_name": "text", "category": "general", "position": 1},
+        {"id": "200", "name": "2bit-general", "type": 0, "type_name": "text", "category": "general", "position": 3},
+        {"id": "201", "name": "hospoda", "type": 2, "type_name": "voice", "category": "general", "position": 0},
+    ]
+
+    # Type filter is respected
+    code, out, _ = run(capsys, "channels", "-s", FIT, "--type", "forum,voice", "--format", "json")
+    assert code == 0
+    assert [c["id"] for c in json.loads(out)] == ["204", "201"]
+
+    # Cache note goes to stderr
+    code, out, err = run(capsys, "-v", "channels", "-s", FIT, "--format", "json")
+    assert code == 0
+    assert json.loads(out) == data
+    assert "From the local cache" in err
+
+    # Human mode with --format json does not print "Use --flat" note
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["--human", "channels", "-s", "VUT FIT", "--format", "json"])
+    captured = capsys.readouterr()
+    assert exc.value.code == 0
+    assert json.loads(captured.out) == data
+    assert "Use --flat" not in captured.err
+    assert "Use --flat" not in captured.out
+
+
+def test_status_format_json(capsys, monkeypatch):
+    TokenStore.default().save("tok")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.removeprefix("/api/v9") == "/users/@me":
+            return httpx.Response(200, json={"id": "42", "username": "alice", "global_name": "Alice"})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    monkeypatch.setattr(cli, "DiscordAPI", lambda token, **kw: DiscordAPI(token, transport=transport))
+
+    code, out, _ = run(capsys, "status", "--format", "json")
+    assert code == 0
+    data = json.loads(out)
+    assert data["logged_in"] == "yes"
+    assert data["user"] == "Alice (@alice)"
+    assert data["user_id"] == "42"
+    assert isinstance(data["data_dir"], str)
+    assert isinstance(data["token_storage"], str)
+
+
+def test_config_list_format_json(capsys):
+    code, out, _ = run(capsys, "config", "list", "--format", "json")
+    assert code == 0
+    data = json.loads(out)
+    assert isinstance(data, dict)
+    assert "delay" in data and "default-server" in data
+    assert data["delay"] == 1.0
+
+
+def test_invalid_format_fails_with_code_8(capsys):
+    for cmd in (["servers"], ["channels", "-s", FIT], ["config", "list"]):
+        code, _, err = run(capsys, *cmd, "--format", "xml")
+        assert code == 8
+        assert 'Unknown format "xml".' in err
+        assert "Use one of: text, json." in err
+
+    # Status validates --format even before checking login
+    TokenStore.default().delete()
+    code, _, err = run(capsys, "status", "--format", "xml")
+    assert code == 8
+    assert 'Unknown format "xml".' in err
+    assert "Use one of: text, json." in err
