@@ -33,7 +33,7 @@ from discoop.tokenstore import TokenStore
 from discoop.tui import app as tui_app
 from discoop.tui.app import DiscoopApp
 from discoop.tui.modals import HelpScreen, LoginModal, PreviewScreen, SettingsModal, TimeWindowModal
-from discoop.tui.state import ExportSettings, SelectionState, WindowSpec, plan_jobs
+from discoop.tui.state import ExportSettings, SelectionState, WindowSpec, export_stamp, plan_jobs
 from discoop.tui.widgets import ActionRow, ChannelTree, ChoiceRow, FormPanel, InputRow, display_name
 from fake_messages import CET, FIT, NOW, FakeChannel, FakeDiscord, Network, series
 
@@ -1358,9 +1358,9 @@ async def test_form_shows_the_real_config_values(tmp_path: Path) -> None:
         assert app.query_one("#row-delay").display
         assert str(app.query_one("#mode-indicator", Label).content) == "fast"
 
-        path = app.query_one("#input-path", Input).value
-        assert path == str(tmp_path / "exports" / "discoop-export")
-        assert app.settings.path == path
+        assert app.settings.export_dir == str(tmp_path / "exports")
+        assert app.query_one("#input-path", Input).value == ""
+        assert app.settings.path == ""
 
 
 async def test_config_defaults_are_real_values_too() -> None:
@@ -1369,7 +1369,8 @@ async def test_config_defaults_are_real_values_too() -> None:
         await started(app, pilot)
         assert app.settings.delay == 1.0
         assert app.query_one("#input-delay", Input).value == "1"
-        assert app.query_one("#input-path", Input).value == ExportSettings().path
+        assert app.settings.export_dir is None
+        assert app.query_one("#input-path", Input).value == ""
 
 
 async def test_saving_settings_updates_the_form() -> None:
@@ -1389,6 +1390,25 @@ async def test_saving_settings_updates_the_form() -> None:
         assert app.settings.delay == 0.5
         assert app.query_one("#row-mode", ChoiceRow).value == "fast"
         assert app.query_one("#input-delay", Input).value == "0.5"
+
+
+async def test_name_row_shows_the_automatic_name_and_the_typed_one() -> None:
+    app = DiscoopApp(api_factory=_make_dummy_api_factory())
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        server, channel = Server(FIT, "Study Group", 5000), Channel("200", FIT, "general", 0, None, 0)
+        app.selection.toggle(server, channel)
+        app.query_one("#input-path", Input).value = ""
+        app._update_command_preview()
+        await pilot.pause()
+        stamp = export_stamp()
+        assert app.query_one("#input-path", Input).placeholder == stamp
+        assert f"--out exports/{stamp}" in str(app.query_one("#command-preview", Static).content)
+
+        app.query_one("#input-path", Input).value = "semester"
+        await pilot.pause()
+        assert "exports/semester" in str(app.query_one("#command-preview", Static).content)
+        assert stamp not in str(app.query_one("#command-preview", Static).content)
 
 
 async def test_an_edited_path_survives_a_config_reload(tmp_path: Path) -> None:

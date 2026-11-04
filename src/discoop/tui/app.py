@@ -12,7 +12,6 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
-from pathlib import Path
 import time
 from typing import Any
 
@@ -62,6 +61,7 @@ from discoop.tui.state import (
     PlannedJob,
     SelectionState,
     WindowSpec,
+    export_stamp,
     filter_channels,
     plan_jobs,
     window_preset,
@@ -78,8 +78,7 @@ from discoop.tui.widgets import (
 )
 
 TARGETS = ("folder", "zip", "preview")
-DEFAULT_PATH = ExportSettings().path
-EXPORT_FOLDER = "discoop-export"
+NAME_REFRESH = 30  # seconds: the automatic name and the CLI command follow the clock
 START_LABEL = "[ Start (F5) ]"
 STOP_LABEL = "[ Stop (Esc) ]"
 NO_COMMAND = "(select channels to preview CLI command)"
@@ -150,7 +149,6 @@ class DiscoopApp(App[None]):
         self._expanded: set[str] = set()  # nodes the user opened; a filter opens its own and leaves this alone
         self._loading: set[str] = set()  # servers whose channels are on their way
         self._delay = 1.0  # from the config, for when the Delay field is empty
-        self._default_path = DEFAULT_PATH
         self._filter_timer: Timer | None = None
         self._channels_done = 0
         self._channels_total = 0
@@ -207,7 +205,7 @@ class DiscoopApp(App[None]):
                     )
                     yield ChoiceRow("System msgs", ("no", "yes"), id="row-system")
                     yield ChoiceRow("Target", TARGETS, id="row-target")
-                    yield InputRow("Path", "input-path", value=self.settings.path, id="row-path")
+                    yield InputRow("Name", "input-path", placeholder=export_stamp(), id="row-path")
                     yield ChoiceRow("Format", FORMATS, id="row-format")
                     yield self._start_row
 
@@ -237,6 +235,7 @@ class DiscoopApp(App[None]):
         self._sync_form()
         self._tree.focus()
         self._start_directory(refresh=False)
+        self.set_interval(NAME_REFRESH, self._update_command_preview)
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if action == "cycle_pane":  # a priority binding: dialogs must keep their own Tab
@@ -259,17 +258,12 @@ class DiscoopApp(App[None]):
             return
         self.settings.mode = mode if mode in MODES else "safe"
         self.settings.delay = self._delay
-        # A path of the user's stays as it is. Absolute, so the path shown is the one the export writes to.
-        path = str(Path(export_dir) / EXPORT_FOLDER) if export_dir else DEFAULT_PATH
-        if self.settings.path == self._default_path:
-            self.settings.path = path
-        self._default_path = path
+        self.settings.export_dir = export_dir
 
     def _sync_form(self) -> None:
         self.query_one("#row-mode", ChoiceRow).set_value(self.settings.mode)
         if self.settings.delay is not None:
             self.query_one("#input-delay", Input).value = f"{self.settings.delay:g}"
-        self.query_one("#input-path", Input).value = self.settings.path
         self._sync_form_rows()
         self._sync_mode_indicator()
         self._update_command_preview()
@@ -360,6 +354,7 @@ class DiscoopApp(App[None]):
         self._update_command_preview()
 
     def _update_command_preview(self) -> None:
+        self.query_one("#input-path", Input).placeholder = export_stamp()
         commands = [job.request.to_command_str() for job in plan_jobs(self.selection, self.settings)]
         self.query_one("#command-preview", Static).update(" && ".join(commands) or NO_COMMAND)
 
@@ -947,6 +942,9 @@ class DiscoopApp(App[None]):
         self._progress.update(total=self._channels_total, progress=0)
         self._progress.display = True
         self._log_line(f"Export of {plural(self._channels_total, 'channel')} started.", "bold")
+        for job in jobs:
+            if target := job.request.out_dir or job.request.zip_file:
+                self._log_line(f"Saving to {target}")
         preview_format = self.settings.preview_format if self.settings.target == "preview" else None
         self._export_worker(jobs, cancel, self._api_options(), preview_format)
 

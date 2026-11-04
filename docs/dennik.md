@@ -45,11 +45,14 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
   - `TextView` kreslí len viditeľné riadky: zmena formátu pri 5000 správach trvá 0,1–0,4 s (`Static` 1,5–8,7 s).
     Cena: v Help a Preview nefunguje výber textu myšou.
   - Token z TUI sa ukladá až po overení na UI vlákne, Esc počas overovania nič neuloží.
+- **Názov exportu v TUI (P21):** riadok `Path` nahradil `Name`; prázdne pole dáva názov `YYYY-MMDD-HHMM` v priečinku
+  exportov, holý názov sa uloží do priečinka exportov, lomka alebo absolútna cesta funguje ako predtým.
+  Kolízia automatického názvu dostane `-2`, `-3`. Podrobnosti v `navrh-nastroja.md` (4.8).
 - **Ako prebiehala práca:** podľa [ADR 0010](rozhodnutia/0010-praca-cez-agentov.md) cez agentov, hlavný Claude výsledky
   kontroloval (diff, `uv run pytest`, SVG screenshoty vykreslené do PNG). Commity (všetky na `main`, nepushnuté):
   `a7a5347` (rozhodnutia P18–P20, ADR 0014), `470c127` (preview joby a typované udalosti), `4e13acb` (hlavná obrazovka),
   `4dc5f8b` (dialógy).
-- **Overené `[OVERENÉ]`:** `uv run pytest`: 376 testov prechádza. Automatické testy cez Textual Pilot s falošnými dátami,
+- **Overené `[OVERENÉ]`:** `uv run pytest`: 385 testov prechádza. Automatické testy cez Textual Pilot s falošnými dátami,
   vzhľad podľa screenshotov. QR v `ansi-dark` má len čierne a biele segmenty.
 - **Neoverené `[PREDPOKLAD]`:** beh v skutočnom termináli (Windows Terminal), reálny účet, skenovanie QR telefónom.
 - **Známe obmedzenia:**

@@ -3,8 +3,11 @@
 Pure Python, decoupled from Textual widgets for fast startup and testability.
 """
 
+import glob
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 
 from discoop.attachments import safe_name
 from discoop.models import CATEGORY, MESSAGE_TYPES, Channel, Server
@@ -12,6 +15,7 @@ from discoop.resolve import normalize
 from discoop.service import MessagesRequest
 
 WINDOW_PRESETS = ("24h", "7d", "30d", "all")
+EXPORT_FOLDER = "exports"  # where exports go without an export-dir in the config
 CUSTOM_WINDOW = "custom"
 
 
@@ -72,7 +76,8 @@ class ExportSettings:
     max_file_size: float | None = 50.0
     include_system: bool = False
     target: str = "folder"
-    path: str = "exports/discoop-export"
+    path: str = ""  # the Name row: empty = date and time, a bare name = inside the exports folder, else a path
+    export_dir: str | None = None  # export-dir from the config
     preview_format: str = "text"
 
 
@@ -159,10 +164,38 @@ class PlannedJob:
     request: MessagesRequest
 
 
-def plan_jobs(selection: SelectionState, settings: ExportSettings) -> list[PlannedJob]:
-    """Group selected channels by identical WindowSpec and construct PlannedJobs."""
+def export_stamp(now: datetime | None = None) -> str:
+    """The automatic export name: local date and time, e.g. 2026-1104-0108."""
+    return (now or datetime.now()).strftime("%Y-%m%d-%H%M")
+
+
+def _export_base(settings: ExportSettings, now: datetime | None) -> str:
+    """Where the export goes, without the .zip suffix or the numbering of several jobs.
+
+    An empty name is the date and time, a bare name goes into the exports folder, a name with a separator is a path.
+    """
+    name = settings.path.strip()
+    folder = (settings.export_dir or EXPORT_FOLDER).rstrip("/\\") or EXPORT_FOLDER
+    if not name:
+        stamp = export_stamp(now)
+        unique, number = stamp, 1
+        while any(Path(folder).glob(f"{glob.escape(unique)}*")):  # the same minute: do not mix two exports
+            number += 1
+            unique = f"{stamp}-{number}"
+        return f"{folder}/{unique}"
+    if "/" in name or "\\" in name or Path(name).is_absolute():
+        return name
+    return f"{folder}/{safe_name(name, 'export')}"
+
+
+def plan_jobs(selection: SelectionState, settings: ExportSettings, now: datetime | None = None) -> list[PlannedJob]:
+    """Group selected channels by identical WindowSpec and construct PlannedJobs.
+
+    `now` is the local time the automatic name comes from.
+    """
     if not selection.selected:
         return []
+    base_path = _export_base(settings, now) if settings.target != "preview" else ""
 
     groups: dict[WindowSpec, list[tuple[Server, Channel]]] = {}
     for ch_id, target in selection.selected.items():
@@ -189,13 +222,13 @@ def plan_jobs(selection: SelectionState, settings: ExportSettings) -> list[Plann
             out_dir = None
             zip_file = None
         elif settings.target == "folder":
-            base = settings.path.strip() or "exports/discoop-export"
+            base = base_path
             if total == 1:
                 out_dir = base
             else:
                 out_dir = f"{base.rstrip('/\\')}/{idx:02d}-{window.slug()}"
         elif settings.target == "zip":
-            base = settings.path.strip() or "exports/discoop-export.zip"
+            base = base_path
             if base.endswith(("/", "\\")):
                 base += "discoop-export.zip"
             if not base.lower().endswith(".zip"):

@@ -6,6 +6,11 @@ verzie podľa [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Pridané
+- **Názov exportu v TUI (P21):** riadok formulára `Path` je nahradený riadkom `Name` (predvolene prázdny).
+  - Prázdne pole: názov z miestneho dátumu a času v tvare `2026-1104-0108` (`YYYY-MMDD-HHMM`) v priečinku exportov (`export-dir` z configu, inak `exports`). Názov sa zafixuje pri `F5`.
+  - Holý názov bez `/` a `\` sa uloží do priečinka exportov (prečistený cez `safe_name`), hodnota s lomkou alebo absolútna cesta sa použije ako cesta.
+  - Kolízia automatického názvu v tej istej minúte pridá `-2`, `-3`. Názov zadaný používateľom kolíziu nerieši.
+  - Placeholder a riadok s CLI príkazom sa obnovujú každých 30 s. Log ukáže skutočnú cestu (`Saving to ...`). CLI sa nezmenilo.
 - **Interaktívne terminálové rozhranie (`discoop ui`, TUI) a spoločná servisná vrstva ([ADR 0013](docs/rozhodnutia/0013-tui-a-spolocna-vrstva.md)):**
   - **Príkaz `discoop ui` a prepínač `--ui`:**
     - Plnohodnotné vizuálne terminálové prostredie postavené na knižnici Textual pre pohodlné interaktívne ovládanie klávesnicou (šípky, Enter, Space).

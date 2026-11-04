@@ -110,7 +110,9 @@ GUIDE_SECTIONS = (
     (
         "Form",
         "The Export panel has the form below the list. ↑ ↓ walk its rows, also out of a text field, ← → change a "
-        "choice row. Target says where the export goes: a folder, a zip file or a preview on the screen. The line "
+        "choice row. Target says where the export goes: a folder, a zip file or a preview on the screen. Name is the "
+        "name of that folder or zip: empty means the date and time, a bare name goes into the exports folder "
+        "(Settings changes it). The line "
         "under the log shows the same export as a CLI command.",
     ),
     (
@@ -467,7 +469,7 @@ class SettingsModal(Dialog[bool]):
                     "Export folder",
                     "input-cfg-export-dir",
                     value=values.get("export-dir") or "",
-                    placeholder="the current folder",
+                    placeholder="exports",
                     label_width=width,
                 )
                 yield ActionRow(SAVE_LABEL, id="row-cfg-save")

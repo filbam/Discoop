@@ -262,6 +262,11 @@ Interaktívne terminálové rozhranie (TUI) postavené na knižnici Textual (P16
 - **Vzhľad:** téma Textual `ansi-dark` (farby terminálu, Ctrl+P mení tému), CSS bez hex farieb, ovládacie prvky vysoké jeden riadok (`compact=True`), bez emoji a veľkých tlačidiel. Pri Target=preview sú skryté Attachments a Max MB. Pri QR sa formulár nahradí kódom (pod 27 riadkov zmizne rámik a Footer, aby sa QR zmestil do 80×24).
 - **Klávesy:** primárne klávesnica, myš je doplnok. Úplná tabuľka (šípky, Space, Enter, Tab, `/`, `e`, `x`/`X`, `a`, `r`, `R`, `L`, `F5`, Esc, `c`, F1–F3, `q`) je v ADR 0014.
 
+**Názov exportu (P21):**
+- Formulár má riadok `Name` (predvolene prázdny, placeholder ukazuje aktuálny názov). Prázdne pole = dátum a čas `YYYY-MMDD-HHMM` (miestny čas, napr. `2026-1104-0108`), zafixuje sa pri `F5`; placeholder a riadok s CLI príkazom sa obnovujú každých 30 s.
+- Holý názov (bez `/` a `\`) sa prečistí cez `safe_name` a uloží do priečinka exportov (`export-dir` z configu, inak `exports`). Hodnota s lomkou alebo absolútna cesta sa použije ako cesta.
+- Kolízia automatického názvu v tej istej minúte: `-2`, `-3`. Názov zadaný používateľom kolíziu nerieši, opakovaný export do neho pokračuje. Zip dostane príponu `.zip`. Pri viacerých úlohách platia podpriečinky/archívy ako vyššie. Log po štarte ukáže skutočnú cestu.
+
 **Načítanie dát a tempovanie:**
 - Pohyb kurzorom nikdy nevolá Discord. Sieť volá len explicitná akcia: → alebo Enter na nenačítanom serveri, `r`, `R`, `L`, `F5`.
 - Naraz beží najviac jedna sieťová operácia. `L` (všetky servery) beží v `safe` tempe.

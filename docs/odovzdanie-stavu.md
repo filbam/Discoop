@@ -14,7 +14,7 @@ Pred začatím akejkoľvek práce si **povinne prečítaj** nasledujúce dokumen
    - **Git pravidlá:** Vetva `main`, autor `filbam <f.bambura@gmail.com>`. Commitovanie po každom overenom kroku (robí hlavný Claude), **zákaz `git push` bez výslovného pokynu používateľa**.
    - **Zaznamenávanie všetkého ([ADR 0001](rozhodnutia/0001-zaznamenavanie-a-verzovanie.md)):** Každá zmena, rozhodnutie alebo požiadavka musí byť zapísaná v dokumentácii v tom istom pracovnom kroku.
 2. **[docs/poziadavky.md](poziadavky.md):**
-   - Zoznam všetkých požiadaviek používateľa (P1–P20). Zdroj pravdy o tom, čo má nástroj dokázať.
+   - Zoznam všetkých požiadaviek používateľa (P1–P21). Zdroj pravdy o tom, čo má nástroj dokázať.
 3. **[docs/navrh-nastroja.md](navrh-nastroja.md):**
    - Architektúra celého nástroja, štruktúra balíka `src/discoop/`, zoznam príkazov, exit kódy, dátové toky a otvorené otázky.
 4. **[docs/dennik.md](dennik.md):**
@@ -26,7 +26,7 @@ Pred začatím akejkoľvek práce si **povinne prečítaj** nasledujúce dokumen
 
 ## 2. Aktuálny stav projektu (k 2026-11-04)
 
-- **Testovacie pokrytie:** Všetkých **376 automatizovaných testov** prechádza (`uv run pytest`).
+- **Testovacie pokrytie:** Všetkých **385 automatizovaných testov** prechádza (`uv run pytest`).
 - **Nainštalované prostredie:** Python 3.12+, projekt spravovaný cez `uv`. Spúšťanie cez `uv run discoop ...`.
 
 ### Prehľad implementovaných funkcií
@@ -135,4 +135,5 @@ Podľa plánu v [docs/navrh-nastroja.md](navrh-nastroja.md) (sekcia 14) a zázna
    - Príkaz `discoop agent-guide` pre rýchlu referenciu príkazov priamo do kontextu LLM.
    - Prepínač `--since-last` s ukladaním synchronizačného stavu posledného behu v `cache.db` a deduplikáciou správ.
 4. **Rozhodnutie 9 (Výpočet prístupu ku kanálom):**
+    - Názov exportu (P21): riadok `Name` vo formulári; prázdny = dátum a čas `YYYY-MMDD-HHMM`, holý názov ide do priečinka exportov, cesta s lomkou sa použije ako je.
    - Ostáva **odložené s nízkou prioritou** (používateľ to nepovažuje za prioritu a Discord ohlásil zmenu API, pri ktorej prestane nedostupné kanály vracať).
