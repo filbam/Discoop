@@ -1054,6 +1054,7 @@ async def test_help_lists_the_keys_of_the_adr() -> None:
         keys = {key for key, _ in modals.GUIDE_KEYS}
         expected = {"↑ ↓", "→", "←", "← →", "Space", "Enter", "Tab, Shift+Tab", "1 2 3", "/", "e", "x, Delete", "X", "a"}
         expected |= {"r", "R", "L", "F5", "Esc", "c", "F1, ?", "F2", "F3", "Ctrl+P", "q"}
+        expected |= {"P", "p", "o"}  # save a profile, load a profile, open the export folder
         assert keys == expected
         for key in expected:
             assert key in guide

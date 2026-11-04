@@ -16,13 +16,20 @@ def _profiles_file() -> Path:
     return paths.config_dir() / "profiles.json"
 
 
-def _validate_name(name: str) -> str:
+def validate_name(name: str) -> str:
+    """Return the profile name without surrounding spaces, or raise ValueError if it is not allowed.
+
+    Letters, digits, dash, underscore and dot are allowed; `..` and an empty name are not.
+    """
     clean = name.strip()
     if not clean or clean in (".", "..") or ".." in clean:
         raise ValueError(f"Invalid profile name: {name!r}")
     if not re.fullmatch(r"[a-zA-Z0-9_.-]+", clean):
         raise ValueError(f"Invalid profile name: {name!r}")
     return clean
+
+
+_validate_name = validate_name  # the old private name, kept for existing imports
 
 
 def _write_profiles(data: dict[str, dict[str, Any]]) -> None:
@@ -70,7 +77,7 @@ def save(name: str, profile: dict[str, Any]) -> None:
     Only allowed keys (server, channels, from, to, last, mode) are preserved.
     Channels, if present, are stored as a list.
     """
-    clean_name = _validate_name(name)
+    clean_name = validate_name(name)
     cleaned: dict[str, Any] = {k: v for k, v in profile.items() if k in ALLOWED_KEYS}
     if "channels" in cleaned and cleaned["channels"] is not None:
         ch = cleaned["channels"]
@@ -87,7 +94,7 @@ def save(name: str, profile: dict[str, Any]) -> None:
 
 def delete(name: str) -> bool:
     """Delete a profile by name. Returns True if found and deleted, False otherwise."""
-    clean_name = _validate_name(name)
+    clean_name = validate_name(name)
     data = load()
     if clean_name not in data:
         return False

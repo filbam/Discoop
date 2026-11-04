@@ -82,6 +82,7 @@ class ExportSettings:
     name: str = ""  # the Name row: empty = discord-export-<date and time>, else one name, never a path
     export_dir: str | None = None  # export-dir from the config: it replaces Documents/discoop as the default folder
     preview_format: str = "text"
+    threads: bool = True
 
 
 @dataclass
@@ -284,6 +285,7 @@ def plan_jobs(selection: SelectionState, settings: ExportSettings, now: datetime
             no_files=not is_preview and not settings.files,
             max_file_size=None if (is_preview or not settings.files) else settings.max_file_size,
             output_format=settings.preview_format if is_preview else "text",
+            threads=settings.threads,
         )
         jobs.append(
             PlannedJob(

@@ -8,7 +8,7 @@ Every control here is exactly one line high and has no border. The dialogs in mo
 - `ConfirmRow`: an `ActionRow` that asks before it acts,
 - `FormPanel`: a scrolling column of rows; ↑/↓ move between them, also out of an `Input`,
 - `TextView`: read-only text of any length,
-- `ChannelTree`: the server tree, with a right-aligned badge on a node,
+- `ChannelTree`: the server tree, with a right-aligned badge on a node and a dim suffix on any node,
 - `SelectedList`: the list of selected channels,
 - `FilterInput`: the tree filter,
 - `display_name()`: a server or channel name made safe for the terminal.
@@ -38,6 +38,7 @@ from textual.widgets.tree import TreeNode
 LABEL_WIDTH = 13
 _INVISIBLE = str.maketrans("", "", "\ufe0e\ufe0f\u200d")
 _BADGE_STYLE = Style(dim=True)
+SUFFIX_GAP = 2  # cells between the name of a node and its suffix, and between the parts of the suffix
 
 
 def display_name(name: str) -> str:
@@ -439,6 +440,10 @@ class ChannelTree(Tree[Any]):
     →/← open and close nodes and walk the tree. Enter and a click post the usual `Tree.NodeSelected`, which no longer
     expands on its own (`auto_expand` is off), so the app decides per node type. Rows fill the width of the tree and
     long names end with `…`, so it never scrolls sideways. A top-level node can carry a dimmed badge at its right edge.
+
+    Any node can also carry a dimmed suffix made of ordered parts (`2d`, `exp 11-03`) at its right edge. It is kept
+    apart from the label, so the label stays the name of the node. A row too narrow for it drops the last part first,
+    then the whole suffix: the name is never shortened to make room for the suffix.
     """
 
     ICON_NODE = "▸ "
@@ -460,9 +465,11 @@ class ChannelTree(Tree[Any]):
         self.guide_depth = 2
         self.auto_expand = False
         self._badges: dict[int, str] = {}
+        self._suffixes: dict[int, tuple[str, ...]] = {}
 
     def clear(self) -> Self:
         self._badges.clear()
+        self._suffixes.clear()
         return super().clear()
 
     def add_top(self, label: Text, *, data: Any, badge: str, expand: bool = False) -> TreeNode[Any]:
@@ -475,6 +482,22 @@ class ChannelTree(Tree[Any]):
         """Change the badge of a node."""
         self._badges[node.id] = badge
         node.refresh()
+
+    def set_suffix(self, node: TreeNode[Any], parts: Sequence[str]) -> None:
+        """Set the dim suffix of a node, most important part first. Empty parts are left out. Repaints on a change."""
+        new = tuple(part for part in parts if part)
+        if self._suffixes.get(node.id, ()) == new:
+            return
+        if new:
+            self._suffixes[node.id] = new
+        else:
+            self._suffixes.pop(node.id, None)
+        if node.line >= 0:  # a node that is not shown yet is painted from scratch anyway
+            node.refresh()
+
+    def suffix_of(self, node: TreeNode[Any]) -> tuple[str, ...]:
+        """The parts of the suffix a node was given, whether or not its row has room to show them."""
+        return self._suffixes.get(node.id, ())
 
     def get_label_width(self, node: TreeNode[Any]) -> int:
         return 0  # `render_label` fits every row into the tree, so the content is never wider than the tree
@@ -490,6 +513,8 @@ class ChannelTree(Tree[Any]):
         if width <= 0:  # not laid out yet
             return text
         badge = self._badges.get(node.id, "")
+        if not badge:
+            badge = self._fit_suffix(self._suffixes.get(node.id, ()), text.cell_len, width)
         badge_width = cell_len(badge)
         room = max(1, width - badge_width - 1) if badge else width
         text.truncate(room, overflow="ellipsis")
@@ -497,6 +522,16 @@ class ChannelTree(Tree[Any]):
         if badge:
             text.append(badge, style + _BADGE_STYLE)
         return text
+
+    @staticmethod
+    def _fit_suffix(parts: tuple[str, ...], name_width: int, width: int) -> str:
+        """The first parts that fit in a row of `width` cells next to a name of `name_width` cells, as many as fit."""
+        gap = " " * SUFFIX_GAP
+        for count in range(len(parts), 0, -1):
+            suffix = gap.join(parts[:count])
+            if name_width + SUFFIX_GAP + cell_len(suffix) <= width:
+                return suffix
+        return ""
 
     def action_expand_or_child(self) -> None:
         """Open a closed node; on an open one, go to its first child."""

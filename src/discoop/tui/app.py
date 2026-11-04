@@ -11,7 +11,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
+import logging
+import os
+from pathlib import Path
+import subprocess
+import sys
 import time
 from typing import Any
 
@@ -27,6 +32,7 @@ from textual.widgets import Footer, Input, Label, ProgressBar, RichLog, Static
 from textual.widgets.option_list import Option
 from textual.widgets.tree import TreeNode
 
+from discoop import profiles
 from discoop.api import DiscordAPI
 from discoop.attachments import DOWNLOADED, FAILED, NO_FILES, PRESENT, SKIPPED, cdn_client
 from discoop.cache import Cache
@@ -35,6 +41,7 @@ from discoop.config import MODES, Config
 from discoop.directory import Directory
 from discoop.errors import DiscoopError, ExitCode, auth_required
 from discoop.models import CATEGORY, Channel, Server, group_by_category
+from discoop.progress import format_eta
 from discoop.service import (
     DEFAULT_MAX_MESSAGES,
     FORMATS,
@@ -45,15 +52,26 @@ from discoop.service import (
     load_all,
     run_messages,
 )
+from discoop.snowflake import parse_window, utc_now
 from discoop.tokenstore import TokenStore
 from discoop.tui.bridge import CancelToken, TuiEvents
 from discoop.tui.modals import (
     WINDOW_CANCELLED,
     HelpScreen,
+    LoadProfileModal,
     LoginModal,
     PreviewScreen,
+    SaveProfileModal,
     SettingsModal,
     TimeWindowModal,
+)
+from discoop.tui.tuistate import (
+    extract_app_state,
+    format_activity,
+    format_last_exported,
+    load_user_state,
+    restore_app_state,
+    save_user_state,
 )
 from discoop.tui.state import (
     WINDOW_PRESETS,
@@ -79,8 +97,11 @@ from discoop.tui.widgets import (
     display_name,
 )
 
+logger = logging.getLogger("discoop.tui.app")
+
 TARGETS = ("folder", "zip", "preview")
 NAME_REFRESH = 30  # seconds: the automatic name and the CLI command follow the clock
+SUFFIX_REFRESH = 60  # seconds: the "2d" next to a channel follows the clock
 START_LABEL = "[ Start (F5) ]"
 STOP_LABEL = "[ Stop (Esc) ]"
 NO_COMMAND = "(select channels to preview CLI command)"
@@ -105,6 +126,15 @@ def short_window(window: WindowSpec) -> str:
     return window.label().removesuffix(" → now")
 
 
+def default_open_folder(path: Path) -> None:
+    if sys.platform == "win32":
+        os.startfile(path)
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", str(path)])
+    else:
+        subprocess.Popen(["xdg-open", str(path)])
+
+
 class DiscoopApp(App[None]):
     """The Discoop Terminal User Interface application."""
 
@@ -124,6 +154,9 @@ class DiscoopApp(App[None]):
         Binding("R", "reload_servers", "Servers"),
         Binding("L", "load_all", "Load all"),
         Binding("c", "copy_command", "Copy"),
+        Binding("P", "save_profile", "Save profile", key_display="P", show=False),
+        Binding("p", "load_profile", "Profile", key_display="p"),
+        Binding("o", "open_folder", "Open", key_display="o"),
         Binding("q", "quit", "Quit"),
         Binding("1", "pane(1)", "Tree", show=False),
         Binding("2", "pane(2)", "Export", show=False),
@@ -134,11 +167,13 @@ class DiscoopApp(App[None]):
         self,
         api_factory: Callable[..., DiscordAPI] | None = None,
         cdn_factory: Callable[[], httpx.Client] | None = None,
+        open_folder: Callable[[Path], None] | None = None,
     ) -> None:
         super().__init__()
         self.theme = "ansi-dark"
         self.api_factory = api_factory or DiscordAPI
         self.cdn_factory = cdn_factory or cdn_client
+        self.open_folder_fn = open_folder or default_open_folder
         self.selection = SelectionState()
         self.settings = ExportSettings()
         self.servers: list[Server] = []
@@ -147,6 +182,11 @@ class DiscoopApp(App[None]):
         self.cancel_token: CancelToken | None = None  # set while a network operation runs
         self.is_running_job = False  # that operation is an export
         self.current_narrow_tab = 1
+        self.current_user_id: str | None = None
+        self.last_exported: dict[str, str] = {}  # channel ID -> ISO time of its last export on this account
+        self._state_loaded = False  # the saved state of this account was read: only then may a change be saved
+        self._state_save_failed = False  # the last write of tui-state.json failed: say so once, not on every key
+        self._last_export_folder: Path | None = None
         self._tree_nodes: dict[str, TreeNode[Any]] = {}  # node of each server and channel in the tree
         self._expanded: set[str] = set()  # nodes the user opened; a filter opens its own and leaves this alone
         self._loading: set[str] = set()  # servers whose channels are on their way
@@ -155,6 +195,7 @@ class DiscoopApp(App[None]):
         self._channels_done = 0
         self._channels_total = 0
         self._current_channel = ""
+        self._export_jobs: list[PlannedJob] = []  # the export that runs, or ran last
 
     def compose(self) -> ComposeResult:
         # Kept as attributes here, not in on_mount: the Footer asks check_action() before on_mount runs.
@@ -198,6 +239,7 @@ class DiscoopApp(App[None]):
                     yield ChoiceRow("Mode", MODES, "safe", id="row-mode")
                     yield InputRow("Delay", "input-delay", input_type="number", id="row-delay")
                     yield ChoiceRow("Attachments", ("yes", "no"), id="row-files")
+                    yield ChoiceRow("Threads", ("yes", "no"), id="row-threads")
                     yield InputRow(
                         "Max MB",
                         "input-max-file-size",
@@ -245,12 +287,15 @@ class DiscoopApp(App[None]):
         self._tree.focus()
         self._start_directory(refresh=False)
         self.set_interval(NAME_REFRESH, self._update_command_preview)
+        self.set_interval(SUFFIX_REFRESH, self._refresh_suffixes)
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if action == "cycle_pane":  # a priority binding: dialogs must keep their own Tab
             return len(self.screen_stack) == 1
         if action == "stop_or_back":
             return self.cancel_token is not None or self._filter.has_focus or bool(self._filter.value)
+        if action == "open_folder":
+            return self._last_export_folder is not None and not self.is_running_job
         return True
 
     # ==================== Config and form ====================
@@ -271,6 +316,7 @@ class DiscoopApp(App[None]):
 
     def _sync_form(self) -> None:
         self.query_one("#row-mode", ChoiceRow).set_value(self.settings.mode)
+        self.query_one("#row-threads", ChoiceRow).set_value("yes" if self.settings.threads else "no")
         if self.settings.delay is not None:
             self.query_one("#input-delay", Input).value = f"{self.settings.delay:g}"
         self._sync_form_rows()
@@ -302,6 +348,8 @@ class DiscoopApp(App[None]):
             self._sync_mode_indicator()
         elif row_id == "row-files":
             settings.files = event.value == "yes"
+        elif row_id == "row-threads":
+            settings.threads = event.value == "yes"
         elif row_id == "row-system":
             settings.include_system = event.value == "yes"
         elif row_id == "row-target":
@@ -310,6 +358,7 @@ class DiscoopApp(App[None]):
             settings.preview_format = event.value
         self._sync_form_rows()
         self._update_command_preview()
+        self._save_tui_state()
 
     def _apply_preset(self, preset: str) -> None:
         self.query_one("#input-from", Input).value = preset
@@ -339,6 +388,8 @@ class DiscoopApp(App[None]):
         elif input_id == "input-name":
             self.settings.name = raw
             self._update_command_preview()
+        if input_id != "tree-filter":
+            self._save_tui_state()
 
     @staticmethod
     def _parse(kind: type, raw: str, previous: Any) -> Any:
@@ -438,7 +489,156 @@ class DiscoopApp(App[None]):
     async def action_quit(self) -> None:
         if self.cancel_token is not None:
             self.cancel_token.cancel()
+        self._save_tui_state()
         self.exit()
+
+    def action_open_folder(self) -> None:
+        if self._last_export_folder is None:
+            self.notify("No export folder to open.", severity="warning")
+            return
+        try:
+            self.open_folder_fn(self._last_export_folder)
+            self.notify(f"Opened {self._last_export_folder.name}")
+        except Exception as e:
+            self.notify(f"Failed to open folder: {e}", severity="error")
+
+    def action_save_profile(self) -> None:
+        if not self.selection.selected:
+            self.notify("No channels selected to save as profile.", severity="warning")
+            return
+
+        def on_dismiss(name: str | None) -> None:
+            if not name:
+                return
+            server_ids = {srv.id for srv, _ in self.selection.selected.values()}
+            server_id = next(iter(server_ids)) if len(server_ids) == 1 else None
+            profile_data = {
+                "server": server_id,
+                "channels": list(self.selection.selected.keys()),
+                "from": self.selection.global_window.from_,
+                "to": self.selection.global_window.to,
+                "last": self.selection.global_window.last,
+                "mode": self.settings.mode,
+            }
+            try:
+                profiles.save(name, profile_data)
+            except (OSError, ValueError) as e:
+                self.notify(f"Could not save profile '{name}': {e}", severity="error", markup=False)
+                return
+            self.notify(f"Profile '{name}' saved.")
+            self._log_line(f"Saved profile '{name}'.", "green")
+
+        self.push_screen(SaveProfileModal(), on_dismiss)
+
+    def action_load_profile(self) -> None:
+        names = profiles.names()
+        if not names:
+            self.notify("No saved profiles found.", severity="warning")
+            return
+
+        def on_dismiss(name: str | None) -> None:
+            if not name:
+                return
+            all_profiles = profiles.load()
+            data = all_profiles.get(name)
+            if not data:
+                self.notify(f"Profile '{name}' not found.", severity="error")
+                return
+            self._apply_profile(name, data)
+
+        self.push_screen(LoadProfileModal(names), on_dismiss)
+
+    def _apply_profile(self, name: str, data: dict[str, Any]) -> None:
+        if not isinstance(data, dict):  # profiles.json can be edited by hand
+            self.notify(f"Profile '{name}' is not valid.", severity="error", markup=False)
+            return
+        if data.get("mode") in MODES:
+            self.settings.mode = data["mode"]
+        from_, to, last = data.get("from", "7d"), data.get("to"), data.get("last")
+        from_ = from_ if from_ is None or isinstance(from_, str) else "7d"
+        to = to if isinstance(to, str) else None
+        last = last if isinstance(last, int) and not isinstance(last, bool) else None
+        self.selection.global_window = WindowSpec(from_=from_, to=to, last=last)
+        self.query_one("#input-from", Input).value = from_ or ""
+        self.query_one("#input-to", Input).value = to or ""
+        self.query_one("#input-last", Input).value = str(last) if last is not None else ""
+        self.query_one("#row-window", ChoiceRow).set_value(window_preset(from_, to, last))
+        self.query_one("#row-mode", ChoiceRow).set_value(self.settings.mode)
+        self._sync_mode_indicator()
+
+        # Channel selection from profile
+        wanted = data.get("channels")
+        channels_wanted = [c for c in wanted if isinstance(c, str)] if isinstance(wanted, list) else []
+        channel_lookup: dict[str, tuple[Server, Channel]] = {}
+        server_lookup = {s.id: s for s in self.servers}
+        for s_id, ch_list in self.channels_by_server.items():
+            if s_id in server_lookup:
+                srv = server_lookup[s_id]
+                for ch in ch_list:
+                    channel_lookup[ch.id] = (srv, ch)
+
+        old_selected = list(self.selection.selected.keys())
+        self.selection.clear_all()
+        for ch_id in channels_wanted:
+            if ch_id in channel_lookup:
+                srv, ch = channel_lookup[ch_id]
+                if self.selection.is_selectable(ch):
+                    self.selection.selected[ch_id] = (srv, ch)
+
+        all_affected = set(old_selected) | set(self.selection.selected.keys())
+        self._selection_changed(all_affected)
+        self._save_tui_state()
+        self.notify(f"Loaded profile '{name}'.")
+        self._log_line(f"Loaded profile '{name}'.", "green")
+
+    def _save_tui_state(self) -> None:
+        """Remember the selection and the form for next time. Runs on every change, so it must never raise: a
+        failing disk (full, read-only, a file locked by a virus scanner) costs the memory, not the session."""
+        if not self.current_user_id or not self._state_loaded:  # an early save would wipe what is not read yet
+            return
+        state = extract_app_state(self.selection, self.settings, self.last_exported)
+        try:
+            save_user_state(self.current_user_id, state)
+        except (OSError, ValueError) as e:  # ValueError: text that cannot be encoded, e.g. a lone surrogate
+            logger.warning("Could not save the TUI state: %s", e)
+            if not self._state_save_failed:
+                self._state_save_failed = True
+                self._log_line(f"Could not save the selection and form for next time: {e}", "yellow")
+            return
+        self._state_save_failed = False
+
+    def _restore_tui_state(self) -> None:
+        if not self.current_user_id:
+            return
+        user_state = load_user_state(self.current_user_id)
+        self._state_loaded = True
+        if not user_state:
+            return
+        restored_count, last_exported = restore_app_state(
+            user_state, self.servers, self.channels_by_server, self.selection, self.settings
+        )
+        self.last_exported.update(last_exported)
+        self._refresh_suffixes()
+        self.query_one("#input-from", Input).value = self.selection.global_window.from_ or ""
+        self.query_one("#input-to", Input).value = self.selection.global_window.to or ""
+        self.query_one("#input-last", Input).value = (
+            str(self.selection.global_window.last) if self.selection.global_window.last is not None else ""
+        )
+        self.query_one("#input-max-messages", Input).value = str(self.selection.global_window.max_messages)
+        self.query_one("#row-window", ChoiceRow).set_value(
+            window_preset(
+                self.selection.global_window.from_,
+                self.selection.global_window.to,
+                self.selection.global_window.last,
+            )
+        )
+        self.query_one("#input-folder", Input).value = self.settings.folder
+        self.query_one("#input-name", Input).value = self.settings.name
+        self.query_one("#row-mode", ChoiceRow).set_value(self.settings.mode)
+        self.query_one("#row-threads", ChoiceRow).set_value("yes" if self.settings.threads else "no")
+        self._sync_form()
+        if self.selection.selected:
+            self._selection_changed(list(self.selection.selected.keys()))
 
     def action_help(self) -> None:
         self.push_screen(HelpScreen())
@@ -455,6 +655,8 @@ class DiscoopApp(App[None]):
         def on_changed(changed: bool | None) -> None:
             if changed:  # what was selected or refused belongs to the previous account
                 self.no_access_servers.clear()
+                self._state_loaded = False  # the saved state of the previous account stays as it is
+                self.last_exported.clear()
                 self._clear_selection()
                 self._start_directory(refresh=True)
 
@@ -490,6 +692,27 @@ class DiscoopApp(App[None]):
         if picked == len(members):
             return Text.assemble(("[x]", "bold"), f" {name}")
         return Text.assemble(("[~]", "bold"), f" {name}") if picked else Text(f"[ ] {name}")
+
+    def _channel_suffix(self, channel: Channel, now: datetime) -> tuple[str, ...]:
+        """What the tree shows dimmed after a channel: the time since its last message, then the date of its last
+        export from this account. A part is left out when it is not known; the tree drops parts that do not fit."""
+        if channel.type == CATEGORY:
+            return ()
+        return (
+            format_activity(channel.last_message_id, now, short=True),
+            format_last_exported(self.last_exported.get(channel.id), now, short=True, tz=LOCAL_ZONE),
+        )
+
+    def _refresh_suffixes(self, channel_ids: Iterable[str] | None = None) -> None:
+        """Bring the suffixes of the channels in the tree up to date: after an export, a restored state and as time
+        passes. All channels, or just these. Only rows whose suffix changed are repainted."""
+        now = utc_now()
+        if channel_ids is None:
+            channel_ids = [key.removeprefix("channel:") for key in self._tree_nodes if key.startswith("channel:")]
+        for channel_id in channel_ids:
+            node = self._tree_nodes.get(f"channel:{channel_id}")
+            if node is not None and isinstance(node.data, Channel):
+                self._tree.set_suffix(node, self._channel_suffix(node.data, now))
 
     def _server_badge(self, server: Server) -> str:
         if server.id in self._loading:
@@ -530,6 +753,7 @@ class DiscoopApp(App[None]):
         self._restore_cursor(cursor_key)
 
     def _add_channels(self, server_node: TreeNode[Any], channels: Iterable[Channel], open_all: bool) -> None:
+        now = utc_now()
         for category, members in group_by_category(channels):
             parent = server_node
             if category is not None:
@@ -538,7 +762,9 @@ class DiscoopApp(App[None]):
                 parent = server_node.add(self._category_label(category), data=category, expand=expand)
                 self._tree_nodes[key] = parent
             for channel in members:
-                self._tree_nodes[self._key(channel)] = parent.add_leaf(self._channel_label(channel), data=channel)
+                leaf = parent.add_leaf(self._channel_label(channel), data=channel)
+                self._tree_nodes[self._key(channel)] = leaf
+                self._tree.set_suffix(leaf, self._channel_suffix(channel, now))
 
     def _restore_cursor(self, key: str | None) -> None:
         tree = self._tree
@@ -575,6 +801,7 @@ class DiscoopApp(App[None]):
         self._relabel(channel_ids)
         self._update_selected_ui()
         self._update_command_preview()
+        self._save_tui_state()
 
     def on_tree_node_expanded(self, event: ChannelTree.NodeExpanded[Any]) -> None:
         data = event.node.data
@@ -836,6 +1063,7 @@ class DiscoopApp(App[None]):
                     list_servers(directory, refresh=refresh)
             servers, channels = self._read_cached()
             self._ui(self._apply_directory, servers, channels)
+            self._ui(self._restore_tui_state)
             self._ui(self._set_status, f"Ready. {plural(len(servers), 'server')}.")
             if not servers and not usable:
                 self._ui(self._log_line, "Not logged in or Discord is out of reach: press F3 to log in.", "yellow")
@@ -857,6 +1085,9 @@ class DiscoopApp(App[None]):
             else:
                 self._ui(self._set_login_status, "offline?", "-warn")
             return False
+        user_id = str(me.get("id")) if me.get("id") else None
+        if user_id:
+            self.current_user_id = user_id
         self._ui(self._set_login_status, f"@{me.get('username') or me.get('global_name') or 'user'}", "-ok")
         return True
 
@@ -950,6 +1181,7 @@ class DiscoopApp(App[None]):
         if cancel is None:
             return
         self.is_running_job = True
+        self._export_jobs = jobs
         self._start_row.update(STOP_LABEL)
         self._channels_done = 0
         self._channels_total = sum(len(job.targets) for job in jobs)
@@ -978,6 +1210,16 @@ class DiscoopApp(App[None]):
                 events = TuiEvents(cancel, self._bridge_emit())
                 for job in jobs:
                     cancel.check()
+                    events.set_window(
+                        parse_window(
+                            job.request.from_,
+                            job.request.to,
+                            now=utc_now(),
+                            tz=LOCAL_ZONE,
+                            whole_history=job.request.last is not None,
+                        ),
+                        last=job.request.last,
+                    )
                     outcomes.append(
                         run_messages(
                             job.request, directory=directory, cdn=self.cdn_factory, tz=LOCAL_ZONE, events=events
@@ -1010,7 +1252,17 @@ class DiscoopApp(App[None]):
             self._set_status(f"#{self._current_channel} ({self._channels_done + 1}/{self._channels_total})")
             self._log_line(f"Reading #{self._current_channel}")
         elif name == "page":
-            self._set_status(f"#{self._current_channel}: {payload['count']} messages")
+            frac = payload.get("fraction")
+            eta = payload.get("eta_seconds")
+            extra = ""
+            if frac is not None and round(frac * 100) >= 1:
+                pct = round(frac * 100)
+                eta_str = format_eta(eta) if (eta is not None and eta > 0) else ""
+                if eta_str:
+                    extra = f", ~{pct}%, about {eta_str} left"
+                else:
+                    extra = f", ~{pct}%"
+            self._set_status(f"#{self._current_channel}: {payload['count']} messages{extra}")
         elif name == "pause":
             self._handle_pause(payload["seconds"], payload["reason"])
         elif name == "channel_done":
@@ -1024,6 +1276,20 @@ class DiscoopApp(App[None]):
             self._log_line(payload["message"], "yellow")
         elif name == "note":
             self._log_line(payload["text"], "dim")
+        elif name == "resumed":
+            self._channels_done += payload["done"]
+            self._progress.update(progress=self._channels_done)
+            self._log_line(
+                f"Continuing an unfinished export: {payload['done']} of {payload['total']} channels are already saved.",
+                "dim",
+            )
+        elif name == "interrupted":
+            self._log_line(
+                f"Saved {payload['saved']} of {payload['total']} channels in {payload['path']}."
+                " Press F5 to start the same export again and continue.",
+                "yellow",
+            )
+            self._keep_export_name()
         elif name == "dl_start":
             self._log_line(f"Downloading {plural(payload['files'], 'file')}")
             self._progress.update(total=max(payload["total_bytes"], 1), progress=0)
@@ -1045,24 +1311,92 @@ class DiscoopApp(App[None]):
     def _export_finished(self, outcomes: list[MessagesOutcome], preview_format: str | None) -> None:
         results = [result for outcome in outcomes for result in outcome.results]
         skipped = sum(len(outcome.skipped) for outcome in outcomes)
-        truncated = sum(result.truncated for result in results)
-        messages = sum(len(result.messages) for result in results)
+        truncated = sum(outcome.truncated_count for outcome in outcomes)
+        channels = sum(outcome.channel_count for outcome in outcomes)
+        messages = sum(outcome.message_count for outcome in outcomes)
 
-        summary = f"{plural(len(results), 'channel')}, {plural(messages, 'message')}"
+        summary = f"{plural(channels, 'channel')}, {plural(messages, 'message')}"
         if skipped:
             summary += f", {skipped} skipped"
         if truncated:
             summary += f", {truncated} cut at Max messages"
-        problems = bool(skipped or truncated)
+        partial = any(outcome.partial for outcome in outcomes)
+        problems = bool(skipped or truncated or partial)
         for outcome in outcomes:
             if outcome.exported is not None:
                 problems |= self._log_exported(outcome)
 
         self._set_status(f"Done: {summary}.")
         self._log_line(f"Export done: {summary}.", "yellow" if problems else "green")
+        if preview_format is None:  # a preview saves nothing, so it is not an export to remember
+            now_iso = datetime.now(timezone.utc).isoformat()
+            exported_ids = [result.channel.id for outcome in outcomes for result in outcome.results]
+            for channel_id in exported_ids:
+                self.last_exported[channel_id] = now_iso
+            self._refresh_suffixes(exported_ids)
+        self._save_tui_state()
+
+        if self.settings.target != "preview":
+            for outcome in outcomes:
+                if outcome.exported is not None:
+                    target_path = outcome.exported.path
+                    self._last_export_folder = (
+                        target_path.parent if str(target_path).lower().endswith(".zip") else target_path
+                    )
+                    break
+            if self._last_export_folder is None and self._export_jobs:
+                job = self._export_jobs[0]
+                target = job.request.out_dir or job.request.zip_file
+                if target:
+                    p = Path(target)
+                    self._last_export_folder = p.parent if str(p).lower().endswith(".zip") else p
+            if self._last_export_folder is not None:
+                self._log_line("Press 'o' to open the export folder.", "dim")
+
+        for outcome in outcomes:
+            if outcome.skipped:
+                self._log_line(f"Not exported: {self._skipped_text(outcome)}.", "yellow")
+        if partial:
+            self._log_line(
+                "The result is partial. Press F5 to start the same export again and try the missing parts;"
+                " files already saved are not downloaded again.",
+                "yellow",
+            )
+            self._keep_export_name()
         self.notify(f"Export done: {summary}.", severity="warning" if problems else "information", markup=False)
         if preview_format is not None and results:
             self.push_screen(PreviewScreen(results, query=outcomes[0].query, initial_format=preview_format))
+
+    @staticmethod
+    def _skipped_text(outcome: MessagesOutcome) -> str:
+        """The channels an export skipped and why: `#dates (no access), #help (not found)`."""
+        reasons = {ExitCode.NO_ACCESS: "no access", ExitCode.NOT_FOUND: "not found"}
+        if len(outcome.skipped_channels) != len(outcome.skipped):
+            return plural(len(outcome.skipped), "channel")
+        return ", ".join(
+            f"#{display_name(channel.name)} ({reasons.get(error.code, error.name.lower())})"
+            for channel, error in zip(outcome.skipped_channels, outcome.skipped)
+        )
+
+    def _keep_export_name(self) -> None:
+        """An automatic name changes every minute, so starting the export again would not find what was saved.
+        Fill the Name row with it, which is what a name typed by the user is: the same place next time."""
+        jobs = self._export_jobs
+        if not jobs or self.settings.target == "preview" or self.settings.name.strip():
+            return
+        job = jobs[0]
+        target = job.request.out_dir or job.request.zip_file
+        if target is None:
+            return
+        path = Path(target)
+        if job.request.zip_file:
+            name = path.name[:-4] if path.name.lower().endswith(".zip") else path.name
+            if job.total > 1:
+                name = name.removesuffix(f"-{job.number:02d}-{job.window.slug()}")
+        else:
+            name = (path.parent if job.total > 1 else path).name
+        self.query_one("#input-name", Input).value = name
+        self._log_line(f"The Name row is now {name}, so that the next Start uses the same place.", "dim")
 
     def _log_exported(self, outcome: MessagesOutcome) -> bool:
         """Say where an export went and how its files fared. True if some are missing."""

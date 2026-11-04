@@ -25,7 +25,7 @@ from textual.screen import ModalScreen, ScreenResultType
 from textual.timer import Timer
 from textual.widgets import Footer, Input, Label, Static
 
-from discoop import login as login_flow, paths
+from discoop import login as login_flow, paths, profiles
 from discoop.api import DiscordAPI
 from discoop.cache import clear_cache
 from discoop.cli import LOCAL_ZONE, command_help
@@ -89,6 +89,9 @@ GUIDE_KEYS = (
     ("F5", "start the export"),
     ("Esc", "stop the running operation, leave the filter, close a dialog"),
     ("c", "copy the CLI command"),
+    ("P", "save the selection, time window and mode as a profile"),
+    ("p", "load a saved profile"),
+    ("o", "open the folder of the last export"),
     ("F1, ?", "this help"),
     ("F2", "settings"),
     ("F3", "login"),
@@ -100,7 +103,9 @@ GUIDE_SECTIONS = (
         "Tree",
         "Servers, categories and channels are one tree, closed at the start. A server shows its channel count, "
         '"not loaded" until you open it, or "no access". Moving the cursor never calls Discord: only → or Enter '
-        "on a server that is not loaded, r, R, L and F5 do.",
+        "on a server that is not loaded, r, R, L and F5 do. A channel shows, dimmed at the right edge, the time since "
+        "its last message (2d) and, once you exported it, the date of the last export (exp 11-03). A narrow tree drops "
+        "the export date first, then the time, and never shortens a name for them.",
     ),
     (
         "Selection",
@@ -127,6 +132,12 @@ GUIDE_SECTIONS = (
         "Safe and fast",
         "safe scrolls like a person, with pauses between pages and channels. It is the default. fast goes as "
         "quickly as Discord's rate limits allow, waiting Delay seconds between requests. Esc ends a pause at once.",
+    ),
+    (
+        "Profiles and export folder",
+        "Press P to save the current selection, time window and mode as a named profile. Press p to load a saved "
+        "profile (stored in profiles.json in your config folder). After an export finishes, press o to open the "
+        "export folder in your file manager.",
     ),
 )
 
@@ -515,6 +526,99 @@ class SettingsModal(Dialog[bool]):
             return
         self.notify("Settings saved.", title="Saved")
         self.dismiss(True)
+
+
+class SaveProfileModal(Dialog[str | None]):
+    """Dialog to save current selection and settings as a named profile."""
+
+    BINDINGS = [
+        Binding("enter", "save", "Save", key_display="Enter"),
+        Binding("escape", "cancel", "Cancel", key_display="Esc"),
+    ]
+
+    def __init__(self, default_name: str = "") -> None:
+        super().__init__()
+        self.default_name = default_name
+
+    def compose(self) -> ComposeResult:
+        with dialog_box("Save profile", id="save-profile-dialog"):
+            with FormPanel(enter_moves=False):
+                yield InputRow(
+                    "Name",
+                    "input-profile-name",
+                    value=self.default_name,
+                    placeholder="letters, numbers, dash, underscore",
+                )
+                yield ActionRow("[ Save profile (Enter) ]", id="row-profile-save")
+            yield Label("", id="profile-save-error", classes="dialog-error", markup=False)
+        yield dialog_footer()
+
+    def on_action_row_pressed(self, event: ActionRow.Pressed) -> None:
+        self.action_save()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.action_save()
+
+    def action_save(self) -> None:
+        name = self.field("#input-profile-name")
+        if not name:
+            self.show_error("Please enter a profile name.")
+            return
+        try:
+            clean = profiles.validate_name(name)
+        except ValueError as err:
+            self.show_error(str(err))
+            return
+        self.dismiss(clean)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class LoadProfileModal(Dialog[str | None]):
+    """Dialog to pick and load a saved profile."""
+
+    BINDINGS = [
+        Binding("enter", "load", "Load", key_display="Enter"),
+        Binding("escape", "cancel", "Cancel", key_display="Esc"),
+    ]
+
+    def __init__(self, profile_names: Sequence[str]) -> None:
+        super().__init__()
+        self.profile_names = list(profile_names)
+
+    def compose(self) -> ComposeResult:
+        with dialog_box("Load profile", id="load-profile-dialog"):
+            if not self.profile_names:
+                yield Label("No saved profiles found.", classes="dialog-error")
+                yield ActionRow("[ Close (Esc) ]", id="row-profile-close")
+            else:
+                with FormPanel(enter_moves=False):
+                    yield ChoiceRow(
+                        "Profile", tuple(self.profile_names), self.profile_names[0], id="row-profile-choice"
+                    )
+                    yield ActionRow("[ Load profile (Enter) ]", id="row-profile-load")
+            yield Label("", id="profile-load-error", classes="dialog-error", markup=False)
+        yield dialog_footer()
+
+    def on_action_row_pressed(self, event: ActionRow.Pressed) -> None:
+        if not self.profile_names:
+            self.dismiss(None)
+        else:
+            self.action_load()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self.action_load()
+
+    def action_load(self) -> None:
+        if not self.profile_names:
+            self.dismiss(None)
+            return
+        choice_row = self.query_one("#row-profile-choice", ChoiceRow)
+        self.dismiss(choice_row.value)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 class LoginModal(ScrollingDialog[bool]):
