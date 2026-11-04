@@ -6,6 +6,11 @@ verzie podľa [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Pridané
+- **Overenie na reálnom účte (2026-11-04, [analýza](docs/analyzy/overenie-na-realnom-ucte-2026-11-04.md)):** funkcie kola 2 sa vyskúšali na reálnom účte (server VUT FIT, režim `safe`, malé okná, exporty v dočasnom priečinku zmazanom po behu).
+  - `[OVERENÉ]`: `doctor` (6 kontrol OK), `status`, `servers`, `channels`, `threads` a export fóra, prerušenie vyvolané skriptom (kód 130) a obnova z `.partial`, `--since-last`, `--zip` s `--max-tokens`, logy `--debug --log` bez únikov, `--progress-json`. Používateľ potvrdil `discoop ui` a QR prihlásenie v TUI.
+  - Nové zistenia: `message_count` v zozname vlákien nezahŕňa štartovaciu správu príspevku fóra. `has_more` bolo na poslednej archivovanej strane znova `true` (koniec našlo okno).
+  - **Známe obmedzenie (neopravené):** príloha, ktorú API popíše inak než CDN (iná veľkosť a typ obsahu), sa pri opakovanom exporte do toho istého priečinka stiahne znova, lebo opätovné použitie podľa ID a veľkosti ju nepozná. Pozorované na jedinej prílohe, neškodné.
+  - Neoverené: skutočné Ctrl+C z konzoly, Ctrl+C a výber fór v TUI, export veľkého fóra, nová odpoveď vo vlákne medzi dvoma behmi `--since-last`, súkromné vlákna a HTTP 202, export s množstvom príloh, Linux a macOS.
 - **Odolný export po kanáloch, staging priečinok a automatická obnova (P26, [ADR 0017](docs/rozhodnutia/0017-spolahlivy-export-a-ciastocny-uspech.md)):**
   - Trieda `ExportWriter` (`src/discoop/export.py`) zapisuje exportované dáta po kanáloch do staging umiestnenia `<cieľ>.partial` (pri zip archíve `<názov>.zip.partial`), bez držania celej histórie v pamäti.
   - Atomické publikovanie na cieľovú cestu po úplnom a úspešnom dokončení (`close(complete=True)`). Predchádzajúci hotový export sa nikdy neprepíše ani nepoškodí prerušeným behom.
@@ -31,7 +36,7 @@ verzie podľa [SemVer](https://semver.org/).
     - kanál, ktorý nemôže mať vlákna, alebo akýkoľvek kanál pri `--no-threads`: preskočí sa úplne (0 requestov),
     - textový alebo oznamovací kanál so zapnutými vláknami: jeho vlastné správy sa nesťahujú, ale zoznam jeho vlákien sa načíta a vlákna sa stiahnu ako inak,
     - fórum a media kanál sa nepreskakujú nikdy.
-    - `[PREDPOKLAD]` `last_message_id` textového kanála je spoľahlivé: potvrdené len na dvoch vzorkách z probe vlákien.
+    - `[PREDPOKLAD]` `last_message_id` textového kanála je spoľahlivé: potvrdené na dvoch vzorkách z probe vlákien a v kontrole na reálnom účte 2026-11-04 (20 z 25 čitateľných kanálov sedelo).
   - Po prerušenom a obnovenom behu `--since-last` si kanály uložené prerušeným behom ponechajú starý stav a nabudúce sa stiahnu znova (duplicity, nič sa nestratí). Beh na to upozorní poznámkou.
   - Preventívna kontrola voľného miesta na disku pred stiahnutím príloh každého kanála (`ExportWriter.bytes_to_download` + `shutil.disk_usage`): počíta len súbory, ktoré sa naozaj stiahnu (nie tie, ktoré už v exporte sú, ani vynechané cez `--no-files` či `--max-file-size`). Odmietnutie s kódom 1, ak nezostane aspoň 50 MB bezpečnostná rezerva.
 - **Delenie exportu na tokeny, odhad tokenov v súhrne a profily v CLI (P29):**
@@ -201,7 +206,7 @@ verzie podľa [SemVer](https://semver.org/).
   - Kanály typu fórum (15) a média (16) sú plnohodnotnými cieľmi pre `discoop messages` (sťahujú svoje vlákna). Odstránené obmedzenie „threads come in a later version“. Fórum v kombinácii s `--no-threads` je odmietnuté s kódom 8.
 - **Doplnenie (2026-11-04): fóra a media kanály sa dajú vybrať aj v TUI.** `SelectionState.is_selectable` berie okrem `MESSAGE_TYPES` aj `FORUM_TYPES` (kategória sa naďalej nevyberá). Pri Threads = no a vybranom fóre formulár ukáže varovanie (`#threads-warning`) a `F5` štart odmietne hláškou ešte pred volaním Discordu, namiesto zlyhania s `BAD_ARGS` zo služby (`forums_without_threads` v `tui/state.py`). Log pri kanáli s vláknami uvádza aj ich počet. Help opravený: hlasové a stage kanály sa vybrať dajú. Overené len testami s falošným Discordom (`tests/test_tui_forums.py`).
 - **ADR 0014 doplnený (2026-11-04):** sekcia „Doplnenie 2026-11-04“ s klávesmi `P` (uložiť profil), `p` (načítať profil) a `o` (otvoriť priečinok posledného exportu) a s príponami riadkov kanálov v strome. Pôvodné rozhodnutie a jeho stav sa nezmenili.
-- **Rozšírenie testovacieho balíka:** počet automatizovaných testov stúpol z 511 (posledný zapísaný stav, po 1. kole) na 870 (o 359 viac; 642 testov bolo už v commite `3769158` pred zadaním 2. kola, zvyšok je z 2. kola; nové testy pokrývajú odolný export, vlákna, synchronizačný stav, TUI, delenie tokenov, profily a agent príručku). Všetky bežia offline proti falošnému Discordu (`httpx.MockTransport`); na reálnom účte zatiaľ nič z toho overené nie je.
+- **Rozšírenie testovacieho balíka:** počet automatizovaných testov stúpol z 511 (posledný zapísaný stav, po 1. kole) na 870 (o 359 viac; 642 testov bolo už v commite `3769158` pred zadaním 2. kola, zvyšok je z 2. kola; nové testy pokrývajú odolný export, vlákna, synchronizačný stav, TUI, delenie tokenov, profily a agent príručku). Všetky bežia offline proti falošnému Discordu (`httpx.MockTransport`). Čiastočné overenie na reálnom účte z 2026-11-04 je v prvom bode sekcie „Pridané“.
 - **Upratanie CLI a rozšírenie testov (2026-11-04):**
   - Z `src/discoop/cli.py` bol odstránený nepoužívaný kód (`_export_target`, `_export`, `_message_targets`, `_progress`, `_unreadable`, `_local_time`).
   - Rozšírenie testovacieho balíka na 511 automatizovaných testov (85 nových testov pokrývajúcich diagnostické logovanie, doctor, JSON formáty, profily, pomocné moduly a návrhy pri preklepe).

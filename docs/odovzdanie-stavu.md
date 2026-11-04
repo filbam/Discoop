@@ -23,12 +23,14 @@ Pred začatím akejkoľvek práce si **povinne prečítaj** nasledujúce dokumen
    - Register všetkých Architectural Decision Records ([ADR 0001](rozhodnutia/0001-zaznamenavanie-a-verzovanie.md) až [ADR 0020](rozhodnutia/0020-since-last.md)).
 6. **[docs/analyzy/probe-vlakien-2026-11-04.md](analyzy/probe-vlakien-2026-11-04.md):**
    - Výsledky probe meraní pre vlákna, fóra a `last_message_id` na reálnom účte Discordu s dôsledným rozlíšením `[OVERENÉ]` a `[PREDPOKLAD]`.
+7. **[docs/analyzy/overenie-na-realnom-ucte-2026-11-04.md](analyzy/overenie-na-realnom-ucte-2026-11-04.md):**
+   - Výsledky skúšky nástroja `discoop` na reálnom účte (2026-11-04, režim `safe`, malé okná): čo sa overilo, známe obmedzenie pri prílohách, otvorené pozorovania a zoznam toho, čo ostáva neoverené.
 
 ---
 
 ## 2. Aktuálny stav projektu (k 2026-11-04)
 
-- **Testovacie pokrytie:** Všetkých **870 automatizovaných testov** prechádza (`uv run pytest`). Všetky bežia offline proti falošnému Discordu (`httpx.MockTransport`). Nič z kola 2 (odolný export, vlákna, `--since-last`, `--max-tokens`, vylepšenia TUI) nebolo overené na reálnom účte.
+- **Testovacie pokrytie:** Všetkých **870 automatizovaných testov** prechádza (`uv run pytest`). Všetky bežia offline proti falošnému Discordu (`httpx.MockTransport`). Funkcie kola 2 sa 2026-11-04 čiastočne overili aj na reálnom účte (odolný export s prerušením skriptom, vlákna a fóra, `--since-last`, `--max-tokens` so zipom, logy, `--progress-json`, `doctor`, beh `discoop ui` s QR prihlásením; podrobne [analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md)). Čo ostáva neoverené, je v sekcii 4.
 - **Pôvod kola 2:** implementáciu (P26–P30) urobil Antigravity podľa `docs/zadania/antigravity-kolo-2.md`, potom ju skontroloval hlavný Claude a nálezy nechal opraviť. Čo sa našlo a opravilo, je v [dennik.md](dennik.md), sekcia 2026-11-04.
 - **Nainštalované prostredie:** Python 3.12+, projekt spravovaný cez `uv`. Vývoj v repe ide cez `uv run discoop ...`, používatelia majú nainštalovaný príkaz `discoop` (`uv tool install git+https://github.com/filbam/Discoop`, návod v [README.md](../README.md)).
 - **Repo je verejné** (P22, [ADR 0015](rozhodnutia/0015-verejne-repo-a-instalacia.md)). Do gitu nesmie ísť token, cookies ani mená a texty správ iných ľudí. `[OVERENÉ]`: inštalácia z lokálneho klonu na Windows. `[PREDPOKLAD]`: inštalácia z GitHubu, Linux, macOS.
@@ -118,7 +120,7 @@ Nástroj umožňuje voľbu tempa cez konfiguráciu (`discoop config set mode saf
     - Fixovanie názvu exportu v poli `Name` po prerušení, takže stlačenie `F5` v ďalšej minúte pokračuje v existujúcom `.partial`.
   - **Fóra a media kanály v TUI (2026-11-04):** vyberajú sa ako ostatné kanály (výber berie `MESSAGE_TYPES` aj `FORUM_TYPES`; kategória sa nevyberá, jej výber vyberie jej kanály). Ich príspevky sú vlákna, preto pri Threads = no a vybranom fóre formulár ukáže varovanie a `F5` štart odmietne hláškou ešte pred prvým volaním Discordu (služba by to odmietla s kódom 8). Overené len testami s falošným Discordom (`tests/test_tui_forums.py`).
   - **Známe obmedzenia:** TUI nemá `--since-last` ani `--max-tokens`. Esc počas bežiacej HTTP požiadavky zaberie až po jej skončení (timeout 20 s), pauzy pri opakovaní sťahovania príloh v `attachments.py` sa nedajú prerušiť hneď, v šírke 80 stĺpcov sa Footer nezmestí celý, CLI príkaz má vždy `--delay` z configu, v Help a Preview nefunguje výber textu myšou.
-  - **Neoverené:** beh v skutočnom termináli (Windows Terminal), reálny účet, skenovanie QR telefónom. Overené sú Pilot testy s falošnými dátami a screenshoty.
+  - **Overenie:** pôvodne iba Pilot testy s falošnými dátami a screenshoty. Používateľ 2026-11-04 potvrdil, že `discoop ui` na reálnom účte funguje a že sa v ňom prihlásil cez QR ([analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md)). Neoverené ostáva Ctrl+C v TUI, výber fór a prepínač Threads na reálnom účte; samostatne nepotvrdené sú aj skratka `o`, profily `P`/`p`, prípony v strome a `tui-state.json`. Linux a macOS tiež.
 
 #### H. Voliteľné diagnostické logovanie (`logs.py`, [ADR 0018](rozhodnutia/0018-logovanie.md), P24)
 - **Modul `src/discoop/logs.py`:** `setup_logging`, `teardown_logging`, `DiscoopFormatter`. Predvolene vypnuté (žiadny handler), po zapnutí sa pripája výhradne na logger `discoop` (`propagate=False`).
@@ -155,7 +157,7 @@ Nástroj umožňuje voľbu tempa cez konfiguráciu (`discoop config set mode saf
 - **`src/discoop/resolve.py`:** fuzzy návrhy pri preklepoch v názve servera alebo kanála (`Did you mean: ...?`) cez `difflib.get_close_matches`.
 
 #### L. Vlákna a príspevky na fórach (`threads.py`, [ADR 0019](rozhodnutia/0019-vlakna.md), P27)
-- **Analýza a probe:** overené na používateľskom účte v [docs/analyzy/probe-vlakien-2026-11-04.md](analyzy/probe-vlakien-2026-11-04.md).
+- **Analýza a probe:** overené na používateľskom účte v [docs/analyzy/probe-vlakien-2026-11-04.md](analyzy/probe-vlakien-2026-11-04.md). Skúška samotného nástroja na reálnom účte (výpis vlákien, export fóra, `message_count` bez štartovacej správy príspevku): [docs/analyzy/overenie-na-realnom-ucte-2026-11-04.md](analyzy/overenie-na-realnom-ucte-2026-11-04.md).
 - **Sťahovanie vlákien v `messages`:**
   - Vlákna sú predvolene zapnuté (`request.threads = True`), možnosť ich vypnúť cez `--no-threads`.
   - Fóra (typ 15) a mediálne kanály (typ 16) sú plnohodnotnými cieľmi `messages` (sťahujú svoje vlákna). Fórum s `--no-threads` je odmietnuté s kódom 8. V TUI sa vyberajú ako ostatné kanály, pri Threads = no sa štart odmietne už vo formulári.
@@ -177,7 +179,7 @@ Nástroj umožňuje voľbu tempa cez konfiguráciu (`discoop config set mode saf
     - kanál, ktorý nemôže mať vlákna, alebo akýkoľvek kanál pri `--no-threads`: preskočí sa úplne (0 požiadaviek, `_is_channel_unchanged` v `service.py`),
     - textový alebo oznamovací kanál so zapnutými vláknami: jeho vlastné správy sa nesťahujú, ale zoznam jeho vlákien sa načíta a vlákna sa stiahnu ako inak (`_is_own_unchanged`),
     - fórum a media kanál sa nepreskakujú nikdy.
-    - `[PREDPOKLAD]` `last_message_id` textového kanála je spoľahlivé: potvrdené len na dvoch vzorkách z probe vlákien. Ak by ho Discord oneskoroval, nová správa kanála by sa mohla vynechať, až kým v ňom nepribudne ďalšia.
+    - `[PREDPOKLAD]` `last_message_id` textového kanála je spoľahlivé: z probe vlákien (2 vzorky) a z kontroly na reálnom účte 2026-11-04 (20 z 25 čitateľných kanálov sedelo, v 4 ukazovalo na novšiu správu, v 1 bola správa novšia než pole). Ak by ho Discord oneskoroval, nová správa kanála by sa mohla vynechať, až kým v ňom nepribudne ďalšia.
   - Po prerušenom a obnovenom behu si kanály uložené prerušeným behom ponechajú starý stav a nabudúce sa stiahnu znova (duplicity, nič sa nestratí). Beh na to upozorní poznámkou.
   - Kontrola voľného miesta na disku: pred stiahnutím príloh každého kanála (`service._check_disk_space`) sa spočíta, čo sa naozaj stiahne (`ExportWriter.bytes_to_download`: bez súborov, ktoré už v exporte sú, bez `--no-files` a nad `--max-file-size`), a porovná s voľným miestom cez `shutil.disk_usage`. Ak nezostáva aspoň 50 MB bezpečnostná rezerva, beh zlyhá s kódom 1 pred odoslaním požiadaviek na CDN.
 
@@ -228,20 +230,22 @@ GitHub (`origin/main`) je na `94bd862`, novšie commity sú len lokálne (`git l
 
 ## 4. Čo nasleduje ďalej
 
-Všetkých 6 krokov pôvodného implementačného plánu je implementovaných a otestovaných proti falošnému Discordu (870 testov prechádza). Na reálnom účte zatiaľ nič z kola 2 nebolo vyskúšané.
+Všetkých 6 krokov pôvodného implementačného plánu je implementovaných a otestovaných proti falošnému Discordu (870 testov prechádza). Časť kola 2 sa 2026-11-04 overila aj na reálnom účte (podrobne [analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md)).
 
-1. **Používateľské testy na reálnom účte:**
-   - **Vlákna a fóra:** overenie správania príkazu `discoop threads` a sťahovania fór (`help-center`) a vlákien v textových kanáloch na serveri VUT FIT (overenie predpokladov z [docs/analyzy/probe-vlakien-2026-11-04.md](analyzy/probe-vlakien-2026-11-04.md)).
-   - **Prírastkové sťahovanie `--since-last`:** overenie funkčnosti `sync-state.json`, preskakovania neaktívnych kanálov a nadviazania na predchádzajúci export.
-   - **Odolný export a obnova:** otestovanie prerušenia dlhého exportu (Ctrl+C) a opätovného spustenia rovnakého príkazu na dokončenie zo staging priečinka `.partial`.
-   - **`--max-tokens` so zipom a diagnostika:** `--max-tokens` s `--zip`, `discoop doctor`, `--debug` a `--log FILE`.
-   - **TUI v reálnom termináli:** `discoop ui` vrátane QR prihlásenia, Ctrl+C uprostred exportu a opätovné spustenie, perzistentnosť stavu `tui-state.json`, ukladanie (`P`) a načítanie (`p`) profilov, otvorenie priečinka exportu (`o`) a prípony riadkov kanálov v strome.
+1. **Používateľské testy na reálnom účte, ktoré ešte chýbajú:**
+   - **Odolný export a obnova:** skutočné Ctrl+C z konzoly počas čakania na sieť a počas sťahovania súboru. Prerušenie skriptom (kód 130, `.partial`, obnova) sa na reálnom účte overilo.
+   - **Vlákna a fóra:** export fóra so stovkami príspevkov od začiatku do konca, súkromné vlákna (typ 12) a HTTP 202 (neobjavili sa), export s množstvom príloh (videná 1 príloha).
+   - **Prírastkové sťahovanie `--since-last`:** vlákno, ktoré medzi dvoma behmi dostane novú odpoveď. Preskakovanie nezmenených kanálov a nadviazanie na predchádzajúci beh sa overilo.
+   - **TUI v reálnom termináli:** Ctrl+C v TUI, výber fór a prepínač Threads, ukladanie (`P`) a načítanie (`p`) profilov, otvorenie priečinka exportu (`o`), prípony riadkov kanálov v strome a perzistentnosť `tui-state.json`. Používateľ potvrdil len beh `discoop ui` a QR prihlásenie.
 2. **Git:**
    - Používateľ rozhodne o pushi commitov na GitHub (GitHub je zatiaľ na staršom commite).
 3. **Rozhodnutie 9 (Výpočet prístupu ku kanálom):**
    - Ostáva **odložené s nízkou prioritou** (používateľ to nepovažuje za dôležité a Discord avizuje zmenu API, pri ktorej prestane nedostupné kanály vracať).
 4. **Otvorené drobnosti:**
    - Linux a macOS sú neoverené (inštalácia z GitHubu, TUI, cesty cez `platformdirs`).
+   - Príloha, ktorú API popíše inak než CDN (iná veľkosť a typ obsahu), sa pri opakovanom exporte sťahuje znova: opätovné použitie podľa ID a veľkosti ju nepozná ([analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md), sekcia 4). Neopravené a neškodné. Možná oprava: uvoľniť kontrolu veľkosti alebo ukladať do manifestu skutočnú veľkosť.
+   - Pri kóde 130 sa nevypíše riadok „Interrupted.“, hoci kód má `out.error(...)`. Vetva vyzerá nedosiahnuteľná.
+   - `--progress-json`: nezistilo sa, či stránky správ vlákien emitujú udalosť `page`.
    - Uloženie v náhľade (`PreviewScreen`, kláves `s`) ide do `export-dir` alebo do `exports` v aktuálnom priečinku, nie do `Documents/discoop` ako export z formulára. Či to tak ostane, je otvorená otázka.
    - Repo nemá súbor `LICENSE`.
    - `profiles.load()` pri poškodenom súbore stále vydá Python `UserWarning` (v TUI by sa vypísal do terminálu). `split`, `syncstate` a `tui/tuistate` už hlásia len cez log a udalosť `warning`.

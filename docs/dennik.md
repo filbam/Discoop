@@ -38,7 +38,7 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
     - Nový modul `src/discoop/syncstate.py`: ukladanie stavu poslednej synchronizácie do `sync-state.json` v `paths.data_dir()`, kľúčované ID účtu. Nezávislé od SQLite cache (prežije `clear_cache`).
     - Prepínač `messages --since-last` (vylučuje sa s `--from`, `--to`, `--last`): sťahuje správy s ID väčším ako `saved_id` (exkluzívna spodná hranica `min_id = int(saved_id) + 1`). Pre kanál bez predchádzajúceho stavu sa použije predvolené 24-hodinové okno s informačnou poznámkou.
     - Posun stavu nastáva až po úspešnom a úplnom dokončení exportu (`complete=True`) a len pre kanály bez limitného orezania (`truncated`) a bez zlyhaných súborov či vlákien.
-    - Preskakovanie neaktívnych kanálov: ak má kanál uložený stav a `Channel.last_message_id <= saved_id`, kanál bez podpory vlákien (alebo akýkoľvek kanál pri `--no-threads`) sa preskočí úplne (0 požiadaviek). Textový alebo oznamovací kanál so zapnutými vláknami nesťahuje vlastné správy, ale jeho vlákna sa čítajú ďalej. Fórum a media kanál sa nepreskakujú nikdy (odpovede vo vláknach nemenia `last_message_id` rodiča, `[PREDPOKLAD]`). Aj spoľahlivosť `last_message_id` textového kanála je `[PREDPOKLAD]`: potvrdená len na dvoch vzorkách z probe vlákien. Pôvodne Antigravity textové kanály s vláknami nepreskakoval vôbec, doplnené až po kontrole.
+    - Preskakovanie neaktívnych kanálov: ak má kanál uložený stav a `Channel.last_message_id <= saved_id`, kanál bez podpory vlákien (alebo akýkoľvek kanál pri `--no-threads`) sa preskočí úplne (0 požiadaviek). Textový alebo oznamovací kanál so zapnutými vláknami nesťahuje vlastné správy, ale jeho vlákna sa čítajú ďalej. Fórum a media kanál sa nepreskakujú nikdy (odpovede vo vláknach nemenia `last_message_id` rodiča, `[PREDPOKLAD]`). Aj spoľahlivosť `last_message_id` textového kanála je `[PREDPOKLAD]`: potvrdená na dvoch vzorkách z probe vlákien a v kontrole na reálnom účte 2026-11-04 (20 z 25 čitateľných kanálov sedelo, pozri blok „Test na reálnom účte“ nižšie). Pôvodne Antigravity textové kanály s vláknami nepreskakoval vôbec, doplnené až po kontrole.
     - Po prerušenom a obnovenom behu `--since-last` si kanály uložené prerušeným behom ponechajú starý stav a nabudúce sa stiahnu znova (duplicity, nič sa nestratí). Beh na to upozorní poznámkou.
     - Kontrola miesta na disku: pred stiahnutím príloh každého kanála (`service._check_disk_space`) sa spočíta reálna veľkosť nových súborov (`ExportWriter.bytes_to_download`) a porovná s `shutil.disk_usage`. Ak nezostane aspoň 50 MB bezpečnostná rezerva, beh zlyhá s kódom 1 pred odoslaním požiadaviek na CDN.
   - **R4-G (TUI: perzistentný stav, profily, prepínač vlákien, otvorenie priečinka, percentá):**
@@ -75,23 +75,39 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
 - **Overené `[OVERENÉ]`:**
   - `uv run pytest`: všetkých **870 automatizovaných testov** prechádza (stav po kontrole hlavným Claudom). Všetky bežia offline proti falošnému Discordu (`httpx.MockTransport`).
   - Všetky nové scenáre overené offline testami (odolný export, staging `.partial`, pád a obnova, prepínač `--threads/--no-threads`, fórum end-to-end, `threads` CLI, `--since-last`, prežitie `clear_cache`, kontrola disku pred CDN, `split_markdown`, limity tokenov, profily, TUI modály a obnova stavu, `agent-guide`).
+- **Test na reálnom účte (2026-11-04, [analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md)):** hlavný Claude spustil nástroj na reálnom účte používateľa (server VUT FIT) na jeho výslovnú žiadosť, v režime `safe` a v malých oknách. Exporty išli do dočasného priečinka, ktorý sa potom zmazal.
+  - `[OVERENÉ]` `doctor` (všetkých 6 kontrol OK), `status`, `servers` a `channels` fungujú. Používateľ samostatne potvrdil, že `discoop ui` funguje a že sa v ňom prihlásil (QR prihlásenie v TUI funguje).
+  - `[OVERENÉ]` `discoop threads` na fóre: `--from 3d` vypísalo 2 vlákna za 5,9 s, `--from 90d --refresh --format json` 61 unikátnych vlákien (50 archivovaných) zoradených podľa poslednej aktivity zostupne za 17 s, na 4 stránky `threads/search` (1 aktívna + 3 archivované po 25). `has_more` bolo na poslednej archivovanej strane znova `true`, koniec našlo okno (`reached_start`). Aktívne vlákno staršie než okno vypadlo vo filtri okna.
+  - `[OVERENÉ]` Export fóra (`messages -c <fórum> --from 3d --no-files --out DIR`): 2 príspevky, 22 správ, 11,6 s, úplný manifest (`messages 0, threads 2, thread_messages 22`), sekcie `## thread "..."` s riadkami hlavičky (vytvorenie, posledná aktivita, správy, súbory, tagy) a pole `thread: {id, name, parent_id, tags}` v `messages.jsonl`. Nové zistenie: `message_count` v zozname vlákien nezahŕňa štartovaciu správu príspevku (zoznam ukázal 9 a 11, stiahnutie vrátilo 10 a 12 správ).
+  - `[OVERENÉ]` Prerušený export (skutočná sieť, `KeyboardInterrupt` vyvolaný skriptom z udalostí CLI, nie signál konzoly): po 2. z 3 kanálov kód 130, `<cieľ>.partial` s `complete: false, interrupted: true` a 2 kanálmi, bez cieľa; ten istý príkaz stiahol už len 3. kanál, publikoval cieľ (`complete: true`), zmazal `.partial` a skončil s kódom 0. Uprostred prvého kanála exportu fóra (počas 2. vlákna) kód 130, žiadny `.partial`, cieľ ani súbory `.part` a opakovanie prebehlo normálne.
+  - `[OVERENÉ]` `--since-last` (stavový súbor presmerovaný do dočasného súboru): 2. beh na dvoch študijných textových kanáloch ohlásil vlastné správy za nezmenené, stiahol 0 správ, zavolal `threads/search` dvakrát na kanál a `/messages` kanála vôbec; na dvoch fórach 2. beh stiahol 0 správ (1. beh 1 vlákno s 1 správou a uložil 3 záznamy stavu).
+  - `[OVERENÉ]` `last_message_id` (iba čítanie, 25 čitateľných kanálov z 28 vzorkovaných): pole sa rovnalo najnovšej dostupnej správe v 20, v 4 ukazovalo na novšiu správu (`[PREDPOKLAD]` zmazanú, bezpečný smer pre pravidlo preskakovania) a v 1 bola najnovšia správa novšia než pole (`[PREDPOKLAD]` prišla počas vzorkovania, nedokázané).
+  - `[OVERENÉ]` `--zip --max-tokens 300 --max-file-size 1` na 3 študijných textových kanáloch za 7 dní: 16 správ, 43,5 s, platný zip (`testzip` čistý) s `parts/part-001.md` až `part-003.md`, časti nie sú v manifeste, hlavička časti 1 `<!-- discoop part 1 of 3 -->`, súhrn `tokens: ~742`.
+  - `[OVERENÉ]` Dva skutočné logy `--debug --log` (13 a 30 riadkov) neobsahujú token, `Authorization`/`Bearer`, parametre podpísaných URL, názvy serverov a kanálov ani slová z exportovaných správ (obsahujú ID kanálov a vlákien). `--progress-json` dal na exporte fóra 4 platné riadky JSON (`channel_start`, 2x `thread`, `channel_done`) bez názvov.
+  - `[OVERENÉ]` Pauzy režimu `safe` dominujú: asi 4 až 6 s na vlákno. `[PREDPOKLAD]` Úplné stiahnutie fóra s asi 1800 príspevkami by trvalo zhruba 2 až 3 hodiny.
+  - **Známe obmedzenie (neopravené):** príloha, ktorú API popíše inak než CDN (v teste `size` 25238 a `image/webp`, CDN poslalo PNG s 36731 B), sa pri opakovanom exporte do toho istého priečinka stiahla znova (`downloaded: 1, already_present: 0`): opätovné použitie podľa ID a veľkosti ju nepozná. Pozorované na jedinej prílohe. Neškodné, viď sekcia 4 analýzy.
+  - **Otvorené pozorovania:** pri kóde 130 `main()` nevypísal riadok „Interrupted.“ (kód má `out.error(...)`, vetva vyzerá nedosiahnuteľná, neškodné). Nezistilo sa, či stránky správ vlákien emitujú v `--progress-json` udalosť `page`.
 - **Neoverené `[PREDPOKLAD]`:**
   - Chovanie `threads/search` na všetkých rôznych typoch kanálov Discordu mimo fórum `#help-center` a vzorový textový kanál overený v probe analýze ([probe-vlakien-2026-11-04.md](analyzy/probe-vlakien-2026-11-04.md)).
-  - Reakcia reálneho Discord API na neindexované vlákna (HTTP 202).
-  - Skutočný beh dlhých exportov a prírastkového sťahovania na živom používateľskom účte. Nič z kola 2 nebolo overené na reálnom Discorde.
-  - Spoľahlivosť `Channel.last_message_id` (pravidlo preskakovania pri `--since-last`): potvrdená len na dvoch vzorkách z probe vlákien.
-  - Beh TUI, skratky `o` (otvorenie prieskumníka) a prípon v strome v reálnom termináli na rôznych operačných systémoch (Windows, Linux, macOS).
+  - Reakcia reálneho Discord API na neindexované vlákna (HTTP 202) a súkromné vlákna (typ 12): v teste na reálnom účte 2026-11-04 sa neobjavili.
+  - Export fóra so stovkami príspevkov od začiatku do konca a export s množstvom príloh (2026-11-04 sa na reálnom účte skúšali len malé okná a videla sa 1 príloha).
+  - Skutočné Ctrl+C z konzoly počas čakania na sieť alebo počas sťahovania súboru (prerušenie sa na reálnom účte skúšalo len skriptom) a vlákno, ktoré medzi dvoma behmi `--since-last` dostane novú odpoveď.
+  - Spoľahlivosť `Channel.last_message_id` (pravidlo preskakovania pri `--since-last`): na reálnom účte 2026-11-04 sedelo pole v 20 z 25 čitateľných kanálov, v 4 ukazovalo na novšiu správu a v 1 bola správa novšia než pole. Či odpovede vo vláknach posúvajú `last_message_id` rodiča, ostáva `[PREDPOKLAD]` (3 vlákna vo vzorke boli nepreukazné).
+  - TUI: používateľ potvrdil len to, že `discoop ui` funguje a že sa v ňom prihlásil cez QR. Neoverené ostáva Ctrl+C v TUI, výber fór a prepínač Threads na reálnom účte. Samostatne nepotvrdené sú aj skratka `o`, profily `P`/`p`, prípony v strome a perzistentný stav `tui-state.json`.
+  - Linux a macOS.
 
 **Ďalej:**
-1. Používateľ otestuje nové funkcie na reálnom účte (zatiaľ nič z toho nebolo vyskúšané, len testy s falošným Discordom):
-   - Export fóra s vláknami cez CLI (`discoop messages -s "VUT FIT" -c help-center --out exports/help-center`) a príkaz `discoop threads`.
-   - `--since-last` na dvoch kanáloch (jeden s vláknami): druhý beh má sťahovať iba nové správy, nezmenený kanál preskočiť a vlákna čítať ďalej.
-   - Odolný export: Ctrl+C uprostred exportu a opätovné spustenie toho istého príkazu (pokračovanie zo staging priečinka `.partial`).
-   - `--max-tokens` so zipom (`--zip`).
-   - `discoop doctor`, `--debug` a `--log FILE`.
-   - `discoop ui` v reálnom termináli: QR prihlásenie, Ctrl+C uprostred exportu a opätovné spustenie, prepínač vlákien, perzistentnosť stavu `tui-state.json`, profily (`P` uloží, `p` načíta), otvorenie priečinka exportu cez `o` a prípony riadkov kanálov v strome.
+1. Dotestovať na reálnom účte, čo ešte nie je overené (podrobne [analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md), sekcia 6):
+   - Skutočné Ctrl+C z konzoly (počas čakania na sieť aj počas sťahovania súboru) a Ctrl+C v TUI, potom opätovné spustenie.
+   - TUI na reálnom účte: výber fór, prepínač Threads, profily (`P` uloží, `p` načíta), otvorenie priečinka cez `o`, prípony riadkov kanálov v strome a perzistentnosť `tui-state.json`.
+   - Export fóra so stovkami príspevkov od začiatku do konca.
+   - `--since-last` s vláknom, ktoré medzi dvoma behmi dostane novú odpoveď.
+   - Súkromné vlákna (typ 12), HTTP 202 a export s množstvom príloh.
 2. Otvorené drobnosti:
    - Linux a macOS sú neotestované.
+   - Príloha, ktorú API popíše inak než CDN (iná veľkosť a typ obsahu), sa pri opakovanom exporte sťahuje znova: opätovné použitie podľa ID a veľkosti ju nepozná ([analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md), sekcia 4). Neopravené a neškodné. Možná oprava: uvoľniť kontrolu veľkosti alebo ukladať do manifestu skutočnú veľkosť.
+   - Pri kóde 130 sa nevypíše riadok „Interrupted.“, hoci kód má `out.error(...)`. Vetva vyzerá nedosiahnuteľná.
+   - `--progress-json`: nezistilo sa, či stránky správ vlákien emitujú udalosť `page`.
    - `PreviewScreen`: „Save“ ukladá do `export-dir` alebo do `exports` v aktuálnom priečinku, nie do `Documents/discoop` ako export z formulára. Či to tak ostane, je stále otvorená otázka.
    - Repo nemá súbor `LICENSE`.
    - `profiles.load()` pri poškodenom súbore stále vydá Python `UserWarning`.

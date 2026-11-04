@@ -75,10 +75,13 @@ Bolo potrebné dobudovať plnú podporu sťahovania vlákien do servisnej vrstvy
   - Polia `has_more` a `total_results` na `threads/search` sú nespoľahlivé (falošné `has_more: true` na poslednej strane, nezrovnalosti v `total_results`). Koniec stránkovania preto spoľahlivo určuje iba prázdna alebo neúplná strana (< 25 položiek).
   - Správy vlákien sa čítajú štandardným volaním `GET /channels/{thread_id}/messages`. Štartovacia správa fórumového postu má ID zhodné s ID vlákna.
   - Kanály a vlákna bez oprávnení vracajú HTTP 403 `Missing Access`. Discoop ich zachytáva a bezpečne hlási ako čiastočný výsledok (kód 9).
+  - Na reálnom účte (2026-11-04, [analýza](../analyzy/overenie-na-realnom-ucte-2026-11-04.md)): `discoop threads` na fóre vypísalo pri `--from 3d` 2 vlákna (5,9 s) a pri `--from 90d --refresh --format json` 61 unikátnych vlákien (50 archivovaných) zoradených podľa poslednej aktivity zostupne, na 4 stránky `threads/search` (1 aktívna + 3 archivované po 25), za 17 s. `has_more` bolo na poslednej archivovanej strane znova `true`, koniec našlo okno (`reached_start`), čo potvrdzuje nespoľahlivosť `has_more`. Vlákno, ktoré je ešte aktívne, ale staršie než okno, vypadlo vo filtri okna.
+  - Na reálnom účte (2026-11-04): export fóra (`messages -c <fórum> --from 3d --no-files --out DIR`) dal 2 príspevky a 22 správ za 11,6 s s úplným manifestom (`messages 0, threads 2, thread_messages 22`). Markdown má sekcie `## thread "..."` s riadkami hlavičky (vytvorenie, posledná aktivita, správy, súbory, tagy) a správy v `messages.jsonl` majú pole `thread: {id, name, parent_id, tags}` s názvami tagov fóra.
+  - Na reálnom účte (2026-11-04): `message_count` v zozname vlákien nezahŕňa štartovaciu správu príspevku fóra. Zoznam ukázal 9 a 11, stiahnutie vrátilo 10 a 12 správ (pozorované na 2 príspevkoch).
 
 - **[PREDPOKLAD]**
   - Predpokladá sa, že všetky bežné textové kanály (typ 0) a oznamovacie kanály (typ 5) podporujú `threads/search` pre používateľský účet rovnako ako fórum a skúmaný vzorový textový kanál.
-  - Pri neindexovaných vláknach môže nastať stavový kód HTTP 202. Implementácia naň reaguje zaznamenaním problému `Stop.NOT_INDEXED` a čiastočným úspechom (kód 9).
+  - Pri neindexovaných vláknach môže nastať stavový kód HTTP 202 (na reálnom účte 2026-11-04 sa neobjavil, rovnako ako súkromné vlákna typu 12). Implementácia naň reaguje zaznamenaním problému `Stop.NOT_INDEXED` a čiastočným úspechom (kód 9).
 
 ## Dôsledky
 

@@ -138,6 +138,7 @@ Príkaz na prehľadný výpis vlákien kanála a príspevkov vo fórach bez sťa
   - *Human režim:* Rich tabuľka so stĺpcami `ID`, `Archived`, `Messages`, `Last activity` (v miestnom čase), `Tags` (názvy tagov vo fóre) a `Name`.
   - *Plain režim:* riadky oddelené tabulátorom (TSV) s hlavičkou.
   - *JSON formát (`--format json`):* pole JSON objektov `{id, name, parent_id, type, archived, locked, message_count, created, last_activity, tags}`.
+- **Počet správ (`Messages`, `message_count`):** pri príspevku fóra nezahŕňa štartovaciu správu. `[OVERENÉ]` na reálnom účte 2026-11-04 na 2 príspevkoch: zoznam ukázal 9 a 11, stiahnutie vrátilo 10 a 12 správ ([analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md)).
 
 ### 4.5 `messages`
 
@@ -200,7 +201,7 @@ discoop messages -c "isc-*" --since-last --agent
     - kanál, ktorý nemôže mať vlákna, alebo akýkoľvek kanál pri `--no-threads`: preskočí sa úplne (0 requestov),
     - textový alebo oznamovací kanál so zapnutými vláknami: jeho vlastné správy sa nesťahujú, ale zoznam jeho vlákien sa načíta a vlákna sa stiahnu ako inak,
     - fórum a media kanál sa nepreskakujú nikdy.
-    - `[PREDPOKLAD]` `last_message_id` textového kanála je spoľahlivé (posunie sa s každou novou správou): potvrdené len na dvoch vzorkách z probe vlákien.
+    - `[PREDPOKLAD]` `last_message_id` textového kanála je spoľahlivé (posunie sa s každou novou správou): potvrdené na dvoch vzorkách z probe vlákien a v kontrole na reálnom účte 2026-11-04 (20 z 25 čitateľných kanálov sedelo, v 4 ukazovalo na novšiu správu, v 1 bola správa novšia než pole; [analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md)).
   - Po prerušenom a obnovenom behu si kanály uložené prerušeným behom ponechajú starý stav a pri najbližšom `--since-last` sa stiahnu znova (duplicity, nič sa nestratí). Beh na to upozorní poznámkou.
   - Preventívna kontrola voľného miesta na disku pred stiahnutím príloh každého kanála: počíta sa len to, čo sa naozaj stiahne (`ExportWriter.bytes_to_download`), a odmietne sa s kódom 1, ak nezostane aspoň 50 MB bezpečnostná rezerva (`service._check_disk_space`).
 - **Delenie na tokeny a odhad tokenov:**
@@ -355,9 +356,9 @@ Interaktívne terminálové rozhranie (TUI) postavené na knižnici Textual (P16
 **Dialógy a Help:**
 - Help (`F1` / `?`): ovládanie podľa ADR 0014 a živý výpis `discoop --help` vrátane podpríkazov z Typer aplikácie. Settings (`F2`), Login (`F3`, QR alebo token), Preview a časové okno majú rovnaký vzhľad ako hlavná obrazovka. Token sa ukladá až po overení.
 
-**Fóra a media kanály v TUI (2026-11-04):** vyberajú sa ako ostatné kanály (výber berie `MESSAGE_TYPES` aj `FORUM_TYPES`; kategória sa nevyberá, jej výber vyberie jej kanály). Ich príspevky sú vlákna, preto pri Threads = no a vybranom fóre formulár ukáže varovanie a `F5` štart odmietne hláškou ešte pred prvým volaním Discordu (služba by to odmietla s kódom 8). Overené len testami s falošným Discordom (`tests/test_tui_forums.py`).
+**Fóra a media kanály v TUI (2026-11-04):** vyberajú sa ako ostatné kanály (výber berie `MESSAGE_TYPES` aj `FORUM_TYPES`; kategória sa nevyberá, jej výber vyberie jej kanály). Ich príspevky sú vlákna, preto pri Threads = no a vybranom fóre formulár ukáže varovanie a `F5` štart odmietne hláškou ešte pred prvým volaním Discordu (služba by to odmietla s kódom 8). Overené testami s falošným Discordom (`tests/test_tui_forums.py`), na reálnom účte zatiaľ nie.
 
-**Známe obmedzenia:** TUI nemá `--since-last` ani `--max-tokens`; Esc počas bežiacej HTTP požiadavky zaberie až po jej skončení (timeout 20 s); pauzy pri opakovaní sťahovania príloh sa nedajú prerušiť hneď; v šírke 80 stĺpcov sa Footer nezmestí celý; CLI príkaz má vždy `--delay` z configu. Beh v skutočnom termináli a na reálnom účte zatiaľ neoverený.
+**Známe obmedzenia:** TUI nemá `--since-last` ani `--max-tokens`; Esc počas bežiacej HTTP požiadavky zaberie až po jej skončení (timeout 20 s); pauzy pri opakovaní sťahovania príloh sa nedajú prerušiť hneď; v šírke 80 stĺpcov sa Footer nezmestí celý; CLI príkaz má vždy `--delay` z configu. Beh `discoop ui` na reálnom účte a QR prihlásenie v TUI potvrdil používateľ 2026-11-04 ([analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md)). Ctrl+C v TUI, výber fór a prepínač Threads na reálnom účte a Linux či macOS ostávajú neoverené.
 
 ### 4.9 `doctor`
 
@@ -536,7 +537,7 @@ Podrobné overenie správania Discord API na používateľskom účte popisuje [
   - Stav synchronizácie sa ukladá do `sync-state.json` v `paths.data_dir()`, kľúčovaný ID používateľského účtu (jedno volanie `GET /users/@me`). Nezávislý od SQLite cache (prežije `clear_cache()`).
   - Pre kanál bez stavu sa použije predvolené 24-hodinové okno s informačnou poznámkou.
   - Stav sa posunie až po úplnom a úspešnom dokončení kanála (nie pri prerušení, chybe, ani pri `truncated`).
-  - Preskakovanie neaktívnych kanálov: ak má kanál `Channel.last_message_id <= saved_id`, kanál bez podpory vlákien (alebo akýkoľvek kanál pri `--no-threads`) sa preskočí úplne (0 requestov). Textový alebo oznamovací kanál so zapnutými vláknami nesťahuje vlastné správy, ale jeho vlákna sa čítajú ďalej. Fórum a media kanál sa nepreskakujú nikdy. `[PREDPOKLAD]` `last_message_id` je spoľahlivé a nové odpovede vo vláknach ho v rodičovskom kanáli neposúvajú (potvrdené len na malej vzorke z probe vlákien).
+  - Preskakovanie neaktívnych kanálov: ak má kanál `Channel.last_message_id <= saved_id`, kanál bez podpory vlákien (alebo akýkoľvek kanál pri `--no-threads`) sa preskočí úplne (0 requestov). Textový alebo oznamovací kanál so zapnutými vláknami nesťahuje vlastné správy, ale jeho vlákna sa čítajú ďalej. Fórum a media kanál sa nepreskakujú nikdy. `[PREDPOKLAD]` `last_message_id` je spoľahlivé a nové odpovede vo vláknach ho v rodičovskom kanáli neposúvajú (z probe vlákien malá vzorka; na reálnom účte 2026-11-04 pole sedelo v 20 z 25 čitateľných kanálov, kým odpovede vo vláknach vzorka nerozhodla, [analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md)).
   - Po prerušenom a obnovenom behu si kanály uložené prerušeným behom ponechajú starý stav a nabudúce sa stiahnu znova (duplicity, nič sa nestratí).
   - Kontrola voľného miesta na disku: pred stiahnutím príloh každého kanála sa spočíta, čo sa naozaj stiahne (`ExportWriter.bytes_to_download`), a porovná s voľným miestom cez `shutil.disk_usage`. Ak nezostáva aspoň 50 MB bezpečnostná rezerva, beh zlyhá s kódom 1 pred požiadavkami na CDN.
 
@@ -748,7 +749,7 @@ Scoop/
 5. **Human režim** (Rich), `agent-guide`, help texty, TUI vylepšenia (2026-11-04: **hotové**).
 6. **`--since-last`**, delenie na tokeny, profily v CLI (2026-11-04: **hotové**, ADR 0020).
 
-Kroky 4 až 6 a odolný export (ADR 0017) sú overené len testami s falošným Discordom (`httpx.MockTransport`). Test na reálnom účte (fórum, vlákna, `--since-last`, Ctrl+C a obnova, `--max-tokens` so zipom, `discoop ui`) ešte chýba.
+Kroky 4 až 6 a odolný export (ADR 0017) sú overené testami s falošným Discordom (`httpx.MockTransport`) a čiastočne na reálnom účte 2026-11-04 ([analýza](analyzy/overenie-na-realnom-ucte-2026-11-04.md)): fórum a vlákna, `threads`, `--since-last`, prerušenie skriptom a obnova, `--max-tokens` so zipom, `doctor`, `--debug`/`--log`, `--progress-json` a beh `discoop ui` s QR prihlásením. Na reálnom účte ešte chýba skutočné Ctrl+C z konzoly, Ctrl+C a výber fór v TUI, export veľkého fóra, nová odpoveď vo vlákne medzi dvoma behmi `--since-last`, súkromné vlákna a HTTP 202, export s množstvom príloh a Linux či macOS.
 
 **Testy:** unit testy (snowflake, parsovanie času, resolve, renderery, sťahovanie, export) nad anonymizovanými fixtures a MockTransport, bez živého API.
 

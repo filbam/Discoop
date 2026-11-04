@@ -59,11 +59,17 @@ Doterajší prístup mal niekoľko nedostatkov:
 
 ## Dôsledky
 
-Značka `[OVERENÉ]` pri nasledujúcich bodoch znamená overené testami proti falošnému Discordu (`httpx.MockTransport`) a lokálnemu súborovému systému, nie na skutočnom účte ani pri skutočnom výpadku siete.
+Značka `[OVERENÉ]` pri nasledujúcich bodoch znamená overené testami proti falošnému Discordu (`httpx.MockTransport`) a lokálnemu súborovému systému. Skutočný výpadok siete takto overený nebol.
+
+Na reálnom účte (2026-11-04, [analýza](../analyzy/overenie-na-realnom-ucte-2026-11-04.md)) sa navyše overilo:
+- Prerušenie skriptom (`KeyboardInterrupt` vyvolaný z udalostí CLI pri skutočnom sťahovaní po sieti) po 2. z 3 kanálov: kód 130, `<cieľ>.partial` s manifestom `complete: false, interrupted: true` a 2 kanálmi, cieľ neexistoval, hláška „Saved 2 of 3 channels in ....partial. Run the same command again to continue.“ Ten istý príkaz potom stiahol už len 3. kanál, publikoval cieľ (`complete: true`), zmazal `.partial` a skončil s kódom 0.
+- Prerušenie uprostred prvého kanála exportu jedného fóra (počas jeho 2. vlákna): kód 130, žiadny `.partial`, žiadny cieľ, žiadne súbory `.part`. Opakovanie prebehlo normálne.
+- Export fóra (2 príspevky, 22 správ) skončil s úplným manifestom. Zip s `--max-tokens` (3 časti) bol platný a časti neboli v manifeste.
+- **Skutočný signál Ctrl+C z konzoly** (počas čakania na sieť ani počas sťahovania súboru) sa na reálnom účte neskúšal. Pozorovanie: v oboch prerušeniach `main()` nevypísal riadok „Interrupted.“, kód 130 vyšiel aj bez neho (vetva s `out.error(...)` vyzerá nedosiahnuteľná, neškodné).
 
 - `[OVERENÉ]` Export sa zapisuje po kanáloch priamo na disk, nie z jedného celku v pamäti.
 - `[PREDPOKLAD]` Nízka pamäťová stopa aj pri exportoch stoviek tisíc správ: testy ju nemerali. Delenie `--max-tokens` načíta hotový `messages.md` naraz do pamäte.
 - `[OVERENÉ]` Predchádzajúci hotový export v cieľovom priečinku alebo zip súbore nie je nikdy prepísaný ani poškodený nedokončeným behom.
 - `[OVERENÉ]` Prerušený beh je možné okamžite obnoviť spustením toho istého príkazu bez opätovného sťahovania už hotových kanálov a príloh.
 - `[OVERENÉ]` Kód 9 umožňuje skriptom a AI agentom jednoznačne rozlíšiť úplný úspech (0), čiastočný úspech (9) a fatálnu chybu.
-- `[OVERENÉ]` Ctrl+C naďalej vracia kód 130 pri zachovaní staging priečinka `.partial` pre budúcu obnovu.
+- `[OVERENÉ]` Ctrl+C naďalej vracia kód 130 pri zachovaní staging priečinka `.partial` pre budúcu obnovu (na reálnom účte overené prerušením vyvolaným skriptom, nie signálom konzoly).
