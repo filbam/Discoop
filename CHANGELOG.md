@@ -6,6 +6,32 @@ verzie podľa [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Pridané
+- **Voliteľné diagnostické logovanie (P24, [ADR 0018](docs/rozhodnutia/0018-logovanie.md)):**
+  - Nový modul `src/discoop/logs.py` s funkciami `setup_logging`, `teardown_logging` a `DiscoopFormatter`. Predvolene je logovanie vypnuté (na logger `discoop` nie je pripojený žiadny handler), po zapnutí sa pripája výhradne naň (`propagate=False`).
+  - Globálne CLI prepínače `--debug` (štruktúrovaný log na `stderr`) a `--log FILE` (append do súboru v UTF-8), ktoré fungujú pred aj za podpríkazom (`_hoist_mode_flags`).
+  - Podpora premenných prostredia `DISCOOP_DEBUG=1` a `DISCOOP_LOG=cesta` (prepínač má prednosť).
+  - Prísny bezpečnostný filter: nikdy sa neloguje token `Authorization`, podpísané URL príloh (`?ex=&is=&hm=`), texty správ, telá odpovedí, mená používateľov ani názvy serverov/kanálov (iba číselné ID).
+  - Tretie strany (`httpx`, `httpcore`, `websockets`) sú stíšené na úroveň `WARNING`.
+  - Logovanie v `api.py` (metóda, cesta bez query, povolené parametre, HTTP stav, latencia v ms, veľkosť odpovede, 429 pauzy a sieťové opakovania), `scrape.py` (stránky správ, počty, ID najstaršej/najnovšej správy) a `attachments.py` (len host z URL, status, zapísané bajty).
+  - Automatické vypnutie animovaného spinnera pri `--debug`. `discoop ui --debug` je odmietnuté s kódom 8 a nápovedou (UI ovláda obrazovku), zatiaľ čo `discoop ui --log FILE` je povolené.
+- **Diagnostika systému príkazom `discoop doctor` (P25):**
+  - Nový príkaz `discoop doctor` na kontrolu 6 kľúčových bodov: prihlásenie (`login` cez `GET /users/@me`), dostupnosť Discord API (`network`, rozlíši chybu siete od neplatného tokenu; pri neprihlásení `skipped`), zapisovateľnosť priečinka exportov (`export_dir` z configu alebo aktuálneho priečinka cez `os.access` najbližšieho existujúceho rodiča), voľné miesto na disku cez `disk_usage` (`disk_space`, FAIL pod 100 MB), vek cache serverov (`cache`) a verzia nástroja (`version`).
+  - Výstup v plain režime vo formáte `check<TAB>OK|FAIL<TAB>detail`, v human režime tabuľka (`check`, `status`, `detail`). Exit kód podľa prvého zlyhaného bodu (`AUTH_REQUIRED` 2, `NETWORK` 7, inak `ERROR` 1), pri úspechu 0.
+- **Strojovo čitateľné zoznamy a formát JSON (P25):**
+  - Prepínač `--format text|json` pre príkazy `servers`, `channels`, `status` a `config list`.
+  - Pomocná metóda `Output.json(data)` pre unifikovaný JSON výstup na `stdout`. Diagnostické správy (napr. vek cache) idú na `stderr`.
+  - `servers` vracia zoznam objektov `[{"id": "...", "name": "...", "member_count": ...}]`.
+  - `channels` vracia plochý zoznam `{id, name, type, type_name, category, position}` rešpektujúci filter `--type`.
+- **JSONL priebeh a odhad času pri sťahovaní správ (P25):**
+  - Prepínač `--progress-json` pre `discoop messages`: emituje štruktúrované JSONL riadky na `stderr` pre udalosti `channel_start`, `page`, `pause`, `channel_done`, `skipped`, `warning`.
+  - Výpočet percent dokončenia (`~42%`) a odhadu zostávajúceho času (ETA, napr. `about 3 min left`) v spinneri human režimu aj vo verbose textovom výstupe (`messages -v`).
+- **Nové pomocné moduly a inteligentné správanie CLI (P25):**
+  - `src/discoop/progress.py`: výpočet percent a odhadu času (`fraction_done`, `window_start_id`, `eta_seconds`, `format_eta`) na základe Discord snowflake ID.
+  - `src/discoop/profiles.py`: správa pomenovaných profilov v `<config_dir>/profiles.json` (`load`, `save`, `delete`, `names`) s atomickým zápisom a validáciou.
+  - `src/discoop/tokens.py`: odhad počtu tokenov textu `estimate_tokens` a formátovanie `format_tokens`.
+  - `src/discoop/resolve.py`: automatické návrhy pri preklepe v názve servera alebo kanála (`Did you mean: ...?`) cez `difflib.get_close_matches` pri `NotFoundError`.
+- **Výskumný probe skript pre vlákna a fóra (`prototype/probe_threads.py`):**
+  - Read-only probe skript a sekcia 4 v `prototype/README.md` pre overenie správania Discord API pri vláknach a fórach (`threads/search`, offsety, typy vlákien, porovnanie `last_message_id`).
 - **Inštalácia z GitHubu (P22, [ADR 0015](docs/rozhodnutia/0015-verejne-repo-a-instalacia.md)):** `uv tool install git+https://github.com/filbam/Discoop` dá príkaz `discoop` bez `uv run`. README má návod pre Windows, Linux a macOS (inštalácia, aktualizácia, odinštalovanie) a sekciu Vývoj. Repo `filbam/Discoop` je verejné.
 - **Priečinok a názov exportu v TUI (P21, P23, [ADR 0016](docs/rozhodnutia/0016-predvoleny-priecinok-exportov-v-tui.md)):** riadok formulára `Path` je nahradený dvoma samostatnými riadkami `Folder` a `Name` (v tomto poradí, obidva predvolene prázdne, pri Target=preview skryté).
   - Prázdny `Name`: `discord-export-<dátum a čas>` v miestnom čase, napr. `discord-export-2026-1104-0108` (`YYYY-MMDD-HHMM`). Názov sa zafixuje pri `F5`. Kolízia automatického názvu v tej istej minúte pridá `-2`, `-3`.
@@ -125,6 +151,9 @@ verzie podľa [SemVer](https://semver.org/).
 - ADR 0005: QR login v termináli bez prehliadača.
 
 ### Zmenené
+- **Upratanie CLI a rozšírenie testov (2026-11-04):**
+  - Z `src/discoop/cli.py` bol odstránený nepoužívaný kód (`_export_target`, `_export`, `_message_targets`, `_progress`, `_unreadable`, `_local_time`).
+  - Rozšírenie testovacieho balíka na 511 automatizovaných testov (85 nových testov pokrývajúcich diagnostické logovanie, doctor, JSON formáty, profily, pomocné moduly a návrhy pri preklepe).
 - **TUI prerobené podľa [ADR 0014](docs/rozhodnutia/0014-tui-klavesnica-jeden-strom.md) (2026-11-04)** na základe skúšky používateľa:
   - Rozloženie: jeden strom namiesto troch stĺpcov, panel Export, log vždy dole. Pôvodný „Discord-inspired“ layout z ADR 0013 nahradený.
   - Vzhľad: téma `ansi-dark` (farby terminálu), Ctrl+P mení tému. CSS bez hex farieb, prvky vysoké 1 riadok (`compact=True`), bez emoji a veľkých tlačidiel.

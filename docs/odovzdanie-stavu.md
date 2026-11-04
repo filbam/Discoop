@@ -14,19 +14,19 @@ Pred začatím akejkoľvek práce si **povinne prečítaj** nasledujúce dokumen
    - **Git pravidlá:** Vetva `main`, autor `filbam <f.bambura@gmail.com>`. Commitovanie po každom overenom kroku (robí hlavný Claude), **zákaz `git push` bez výslovného pokynu používateľa**.
    - **Zaznamenávanie všetkého ([ADR 0001](rozhodnutia/0001-zaznamenavanie-a-verzovanie.md)):** Každá zmena, rozhodnutie alebo požiadavka musí byť zapísaná v dokumentácii v tom istom pracovnom kroku.
 2. **[docs/poziadavky.md](poziadavky.md):**
-   - Zoznam všetkých požiadaviek používateľa (P1–P23). Zdroj pravdy o tom, čo má nástroj dokázať.
+   - Zoznam všetkých požiadaviek používateľa (P1–P25). Zdroj pravdy o tom, čo má nástroj dokázať.
 3. **[docs/navrh-nastroja.md](navrh-nastroja.md):**
    - Architektúra celého nástroja, štruktúra balíka `src/discoop/`, zoznam príkazov, exit kódy, dátové toky a otvorené otázky.
 4. **[docs/dennik.md](dennik.md):**
    - Chronologický denník doterajšieho vývoja, záznamy testov na reálnom účte používateľa a riešené incidenty.
 5. **[docs/rozhodnutia/README.md](rozhodnutia/README.md):**
-   - Register všetkých Architectural Decision Records ([ADR 0001](rozhodnutia/0001-zaznamenavanie-a-verzovanie.md) až [ADR 0016](rozhodnutia/0016-predvoleny-priecinok-exportov-v-tui.md)).
+   - Register všetkých Architectural Decision Records ([ADR 0001](rozhodnutia/0001-zaznamenavanie-a-verzovanie.md) až [ADR 0018](rozhodnutia/0018-logovanie.md)).
 
 ---
 
 ## 2. Aktuálny stav projektu (k 2026-11-04)
 
-- **Testovacie pokrytie:** Všetkých **426 automatizovaných testov** prechádza (`uv run pytest`).
+- **Testovacie pokrytie:** Všetkých **511 automatizovaných testov** prechádza (`uv run pytest`).
 - **Nainštalované prostredie:** Python 3.12+, projekt spravovaný cez `uv`. Vývoj v repe ide cez `uv run discoop ...`, používatelia majú nainštalovaný príkaz `discoop` (`uv tool install git+https://github.com/filbam/Discoop`, návod v [README.md](../README.md)).
 - **Repo je verejné** (P22, [ADR 0015](rozhodnutia/0015-verejne-repo-a-instalacia.md)). Do gitu nesmie ísť token, cookies ani mená a texty správ iných ľudí. `[OVERENÉ]`: inštalácia z lokálneho klonu na Windows. `[PREDPOKLAD]`: inštalácia z GitHubu, Linux, macOS.
 
@@ -102,6 +102,43 @@ Nástroj umožňuje voľbu tempa cez konfiguráciu (`discoop config set mode saf
   - **Známe obmedzenia:** Esc počas bežiacej HTTP požiadavky zaberie až po jej skončení (timeout 20 s), pauzy pri opakovaní sťahovania príloh v `attachments.py` sa nedajú prerušiť hneď, v šírke 80 stĺpcov sa Footer nezmestí celý, CLI príkaz má vždy `--delay` z configu, v Help a Preview nefunguje výber textu myšou.
   - **Neoverené:** beh v skutočnom termináli (Windows Terminal), reálny účet, skenovanie QR telefónom. Overené sú Pilot testy s falošnými dátami a screenshoty.
 
+#### H. Voliteľné diagnostické logovanie (`logs.py`, [ADR 0018](rozhodnutia/0018-logovanie.md), P24)
+- **Modul `src/discoop/logs.py`:** `setup_logging`, `teardown_logging`, `DiscoopFormatter`. Predvolene vypnuté (žiadny handler), po zapnutí sa pripája výhradne na logger `discoop` (`propagate=False`).
+- **Aktivácia:** globálne prepínače `--debug` (stderr) a `--log FILE` (súbor) alebo premenné prostredia `DISCOOP_DEBUG=1` a `DISCOOP_LOG=cesta`. Hoisting mechanizmus umožňuje použitie pred aj za podpríkazom.
+- **Bezpečnostné záruky:** nikdy sa nelogujú autentifikačné tokeny, podpisy v CDN URL (`ex`, `is`, `hm`), texty správ, telá odpovedí, mená používateľov ani názvy kanálov/serverov (iba číselné snowflake ID). Loggery tretích strán (`httpx`, `httpcore`, `websockets`) sú stíšené na `WARNING`.
+- **Integrácia s UI:** pri `--debug` sa vypína spinner. Príkaz `discoop ui --debug` je odmietnutý s kódom 8 (UI vlastní obrazovku), ale `discoop ui --log FILE` je povolené.
+
+#### I. Diagnostika prostredia (`discoop doctor`, P25)
+- **Nový príkaz `discoop doctor`:**
+  - Kontroluje 6 kľúčových bodov behového prostredia:
+    - `login`: prihlásenie cez `GET /users/@me` (`api.get_me()`),
+    - `network`: dostupnosť Discord API (rozlíši sieťovú chybu od neplatného tokenu; pri neprihlásenom stave `skipped`),
+    - `export_dir`: zapisovateľnosť priečinka exportov (`export-dir` z configu, inak aktuálny priečinok) cez `os.access` najbližšieho existujúceho rodiča (nič nevytvára),
+    - `disk_space`: voľné miesto cez `shutil.disk_usage` (FAIL pod 100 MB, inak veľkosť v MB),
+    - `cache`: vek cache serverov,
+    - `version`: verzia nástroja (`__version__`).
+  - Výstup: v plain režime riadky oddelené tabulátorom `check<TAB>OK|FAIL<TAB>detail`, v human režime tabuľka (`check`, `status`, `detail`).
+  - Exit kód podľa prvého zlyhaného bodu (`AUTH_REQUIRED` 2, `NETWORK` 7, inak `ERROR` 1), pri úspechu 0.
+
+#### J. Strojovo čitateľné výstupy a JSONL priebeh (P25)
+- **JSON formát (`--format text|json`):**
+  - Implementovaný na príkazoch `servers`, `channels`, `status` a `config list` cez `Output.json()`.
+  - `servers` vracia zoznam objektov `[{"id": "...", "name": "...", "member_count": ...}]`.
+  - `channels` vracia vždy plochý zoznam objektov `{id, name, type, type_name, category, position}`.
+  - `status` a `config list` vracajú štruktúrované JSON objekty na stdout.
+- **Priebeh sťahovania (`--progress-json`):**
+  - Pre `discoop messages`: zapisuje JSONL udalosti na stderr (`channel_start`, `page`, `pause`, `channel_done`, `skipped`, `warning`).
+  - Výpočet percent dokončenia (`~42%`) a odhadu času (ETA, napr. `about 3 min left`) podľa snowflake ID v spinneri aj vo verbose výstupe.
+
+#### K. Pomocné moduly (`progress.py`, `profiles.py`, `tokens.py`, `resolve.py`, P25)
+- **`src/discoop/progress.py`:** čisté funkcie `fraction_done`, `window_start_id`, `eta_seconds`, `format_eta` na kalkuláciu percent a odhadu zostávajúceho času podľa snowflake ID správ.
+- **`src/discoop/profiles.py`:** správa profilov v `<config_dir>/profiles.json` (`load`, `save`, `delete`, `names`) s atomickým ukladaním.
+- **`src/discoop/tokens.py`:** hrubý odhad počtu tokenov textu `estimate_tokens` (`len(text)/4`) a formátovanie `format_tokens`.
+- **`src/discoop/resolve.py`:** fuzzy návrhy pri preklepoch v názve servera alebo kanála (`Did you mean: ...?`) cez `difflib.get_close_matches`.
+
+#### L. Výskumný probe skript pre vlákna a fóra (`prototype/probe_threads.py`)
+- Read-only probe skript a sekcia 4 v `prototype/README.md` pre overenie správania Discord API pri vláknach a fórach pred implementáciou kroku 4. Skript je pripravený pre spustenie používateľom na jeho účte.
+
 ---
 
 ## 3. Posledné commity na vetve `main`
@@ -132,8 +169,9 @@ Podľa plánu v [docs/navrh-nastroja.md](navrh-nastroja.md) (sekcia 14) a zázna
 
 1. **Používateľský test prerobeného TUI na reálnom účte:**
    - Používateľ otestuje `discoop ui` (vo vývoji `uv run discoop ui`) v skutočnom termináli vrátane načítania serverov/kanálov, exportu v `safe` tempe a prihlásenia cez QR.
-2. **Krok 4: Vlákna a fóra (`discoop threads`):**
-   - Implementácia príkazu `discoop threads` na zobrazenie aktívnych a archivovaných vlákien kanála.
+2. **Spustenie probe skriptu a krok 4 (Vlákna a fóra):**
+   - Používateľ na svojom účte spustí pripravený skript `uv run python prototype/probe_threads.py` (anonymizovaný výstup do `prototype/out/`) na overenie stránkovania archivovaných a aktívnych vlákien, správania offsetov vo fórach a konzistencie `last_message_id`.
+   - Na základe zistení z probe skriptu: implementácia príkazu `discoop threads` na zobrazenie aktívnych a archivovaných vlákien kanála.
    - Podpora prepínačov `--threads / --no-threads` v príkaze `discoop messages` a integrácia do TUI výberu.
 3. **Krok 5 a 6: Pomocník pre AI agentov a synchronizácia:**
    - Príkaz `discoop agent-guide` pre rýchlu referenciu príkazov priamo do kontextu LLM.

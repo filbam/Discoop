@@ -53,9 +53,12 @@ discoop messages              stiahnutie správ (+ príloh)
 discoop config                predvolené nastavenia (napr. default server)
 discoop agent-guide           kompaktná referencia pre AI agentov
 discoop ui                    interaktívne terminálové rozhranie (TUI)
+discoop doctor                diagnostika prostredia, tokenu a priečinka exportov
 ```
 
-**Globálne prepínače:** `--plain` (alias `--agent`), `--human`, `--quiet`, `--verbose`.
+**Globálne prepínače:** `--plain` (alias `--agent`), `--human`, `--quiet`, `--verbose`, `--debug`, `--log FILE`.
+
+Prepínače `--debug` a `--log FILE` (prípadne premenné prostredia `DISCOOP_DEBUG=1` a `DISCOOP_LOG=cesta`) zapínajú voliteľné štruktúrované diagnostické logovanie na stderr, resp. do súboru ([ADR 0018](rozhodnutia/0018-logovanie.md)). Vďaka hoistingu prepínačov fungujú pred aj za podpríkazom (napr. `discoop messages --debug ...`). Pri `--debug` sa automaticky vypne Rich animovaný spinner, aby logy nepoškodzovali terminál. Príkaz `discoop ui --debug` je odmietnutý s kódom 8 (UI plne ovláda obrazovku), ale `discoop ui --log FILE` je povolené.
 
 Server a kanál sa zadávajú cez **pomenované parametre** `-s/--server` a `-c/--channel`, nie pozične.
 Pre agentov je to jednoznačnejšie. Hodnota môže byť ID alebo meno (pozri sekciu 5).
@@ -84,11 +87,12 @@ Protokol popisuje [analyzy/discord-login.md](analyzy/discord-login.md).
    spustiť `discoop login`.
 - **Bezpečnosť:** QR ani token sa nikdy nelogujú.
 - **Záložná cesta** a správanie `login` v agent režime sú otvorené rozhodnutia (sekcia 15, body 7 a 8).
+- **Strojový výstup:** `discoop status [--format text|json]` umožňuje získať stav prihlásenia ako štruktúrovaný JSON objekt na stdout.
 
 ### 4.2 `servers`
 
 ```
-discoop servers [--refresh]
+discoop servers [--refresh] [--format text|json]
 ```
 Číta z cache. Obnoví ju `--refresh` alebo automaticky, ak je cache prázdna.
 Zdroj: `GET /users/@me/guilds?with_counts=true` **[OVERENÉ]**. Stĺpce: meno, ID, počet členov (`approximate_member_count`).
@@ -96,17 +100,19 @@ Zdroj: `GET /users/@me/guilds?with_counts=true` **[OVERENÉ]**. Stĺpce: meno, I
 **Implementované 2026-11-03:**
 - Human režim vypíše tabuľku. Agent režim vypíše hlavičku `id members name` a riadky, kde sú stĺpce oddelené tabulátorom,
   zoradené podľa mena.
+- Prepínač `--format text|json`: formát `json` vráti strojovo čitateľné pole objektov `[{"id": "...", "name": "...", "member_count": ...}]` na stdout. Poznámky o cache idú na stderr.
 - Ak sa použila cache, na stderr pribudne poznámka s jej vekom (agent ju vidí len s `--verbose`).
 
 ### 4.3 `channels`
 
 ```
-discoop channels [-s SERVER] [--refresh] [--type text,forum,...] [--flat]
+discoop channels [-s SERVER] [--refresh] [--type text,forum,...] [--flat] [--format text|json]
 ```
 - **Poradie** je ako v sidebare Discordu: najprv kanály bez kategórie, potom kategórie podľa `position`.
   V kategórii sú textové kanály nad hlasovými, potom podľa `position` a nakoniec podľa ID.
 - **Human režim:** strom podľa kategórií. `--flat` dá tabuľku.
 - **Agent režim:** vždy riadky so stĺpcami `id type category name` oddelenými tabulátorom.
+- **JSON formát (`--format json`):** vždy plochý zoznam objektov `{id, name, type, type_name, category, position}` na stdout (rešpektuje filter `--type`, nie strom). Poznámky o cache idú na stderr.
 - **Filter `--type`** (čiarkami): `text, voice, announcement, stage, directory, forum, media`.
 - **Skryté kanály** (`___hidden___`, flag `1<<17`) sa nevypisujú.
 - **Pozor, zistené pri teste 2026-11-03:** REST vracia **aj kanály, ktoré používateľ nevidí**, a to s reálnym menom
@@ -135,7 +141,7 @@ discoop messages -c CHANNEL [-c CHANNEL ...] [-s SERVER]
                  [--format text|md|json|jsonl] [--raw]
                  [--print] [--out DIR] [--zip FILE] [--no-files]
                  [--max-messages N] [--delay SEC]
-                 [--safe | --fast]
+                 [--safe | --fast] [--progress-json]
 ```
 
 **Výber kanálov:**
@@ -166,8 +172,11 @@ discoop messages -c "isc-*" --since-last --agent
 **Implementované 2026-11-03 (krok 2 do konzoly, krok 3 s exportom a prílohami, otestované na účte):**
 - **Prepínače:** `-c` (opakovateľný), `-s`, `--from`, `--to`, `--last`, `--format text|md|json|jsonl`, `--include-system`,
   `--max-messages`, `--out DIR`, `--zip FILE`, `--print`, `--no-files`, `--max-file-size MB`,
-  `--safe`, `--fast`, `--delay SEC`.
+  `--safe`, `--fast`, `--delay SEC`, `--progress-json`.
   Prepínače neskorších krokov zatiaľ nie sú (`--threads/--no-threads`, `--since-last`, `--raw`).
+- **Priebeh a odhad času (`--progress-json`, percentá, ETA):**
+  - Prepínač `--progress-json` potláča spinner a textové poznámky a na stderr zapisuje jeden JSON objekt na riadok (JSONL) pre udalosti `channel_start`, `page`, `pause`, `channel_done`, `skipped`, `warning`. Obsahuje polia `event`, `index`, `total`, `channel_id`, `fraction`, `eta_seconds`, `seconds`, `reason` (bez textov správ a mien).
+  - Pri bežnom behu (v human spinneri aj v plain režime s `-v`) sa na základe snowflake ID priebežne zobrazujú percentá dokončenia a odhad zostávajúceho času (napr. `~42%, about 3 min left`).
 - **Režimy sťahovania (`--safe` vs `--fast`):**
   - `--safe` (predvolený): bezpečný režim imitujúci bežného používateľa v prehliadači. Stránkovanie po 25 správach, náhodný rozptyl (jitter) 2.0 až 4.5 s medzi API requestami, čítacie pauzy 8.0 až 15.0 s každých 5 až 8 requestov, pauza 3.0 až 6.0 s pri prepnutí kanála a 1.0 až 3.0 s medzi sťahovaním príloh z CDN.
   - `--fast`: rýchly dávkový režim vhodný pre exporty s limitom 100 správ na request, pevnou pauzou podľa `--delay` (alebo z konfigurácie, predvolene 1.0 s), bez dodatočných čítacích pauz a bez pauz medzi súbormi/kanálmi.
@@ -229,7 +238,7 @@ discoop config set export-dir "exports"
 discoop config set mode safe
 discoop config get delay
 discoop config unset delay
-discoop config list
+discoop config list [--format text|json]
 ```
 Uložené v `config.toml` v konfiguračnom adresári (sekcia 10).
 
@@ -241,6 +250,7 @@ Uložené v `config.toml` v konfiguračnom adresári (sekcia 10).
 - **`export-dir`** (pridané v kroku 3): priečinok pre relatívne cesty `--out`/`--zip`. Ukladá sa ako absolútna cesta.
   V TUI je to predvolený priečinok exportov, bez neho `Documents/discoop` ([ADR 0016](rozhodnutia/0016-predvoleny-priecinok-exportov-v-tui.md)).
   CLI bez neho ostáva pri aktuálnom priečinku.
+- **Strojový výstup:** `discoop config list --format json` vráti konfiguráciu ako JSON objekt na stdout.
 - **Neznámy kľúč** alebo zlá hodnota skončí kódom `8`.
 
 ### 4.7 `agent-guide`
@@ -288,6 +298,25 @@ Interaktívne terminálové rozhranie (TUI) postavené na knižnici Textual (P16
 
 **Známe obmedzenia:** Esc počas bežiacej HTTP požiadavky zaberie až po jej skončení (timeout 20 s); pauzy pri opakovaní sťahovania príloh sa nedajú prerušiť hneď; v šírke 80 stĺpcov sa Footer nezmestí celý; CLI príkaz má vždy `--delay` z configu. Beh v skutočnom termináli a na reálnom účte zatiaľ neoverený.
 
+### 4.9 `doctor`
+
+```
+discoop doctor
+```
+
+Diagnostický príkaz na overenie behového prostredia, spojenia a priečinka exportov:
+- **Kontroluje 6 bodov:**
+  - `login`: prihlásenie cez `GET /users/@me` (`api.get_me()`),
+  - `network`: dostupnosť Discord API (rozlíši sieťovú chybu od neplatného tokenu; ak používateľ nie je prihlásený, je `skipped`),
+  - `export_dir`: zapisovateľnosť priečinka exportov (`export-dir` z configu, inak aktuálny priečinok) cez `os.access` na najbližšieho existujúceho rodiča (nič nevytvára),
+  - `disk_space`: voľné miesto cez `shutil.disk_usage` (FAIL pod 100 MB, inak OK s veľkosťou v MB),
+  - `cache`: vek cache (`servers`),
+  - `version`: verzia nástroja (`__version__`).
+- **Výstup:**
+  - v human režime Rich tabuľka (`check`, `status`, `detail`),
+  - v plain režime (`--plain`) riadky oddelené tabulátorom `check<TAB>OK|FAIL<TAB>detail`.
+- **Exit kód:** exit kód prvého zlyhaného bodu (`AUTH_REQUIRED` 2, `NETWORK` 7, inak `ERROR` 1), pri úspechu 0.
+
 ## 5. Vyhľadávanie podľa mena
 
 **Normalizácia mien:** malé písmená, bez diakritiky, bez emoji a symbolov.
@@ -302,7 +331,7 @@ Je to dôležité, lebo `🔒` je súčasť názvu kanála (`aeu-private🔒`). 
 **Nejednoznačnosť** (napr. `general` na dvoch serveroch bez `-s`) = **chyba s exit kódom 3** a zoznamom
 kandidátov (meno, ID, server). Nástroj nikdy nehádá.
 
-**Chýbajúce meno:** ak sa meno v cache nenájde, nástroj raz automaticky obnoví zoznam a skúsi to znova.
+**Chýbajúce meno:** ak sa meno v cache nenájde, nástroj raz automaticky obnoví zoznam a skúsi to znova. Ak sa nenájde ani potom (chyba `NotFoundError`), nástroj cez `difflib.get_close_matches(..., n=3, cutoff=0.6)` navrhne až 3 najbližšie podobné názvy do nápovedy v chybovej správe (`Did you mean: ...?`).
 
 ## 6. Výstupy
 
@@ -454,6 +483,32 @@ Cesty k prílohám v `.md` a `.jsonl` sú relatívne (`files/...`). V `channels/
 
 **Rozsah volaní:** nástroj nikdy nevolá `ack`, `science`, `metrics` ani nič, čo zapisuje.
 
+## 9.1 Diagnostické logovanie ([ADR 0018](rozhodnutia/0018-logovanie.md))
+
+Diagnostické logovanie slúži na detailné sledovanie sieťových požiadaviek, stránkovania a sťahovania príloh pri riešení problémov (rate limity HTTP 429, chyby siete alebo CDN).
+
+- **Predvolene vypnuté:** bez prepínača `--debug` alebo `--log FILE` sa nevytvárajú žiadne handlery a do konzoly ani do súboru sa nezapisujú žiadne správy. Logger `discoop` má `propagate = False`.
+- **Zapnutie:**
+  - `--debug` (alebo `DISCOOP_DEBUG=1`): štruktúrovaný log na `sys.stderr`. Zároveň vypne Rich animovaný spinner, aby nedochádzalo k poškodeniu rozhrania.
+  - `--log FILE` (alebo `DISCOOP_LOG=cesta`): zápis do súboru (append mód, kódovanie UTF-8).
+  - V príkaze `discoop ui` je `--debug` odmietnuté (kód 8), povolené je `--log FILE`.
+- **Hlavička logu:** pri inicializácii sa zapíše hlavička s verziou nástroja (`discoop.__version__`), operačným systémom, verziou Pythonu a varovaním:
+  `IDs in this log identify private servers and channels. Do not publish it.`
+- **Čo sa loguje:**
+  - `discoop.api`: HTTP metóda, cesta bez query parametrov (`path.split("?", 1)[0]`), názvy parametrov a hodnoty iba pre bezpečný allowlist (`before`, `after`, `limit`, `archived`, `offset`, `with_counts`), číslo pokusu (`attempt`), HTTP stavový kód, latencia v milisekundách meraná cez `time.perf_counter()`, dĺžka odpovede v bajtoch a prípadne počet položiek (`items`). Pri 429 sa loguje `retry_after`, `global` a predĺžený delay; dĺžka a dôvod všetkých čakaní (reading pause, jitter, between channels, between files); pri opakovaniach backoff; pri chybách top-level `code` a `message` a typ transportnej chyby (`type(e).__name__`).
+  - `discoop.scrape`: jeden riadok na stranu správ: ID kanála, počet správ, ID najstaršej a najnovšej správy, príznak `last`.
+  - `discoop.attachments`: iba v `_download` a `_fetch`: ID prílohy, veľkosť, stav, číslo pokusu, zapísané bajty a výhradne host z URL.
+- **Čo sa NIKDY neloguje (prísny bezpečnostný filter):**
+  - Hlavičky requestu ani response (ani `Authorization` token).
+  - Dodatočné argumenty `kwargs` volaní `request()` (tickety, JSON telá).
+  - Celé telá odpovedí (`response.text`, `response.json()`).
+  - Texty správ a mená používateľov.
+  - Mená súborov, cesty súborov a query parametre podpisov CDN URL (`ex`, `is`, `hm`).
+  - Názvy kanálov a serverov (vždy len číselné ID).
+  - Reprezentácie dataclassov (`FileJob`, `Attachment`, `Message`, `StoredToken` atď.).
+- Knižnice tretích strán (`httpx`, `httpcore`, `websockets`) sú explicitne stíšené na úroveň `WARNING`.
+- Po dokončení príkazu volá CLI `teardown_logging()`, ktoré korektne zatvorí a odpojí všetky handlery.
+
 ## 10. Lokálne dáta
 
 Adresáre určí `platformdirs` podľa OS:
@@ -549,6 +604,10 @@ Scoop/
       jsonout.py      json a jsonl
     export.py         priečinok + zip + manifest, kontrola cieľa a opätovné použitie
     guide.py          text pre agent-guide
+    logs.py           diagnostické logovanie (setup_logging, teardown_logging, formátovač)
+    progress.py       výpočet percent a ETA podľa snowflake
+    profiles.py       správa profilov nastavení v profiles.json
+    tokens.py         odhad počtu tokenov a formátovanie
     tui/              interaktívne terminálové rozhranie (Textual)
       app.py          hlavná Textual aplikácia, responzívny layout, event handling
       state.py        stav TUI (výber kanálov, nastavenia, plánovanie úloh)
@@ -570,6 +629,14 @@ Scoop/
 - `render/jsonout.py`: formáty `json` a `jsonl`,
 - `service.py`: spoločná servisná vrstva pre orchestráciu načítania serverov, kanálov a sťahovania správ,
 - `tui/`: interaktívne terminálové rozhranie Textual (`discoop ui`, jeden strom ovládaný klávesnicou podľa ADR 0014, panel Export, náhľad, live CLI bar, Help s `--help`).
+- **Pridané 2026-11-04 (Antigravity kolo 1):**
+  - `logs.py`: voliteľné diagnostické logovanie na stderr (`--debug`) alebo do súboru (`--log FILE`), ochrana pred únikom citlivých údajov ([ADR 0018](rozhodnutia/0018-logovanie.md)),
+  - `progress.py`: kalkulácie percent a odhadu času (ETA) pre sťahovanie správ podľa snowflake ID,
+  - `profiles.py`: správa profilov v `profiles.json` s atomickým ukladaním,
+  - `tokens.py`: odhad počtu tokenov a ich formátovanie,
+  - `resolve.py`: fuzzy návrhy pri preklepoch v názvoch kanálov a serverov (`Did you mean: ...?`),
+  - `output.py`: unifikovaný výstup `Output.json()` pre strojové spracovanie,
+  - `cli.py`: diagnostický príkaz `discoop doctor`, prepínač `--progress-json` pre `messages`, prepínač `--format text|json` pre `servers`, `channels`, `status` a `config list`.
 
 ## 14. Postup implementácie
 

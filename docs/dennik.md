@@ -93,13 +93,42 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
   OneDrive, beh v skutočnom termináli.
 - **Mimo rozsahu:** `Save` v Preview ukladá naďalej do `export-dir`, inak `exports` v aktuálnom priečinku.
 
+**Antigravity kolo 1 — logovanie, diagnostika, JSON výstupy, pomocné moduly a probe vlákien (P24, P25, [ADR 0018](rozhodnutia/0018-logovanie.md)):**
+- **Rozdelenie práce podľa ADR 0010:** práca prebiehala v troch fázach cez špecializované balíky agentov (AG-A, AG-B, AG-C, AG-E1, AG-E2, AG-DOC).
+- **Balík A (`src/discoop/logs.py`, `api.py`, `scrape.py`, `attachments.py`, ADR 0018):**
+  - Implementovaná infraštruktúra diagnostického logovania (`setup_logging`, `teardown_logging`, `DiscoopFormatter`).
+  - Predvolene je logovanie úplne vypnuté (žiadny handler), po zapnutí sa pripája výhradne na logger `discoop` (`propagate=False`). Knižnice tretích strán (`httpx`, `httpcore`, `websockets`) sú stíšené na `WARNING`.
+  - Prísny bezpečnostný filter: nikdy sa neloguje token `Authorization`, podpísané URL príloh (`?ex=&is=&hm=`), texty správ, telá odpovedí, mená používateľov ani názvy kanálov/serverov (iba číselné ID).
+  - Logovanie volaní API (`api.py`), stránkovania (`scrape.py`) a sťahovania príloh (`attachments.py`).
+- **Balík B (`src/discoop/progress.py`, `profiles.py`, `tokens.py`, `resolve.py`):**
+  - `progress.py`: výpočet percent dokončenia (`fraction_done`), počiatočného snowflake kanála (`window_start_id`) a odhadu zostávajúceho času (`eta_seconds`, `format_eta`).
+  - `profiles.py`: správa pomenovaných profilov nastavení v `<config_dir>/profiles.json` (`load`, `save`, `delete`, `names`) s atomickým zápisom cez `.tmp` a `os.replace`.
+  - `tokens.py`: hrubý odhad počtu tokenov textu `estimate_tokens` (`len(text)/4`) a formátovanie `format_tokens`.
+  - `resolve.py`: fuzzy hľadanie a automatické návrhy pri preklepe v mene servera alebo kanála (`Did you mean: ...?`) cez `difflib.get_close_matches(..., cutoff=0.6)`.
+- **Balík C (`prototype/probe_threads.py`, `prototype/README.md`):**
+  - Vytvorený nový read-only probe skript `prototype/probe_threads.py` na prieskum správania Discord API pri vláknach a fórach (`threads/search`, offsety, typy vlákien, neindexované odpovede 202 a konzistencia `last_message_id`). Skript nečíta ani nevypisuje token a je pripravený pre spustenie používateľom na jeho účte.
+- **Balík E1 (`src/discoop/cli.py`):**
+  - Globálne CLI prepínače `--debug` a `--log FILE` fungujú pred aj za podpríkazom vďaka hoisting mechanizmu (`_hoist_mode_flags`).
+  - Podpora premenných prostredia `DISCOOP_DEBUG` a `DISCOOP_LOG` (prepínač v CLI má prednosť).
+  - Vypnutie Rich spinnera pri `--debug`, aby nedochádzalo k poškodeniu výstupu v termináli.
+  - Odmietnutie `discoop ui --debug` s návratovým kódom `8` (`BAD_ARGS`) a nápovedou použiť `--log FILE` (`discoop ui --log FILE` je povolené).
+  - Vyčistený mŕtvy kód z `cli.py` (`_export_target`, `_export`, `_message_targets`, `_progress`, `_unreadable`, `_local_time`).
+- **Balík E2 (`src/discoop/cli.py`, `src/discoop/output.py`):**
+  - Prepínač `--format text|json` pre príkazy `servers`, `channels`, `status` a `config list` cez unifikovanú metódu `Output.json()`.
+  - Nový príkaz `discoop doctor` na diagnostiku 6 bodov: prihlásenie (`login`), dostupnosť Discord API (`network`), zapisovateľnosť priečinka exportov (`export_dir`), voľné miesto na disku (`disk_space`), vek cache (`cache`) a verzia nástroja (`version`). Plain režim vypíše tabulátorom oddelené riadky, human režim tabuľku.
+  - Prepínač `--progress-json` pre `discoop messages`: emituje štruktúrované JSONL udalosti na stderr (`channel_start`, `page`, `pause`, `channel_done`, `skipped`, `warning`).
+  - Zobrazenie percent a odhadu času (ETA) v `messages` (v human spinneri aj vo verbose režime).
+- **Overené `[OVERENÉ]`:** `uv run pytest`: všetkých 511 testov prechádza (85 nových testov v `test_logs.py`, `test_api.py`, `test_progress.py`, `test_profiles.py`, `test_tokens.py`, `test_resolve.py`, `test_cli_logging.py`, `test_servers_channels.py`, `test_doctor.py`, `test_progress_json.py`). Test úniku dát potvrdil, že do logu neprenikne token, podpisy CDN ani texty správ.
+- **Neoverené `[PREDPOKLAD]`:** Spustenie `probe_threads.py` na skutočnom účte používateľa.
+
 **Ďalej:**
-1. Používateľ rozhodne o pushi. GitHub je na `75f0310`, takže inštalácia z GitHubu dá starú verziu bez nového TUI.
+1. Používateľ rozhodne o pushi. GitHub je na `75f0310`, takže inštalácia z GitHubu dá starú verziu bez nového TUI a diagnostiky.
 2. Používateľ otestuje `discoop ui` na reálnom účte vrátane prihlásenia cez QR (vo vývoji `uv run discoop ui`, po pushi aj
    inštaláciu z GitHubu, vrátane Linuxu a macOSu, ak ich má).
-3. Krok 4: vlákna a fóra (`threads`, `--threads/--no-threads`).
-4. Kroky 5–6: `agent-guide` a help texty, `--since-last` s deduplikáciou.
-5. Rozhodnutie 9 (výpočet prístupu ku kanálom) ostáva odložené (nízka priorita).
+3. Používateľ spustí `uv run python prototype/probe_threads.py` na svojom účte (server s fórami/vláknami) a skontroluje výstup v `prototype/out/`.
+4. Krok 4: vlákna a fóra (`threads`, `--threads/--no-threads`) na základe výsledkov z probe skriptu.
+5. Kroky 5–6: `agent-guide` a help texty, `--since-last` s deduplikáciou.
+6. Rozhodnutie 9 (výpočet prístupu ku kanálom) ostáva odložené (nízka priorita).
 
 ---
 

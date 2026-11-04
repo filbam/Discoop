@@ -5,7 +5,7 @@ analýzu študijných informácií (hlavne server VUT FIT). Je to osobný projek
 že scraping porušuje podmienky Discordu.
 
 Stav (2026-11-04): implementované sú `login` (QR aj `--token`), `status`, `logout`, `servers`, `channels`
-a `config` so SQLite cache, `messages` do konzoly aj s exportom príloh do priečinka a zipu (`--out`, `--zip`, manifest), režimy sťahovania `safe` (predvolený) a `fast` a interaktívne terminálové rozhranie TUI (`discoop ui`, ovládané klávesnicou, jeden strom, [ADR 0014](docs/rozhodnutia/0014-tui-klavesnica-jeden-strom.md)).
+a `config` so SQLite cache, `messages` do konzoly aj s exportom príloh do priečinka a zipu (`--out`, `--zip`, manifest), režimy sťahovania `safe` (predvolený) a `fast`, interaktívne terminálové rozhranie TUI (`discoop ui`, ovládané klávesnicou, jeden strom, [ADR 0014](docs/rozhodnutia/0014-tui-klavesnica-jeden-strom.md)), diagnostika `doctor`, diagnostické logovanie `--debug`/`--log`, strojové výstupy `--format json` a `--progress-json`, pomocné moduly `logs`/`progress`/`profiles`/`tokens` a probe skript `probe_threads.py`. Všetkých 511 testov prechádza.
 Aktuálne ďalšie kroky sú v bloku „Ďalej“ najnovšej sekcie [denníka](docs/dennik.md). Začni od [docs/poziadavky.md](docs/poziadavky.md) a
 [docs/navrh-nastroja.md](docs/navrh-nastroja.md).
 

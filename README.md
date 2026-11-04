@@ -7,7 +7,7 @@ CLI nástroj na sťahovanie správ a príloh z Discord serverov, ktorých je pou
 
 **Stav:** rozpracované. Funguje `login` (QR kód v termináli alebo `--token`), `status`, `logout`,
 `servers`, `channels`, `config`, `messages` (výpis správ do konzoly, sťahovanie príloh a export do priečinka
-alebo zipu s manifestom, režimy sťahovania `safe` a `fast`) a interaktívne terminálové rozhranie `discoop ui` (TUI). Vlákna a fóra ešte nie sú.
+alebo zipu s manifestom, režimy sťahovania `safe` a `fast`), interaktívne terminálové rozhranie `discoop ui` (TUI), diagnostika `doctor` a diagnostické logovanie. Vlákna a fóra ešte nie sú.
 
 ## Inštalácia
 
@@ -126,6 +126,23 @@ discoop messages -s "VUT FIT" -c isc-public --out exports/isc --max-file-size 10
 - `--out DIR` / `--zip FILE`: vytvorí priečinok alebo zip s `manifest.json`, `messages.md`, `messages.jsonl`, `channels/*.md` a prílohami v `files/<kanál>/`. Opakovaný export do existujúceho cieľa použije už stiahnuté súbory. Bez `--out`/`--zip` sú prílohy len odkazy na Discord CDN, ktoré platia 12 až 24 h.
 
 Overenie API prototypom popisuje [prototype/README.md](prototype/README.md).
+
+## Logovanie a diagnostika
+
+Nástroj obsahuje diagnostické príkazy na kontrolu stavu a voliteľné bezpečné logovanie:
+
+```
+discoop doctor                         # diagnostika prihlásenia, siete, export priečinka a disku
+discoop servers --format json          # strojovo čitateľný JSON výstup (aj pre channels, status, config list)
+discoop messages ... --progress-json   # JSONL udalosti o priebehu na stderr pre skripty
+discoop --debug messages ...           # podrobný diagnostický log na stderr (vypne spinner)
+discoop --log discoop.log messages ... # zápis diagnostického logu do súboru
+```
+
+- `--debug` a `--log FILE`: voliteľné logovanie (predvolene vypnuté). Možno aktivovať aj premennými `DISCOOP_DEBUG=1` a `DISCOOP_LOG=cesta`. Log **nikdy neobsahuje** autentifikačný token, podpisy CDN URL, texty správ ani mená používateľov (iba číselné ID).
+- `discoop doctor`: overí 6 bodov: prihlásenie (`login`), dostupnosť Discord API (`network`), zapisovateľnosť priečinka exportov (`export_dir`), voľné miesto (`disk_space`, FAIL pod 100 MB), vek cache (`cache`) a verziu nástroja (`version`). Plain režim vypíše riadky oddelené tabulátorom, human režim tabuľku.
+- `--format json`: strojový JSON výstup pre `servers`, `channels`, `status` a `config list`.
+- `--progress-json`: štruktúrované JSONL správy o priebehu sťahovania na `stderr` s percentami a odhadom zostávajúceho času (ETA).
 
 ## Vývoj
 
