@@ -1,396 +1,395 @@
-# Analýza prihlásenia do Discordu (QR login bez prehliadača)
+# Discord Login Analysis (Browserless QR Login)
 
-Dátum pozorovania: 2026-11-03, 12:22 – 12:30 UTC. Klient: `discord.com/login` vo vstavanom prehliadači
-Claude desktop appky, **neprihlásený** stav. Build `660103`, `RELEASE_CHANNEL=stable`, API `v9`.
+Observation date: 2026-11-03, 12:22 – 12:30 UTC. Client: `discord.com/login` in the built-in browser
+of the Claude desktop app, **unauthenticated** state. Build `660103`, `RELEASE_CHANNEL=stable`, API `v9`.
 
-**Legenda:** **[OVERENÉ]** = pozorované počas tejto analýzy (zdroj je uvedený: *prevádzka* = zachytené
-WebSocket rámce alebo HTTP odpovede, *JS* = zdrojový kód klienta, ktorý stránka načítala, *stav* = stav
-stránky alebo DOM). **[PREDPOKLAD]** = všeobecná znalosť, tu neoverená.
+**Legend:** **[VERIFIED]** = observed during this analysis (source noted: *traffic* = captured
+WebSocket frames or HTTP responses, *JS* = client source code loaded by the page, *state* = page or DOM
+state). **[ASSUMPTION]** = general knowledge, unverified here.
 
-**Metodika:**
-- Stránku som otvoril, pred SPA navigáciou som do nej nainštaloval pasívny observer (obal nad
-  `window.WebSocket`, iba záznam rámcov). QR tok som znova spustil navigáciou login → register → login.
-  Potom som počkal na vypršanie QR a zachytil aj jeho automatickú obnovu.
-- Telá HTTP odpovedí som čítal z network logu prehliadača.
-- JS assety, ktoré stránka už načítala (~630 súborov, ~20 MB), som si stiahol z cache stránky
-  (`fetch` s `credentials:"omit"`) a prehľadal. Kľúčové súbory: `web.48946ead1e279bd2.js` (tabuľka
-  endpointov, HTTP klient, login akcie), `541cc3384b699976.js` (QR/remote-auth klient),
-  `9efedacca22a4bc6.js` (MFA dialóg), `564784e2787ee0c8.js` (WebAuthn).
-- Nič som neodoslal: žiadny formulár, žiadna správa cez socket, žiadne vlastné API volanie. Klávesnicu som
-  nepoužil. Cookies ani token som nečítal.
-- Všetky živé hodnoty (kľúče, nonce, fingerprinty, tickety, challenge) sú v texte nahradené
-  zástupnými symbolmi `<...>`.
+**Methodology:**
+- Opened the page; before SPA navigation, installed a passive observer into it (wrapper around
+  `window.WebSocket`, recording frames only). Retriggered the QR flow via navigation: login → register → login.
+  Then waited for QR expiration and captured its automatic refresh as well.
+- Read HTTP response bodies from the browser network log.
+- Downloaded and searched JS assets already loaded by the page (~630 files, ~20 MB) from page cache
+  (`fetch` with `credentials:"omit"`). Key files: `web.48946ead1e279bd2.js` (endpoint table,
+  HTTP client, login actions), `541cc3384b699976.js` (QR/remote-auth client),
+  `9efedacca22a4bc6.js` (MFA dialog), `564784e2787ee0c8.js` (WebAuthn).
+- Sent nothing: no forms, no socket messages, no custom API calls. Did not use the keyboard.
+  Did not read cookies or token.
+- All live values (keys, nonces, fingerprints, tickets, challenges) are replaced with
+  placeholders `<...>` in the text.
 
 ---
 
-## 1. Súhrnná tabuľka
+## 1. Summary Table
 
-| Téma | Zistenie | Stav |
+| Topic | Finding | Status |
 |---|---|---|
-| QR gateway | `wss://remote-auth-gateway.discord.gg/?v=2`, JSON text rámce, bez subprotokolu a bez kompresie | [OVERENÉ] prevádzka + JS |
-| Kryptografia | RSA-OAEP, 2048 bit, e=65537, hash SHA-256. Verejný kľúč = SPKI DER v štandardnom base64 | [OVERENÉ] JS + dĺžky v prevádzke |
-| Dôkaz (proof) | `nonce` = base64url (bez `=`) z **dešifrovaného** nonce. Žiadne hashovanie (protokol v2) | [OVERENÉ] JS + prevádzka |
-| Obsah QR | `https://discord.com/ra/<fingerprint>`, fingerprint = base64url(SHA-256(SPKI)), 43 znakov. ECC level **M** | [OVERENÉ] JS + stav (props QR komponentu) |
-| Platnosť QR | `timeout_ms` z `hello` (~250 – 275 s, náhodné). Potom server zavrie socket kódom **4003 "Handshake Timeout"** a klient sám otvorí nový | [OVERENÉ] prevádzka |
-| Heartbeat | `heartbeat_interval` 41 250 ms, klient posiela `{"op":"heartbeat"}`, server odpovedá `heartbeat_ack` | [OVERENÉ] prevádzka |
-| Po naskenovaní | `pending_ticket` so `encrypted_user_payload` → `id:discriminator:avatar:username` | [OVERENÉ] JS + prototyp (sekcia 7) |
-| Po potvrdení na telefóne | `pending_login` s `ticket` → `POST /api/v9/users/@me/remote-auth/login {ticket}` → `encrypted_token` → RSA dešifrovanie → token | [OVERENÉ] JS |
-| Captcha | Globálny interceptor HTTP klienta: `400` + `captcha_key` → captcha → retry s `X-Captcha-Key` (+ `X-Captcha-Rqtoken`, `X-Captcha-Session-Id`). Platí aj pre `remote-auth/login` | [OVERENÉ] JS. Pri prvom reálnom QR logine z terminálu ju Discord **nepýtal** (prototyp) |
-| Email/heslo | `POST /auth/login` → token, alebo `mfa:true` + `ticket` → `POST /auth/mfa/{totp\|sms\|backup\|webauthn}` | [OVERENÉ] JS |
-| Pred loginom stránka volá | `experiments` (→ `X-Fingerprint`), `apex/experiments`, `auth/location-metadata`, `auth/conditional/start`, `science` | [OVERENÉ] prevádzka |
-| Passkey | Pri **každom** zobrazení login formulára stránka sama volá `POST /auth/conditional/start` a `navigator.credentials.get` (conditional mediation) | [OVERENÉ] JS + prevádzka. Toto vyvolalo okno Windows Security (sekcia 8) |
-| QR bez prehliadača | Áno, technicky. Treba WebSocket klient, RSA-OAEP-SHA256, HTTP klient a QR v termináli | Záver z [OVERENÉ] faktov. Kontrolu `Origin` treba overiť prototypom |
+| QR gateway | `wss://remote-auth-gateway.discord.gg/?v=2`, JSON text frames, no subprotocol and no compression | [VERIFIED] traffic + JS |
+| Cryptography | RSA-OAEP, 2048-bit, e=65537, SHA-256 hash. Public key = SPKI DER in standard base64 | [VERIFIED] JS + lengths in traffic |
+| Proof | `nonce` = base64url (without `=`) of the **decrypted** nonce. No hashing (protocol v2) | [VERIFIED] JS + traffic |
+| QR content | `https://discord.com/ra/<fingerprint>`, fingerprint = base64url(SHA-256(SPKI)), 43 characters. ECC level **M** | [VERIFIED] JS + state (props of QR component) |
+| QR validity | `timeout_ms` from `hello` (~250 – 275 s, randomised). Server then closes socket with code **4003 "Handshake Timeout"** and client opens a new one automatically | [VERIFIED] traffic |
+| Heartbeat | `heartbeat_interval` 41,250 ms, client sends `{"op":"heartbeat"}`, server responds with `heartbeat_ack` | [VERIFIED] traffic |
+| After scanning | `pending_ticket` with `encrypted_user_payload` → `id:discriminator:avatar:username` | [VERIFIED] JS + prototype (Section 7) |
+| After confirmation on phone | `pending_login` with `ticket` → `POST /api/v9/users/@me/remote-auth/login {ticket}` → `encrypted_token` → RSA decryption → token | [VERIFIED] JS |
+| Captcha | Global HTTP client interceptor: `400` + `captcha_key` → captcha → retry with `X-Captcha-Key` (+ `X-Captcha-Rqtoken`, `X-Captcha-Session-Id`). Applies to `remote-auth/login` as well | [VERIFIED] JS. During first real QR login from terminal Discord **did not prompt** for it (prototype) |
+| Email/password | `POST /auth/login` → token, or `mfa:true` + `ticket` → `POST /auth/mfa/{totp\|sms\|backup\|webauthn}` | [VERIFIED] JS |
+| Before login page calls | `experiments` (→ `X-Fingerprint`), `apex/experiments`, `auth/location-metadata`, `auth/conditional/start`, `science` | [VERIFIED] traffic |
+| Passkey | On **every** display of login form, page automatically calls `POST /auth/conditional/start` and `navigator.credentials.get` (conditional mediation) | [VERIFIED] JS + traffic. This triggered the Windows Security prompt (Section 8) |
+| Browserless QR | Yes, technically. Requires WebSocket client, RSA-OAEP-SHA256, HTTP client, and terminal QR | Conclusion from [VERIFIED] facts. `Origin` check to be verified via prototype |
 
 ---
 
-## 2. QR login (remote auth gateway)
+## 2. QR Login (Remote Auth Gateway)
 
-### 2.1 Pripojenie
+### 2.1 Connection
 
-- **URL:** `wss://remote-auth-gateway.discord.gg/?v=2` **[OVERENÉ]** (prevádzka + JS: `${GLOBAL_ENV.REMOTE_AUTH_ENDPOINT}/?v=2`,
-  `REMOTE_AUTH_ENDPOINT = "wss://remote-auth-gateway.discord.gg"` v `window.GLOBAL_ENV`).
-- Klient volá obyčajné `new WebSocket(url)` bez subprotokolov **[OVERENÉ]** (JS, modul `createWebSocket`).
-  Server nedojednal žiadne rozšírenie (`extensions = ""`, teda ani `permessage-deflate`). Rámce sú čistý JSON text **[OVERENÉ]** (prevádzka).
-- **Hlavičky:** prehliadač nevie k WebSocketu pridať vlastné hlavičky, posiela teda iba štandardné:
-  `Origin: https://discord.com`, `User-Agent`, `Sec-WebSocket-*`. Iné hlavičky klient nenastavuje **[OVERENÉ]** (JS).
-  Či server **vyžaduje** `Origin: https://discord.com`, sa nedalo overiť bez vlastného spojenia.
-  Komunitné implementácie ho posielajú a bez neho vraj server spojenie odmietne **[PREDPOKLAD]**.
+- **URL:** `wss://remote-auth-gateway.discord.gg/?v=2` **[VERIFIED]** (traffic + JS: `${GLOBAL_ENV.REMOTE_AUTH_ENDPOINT}/?v=2`,
+  `REMOTE_AUTH_ENDPOINT = "wss://remote-auth-gateway.discord.gg"` in `window.GLOBAL_ENV`).
+- Client calls standard `new WebSocket(url)` without subprotocols **[VERIFIED]** (JS, module `createWebSocket`).
+  Server negotiated no extensions (`extensions = ""`, hence no `permessage-deflate`). Frames are plain JSON text **[VERIFIED]** (traffic).
+- **Headers:** the browser cannot attach custom headers to WebSocket, so it sends standard ones only:
+  `Origin: https://discord.com`, `User-Agent`, `Sec-WebSocket-*`. Client sets no other headers **[VERIFIED]** (JS).
+  Whether the server **requires** `Origin: https://discord.com` could not be verified without an independent connection.
+  Community implementations send it and report that without it the server rejects the connection **[ASSUMPTION]**.
 
-### 2.2 Sekvencia správ (pozorovaná)
+### 2.2 Message Sequence (Observed)
 
-Časy sú relatívne k otvoreniu socketu. Hodnoty sú nahradené.
+Times are relative to socket opening. Values are replaced.
 
-| # | Smer | Správa | Poznámka |
+| # | Direction | Message | Note |
 |---|---|---|---|
-| 1 | server → klient | `{"op":"hello","heartbeat_interval":41250,"timeout_ms":272373}` | prišla hneď po `open` (+1 ms) |
-| 2 | klient → server | `{"op":"init","encoded_public_key":"<SPKI DER, base64, 392 znakov>"}` | +92 ms (generovanie RSA kľúča) |
-| 3 | server → klient | `{"op":"nonce_proof","encrypted_nonce":"<base64 s paddingom, 344 znakov = 256 B>"}` | |
-| 4 | klient → server | `{"op":"nonce_proof","nonce":"<base64url bez '=', 254 znakov = 190 B>"}` | +1 ms po 3 |
-| 5 | server → klient | `{"op":"pending_remote_init","fingerprint":"<base64url, 43 znakov>"}` | klient overí, že sa zhoduje s jeho vlastným, a zobrazí QR |
-| 6 | klient → server | `{"op":"heartbeat"}` | prvý po náhodnom čase `0 .. heartbeat_interval` (tu +6,2 s), potom každých 41,25 s |
-| 7 | server → klient | `{"op":"heartbeat_ack"}` | ~115 ms po heartbeate |
-| … | | (6 a 7 sa opakujú) | |
-| n | server | `close 4003 "Handshake Timeout"`, `wasClean=true` | presne `timeout_ms` po otvorení (12:23:14,93 + 272,37 s = 12:27:47,30) |
+| 1 | server → client | `{"op":"hello","heartbeat_interval":41250,"timeout_ms":272373}` | arrived immediately after `open` (+1 ms) |
+| 2 | client → server | `{"op":"init","encoded_public_key":"<SPKI DER, base64, 392 chars>"}` | +92 ms (RSA key generation) |
+| 3 | server → client | `{"op":"nonce_proof","encrypted_nonce":"<base64 with padding, 344 chars = 256 B>"}` | |
+| 4 | client → server | `{"op":"nonce_proof","nonce":"<base64url without '=', 254 chars = 190 B>"}` | +1 ms after 3 |
+| 5 | server → client | `{"op":"pending_remote_init","fingerprint":"<base64url, 43 chars>"}` | client verifies match with own fingerprint and displays QR |
+| 6 | client → server | `{"op":"heartbeat"}` | first after random delay `0 .. heartbeat_interval` (here +6.2 s), then every 41.25 s |
+| 7 | server → client | `{"op":"heartbeat_ack"}` | ~115 ms after heartbeat |
+| … | | (6 and 7 repeat) | |
+| n | server | `close 4003 "Handshake Timeout"`, `wasClean=true` | exactly `timeout_ms` after open (12:23:14.93 + 272.37 s = 12:27:47.30) |
 
-Všetko vyššie je **[OVERENÉ]** (prevádzka, dve kompletné relácie).
+Everything above is **[VERIFIED]** (traffic, two complete sessions).
 
-Správy, ktoré prichádzajú až po naskenovaní, som nezachytil (QR som neskenoval). Ich tvar je z JS **[OVERENÉ]** (JS):
+Messages arriving only after scanning were not captured (I did not scan the QR). Their shape is known from JS **[VERIFIED]** (JS):
 
-| Smer | Správa | Čo klient spraví |
+| Direction | Message | Client action |
 |---|---|---|
-| server → klient | `{"op":"pending_ticket","encrypted_user_payload":"<base64>"}` | dešifruje RSA-OAEP → UTF-8 reťazec, ukáže avatar + „Logging in as <username>“ |
-| server → klient | `{"op":"pending_login","ticket":"<ticket>"}` | `POST /users/@me/remote-auth/login` (sekcia 2.6). Ak `ticket == null`, reštartuje reláciu |
-| server → klient | `{"op":"cancel"}` | používateľ zrušil na telefóne → klient zahodí reláciu a otvorí novú (nový QR) |
-| server → klient | iný `op` | iba `warn("received unsupported message")` |
+| server → client | `{"op":"pending_ticket","encrypted_user_payload":"<base64>"}` | decrypts RSA-OAEP → UTF-8 string, displays avatar + "Logging in as <username>" |
+| server → client | `{"op":"pending_login","ticket":"<ticket>"}` | `POST /users/@me/remote-auth/login` (Section 2.6). If `ticket == null`, restarts session |
+| server → client | `{"op":"cancel"}` | the user cancelled on phone → client discards session and opens new one (new QR) |
+| server → client | other `op` | only `warn("received unsupported message")` |
 
-Klient nikdy neposiela iné `op` ako `init`, `nonce_proof` a `heartbeat` **[OVERENÉ]** (JS).
-Pri zrušení alebo odchode zo stránky iba zavrie socket kódom `1000` **[OVERENÉ]** (JS).
+The client never sends any `op` other than `init`, `nonce_proof`, and `heartbeat` **[VERIFIED]** (JS).
+Upon cancellation or leaving the page, it simply closes the socket with code `1000` **[VERIFIED]** (JS).
 
-> Starší protokol (v1) mal namiesto `nonce` pole `proof = base64url(SHA-256(nonce))` a token posielal priamo
-> cez socket (`pending_finish`/`finish`). Verzia `v=2` to nahradila `pending_ticket` + `pending_login` + REST
-> volaním **[PREDPOKLAD]**. Staršie návody na internete preto nemusia sedieť.
+> The older protocol (v1) had a `proof = base64url(SHA-256(nonce))` field instead of `nonce` and sent the token directly
+> over the socket (`pending_finish`/`finish`). Version `v=2` replaced this with `pending_ticket` + `pending_login` + REST
+> call **[ASSUMPTION]**. Older guides online may therefore be inaccurate.
 
-### 2.3 Kľúč a parametre
+### 2.3 Key and Parameters
 
-Zo JS **[OVERENÉ]**:
+From JS **[VERIFIED]**:
 ```js
 crypto.subtle.generateKey({name:"RSA-OAEP", modulusLength:2048,
   publicExponent:new Uint8Array([1,0,1]), hash:"SHA-256"}, true, ["decrypt"])
-encoded_public_key = btoa(exportKey("spki", publicKey))          // štandardný base64
+encoded_public_key = btoa(exportKey("spki", publicKey))          // standard base64
 decrypt = crypto.subtle.decrypt({name:"RSA-OAEP", hash:"SHA-256"}, privateKey, atob(x))
 ```
-- RSA 2048 bit, verejný exponent 65537, OAEP s SHA-256 **[OVERENÉ]** (JS).
-- WebCrypto RSA-OAEP používa MGF1 s tým istým hashom (SHA-256) a prázdny label **[PREDPOKLAD]** (špecifikácia WebCrypto).
-  V Pythone `cryptography` je to `padding.OAEP(mgf=MGF1(SHA256()), algorithm=SHA256(), label=None)`.
-- Dĺžky v prevádzke sedia: SPKI 294 B → 392 znakov base64 a šifrový text 256 B → 344 znakov **[OVERENÉ]** (prevádzka).
-- Nový pár kľúčov sa generuje pre **každé** spojenie **[OVERENÉ]** (JS).
+- RSA 2048-bit, public exponent 65537, OAEP with SHA-256 **[VERIFIED]** (JS).
+- WebCrypto RSA-OAEP uses MGF1 with the same hash (SHA-256) and an empty label **[ASSUMPTION]** (WebCrypto specification).
+  In Python `cryptography`, this corresponds to `padding.OAEP(mgf=MGF1(SHA256()), algorithm=SHA256(), label=None)`.
+- Lengths in traffic match: SPKI 294 B → 392 base64 characters, and ciphertext 256 B → 344 characters **[VERIFIED]** (traffic).
+- A fresh keypair is generated for **every** connection **[VERIFIED]** (JS).
 
-### 2.4 Výpočet dôkazu (nonce proof)
+### 2.4 Proof Calculation (Nonce Proof)
 
 ```
 nonce_bytes = RSA_OAEP_SHA256_decrypt(private_key, base64decode(encrypted_nonce))
-nonce       = base64url(nonce_bytes) bez koncových '='     // '+'→'-', '/'→'_'
+nonce       = base64url(nonce_bytes) without trailing '='     // '+'→'-', '/'→'_'
 ```
-**[OVERENÉ]** (JS `decryptNonce` → funkcia `O`). Dešifrovaný nonce mal v oboch reláciách 190 B (254 znakov).
-To je maximum pre RSA-2048 s OAEP-SHA256 **[OVERENÉ]** (prevádzka).
+**[VERIFIED]** (JS `decryptNonce` → function `O`). The decrypted nonce was 190 B (254 characters) in both sessions.
+That is the maximum for RSA-2048 with OAEP-SHA256 **[VERIFIED]** (traffic).
 
-### 2.5 Obsah QR a platnosť
+### 2.5 QR Content and Validity
 
-- **Fingerprint** = `base64url(SHA-256(SPKI DER verejného kľúča))` bez paddingu, 43 znakov **[OVERENÉ]** (JS + prevádzka).
-  Klient porovná svoj fingerprint s tým zo `pending_remote_init`. Pri nezhode vyhodí chybu `bad fingerprint` **[OVERENÉ]** (JS).
-- **Text QR:** `https://discord.com/ra/<fingerprint>` **[OVERENÉ]**. Stav: props QR komponentu sa zhodovali s posledným
-  `pending_remote_init.fingerprint`. Route `/ra/:remoteAuthFingerprint` existuje aj na webe **[OVERENÉ]** (JS).
-- Vykreslenie: knižnica `qrcode.react`, `level:"M"`, čierna na bielej, 160 px, v strede logo Discordu (iba
-  overlay, nie súčasť dát) **[OVERENÉ]** (JS).
-- Dĺžka textu je 66 znakov. Pri ECC M to vychádza na QR verziu 5 (37 × 37 modulov, s tichou zónou 45 × 45) **[PREDPOKLAD]** (výpočet podľa QR štandardu).
-- **Platnosť:** `timeout_ms` z `hello`. Pozorované hodnoty boli 272 373 ms a 253 736 ms, čiže ~4,2 – 4,5 min, náhodne **[OVERENÉ]** (prevádzka).
-  Klient túto hodnotu iba zaloguje a nepoužíva ju na časovač **[OVERENÉ]** (JS).
-- **Pri vypršaní:** server zavrie socket (`4003 Handshake Timeout`). Klient zaloguje chybu a podľa backoffu
-  (min 1,5 s, max 30 s, s jitterom) otvorí nové spojenie s novým kľúčom, teda aj s novým QR **[OVERENÉ]**.
-  Prevádzka: nový socket o 2,4 s, nový `hello` a celý handshake. JS: `new Backoff(1500, 30000)`.
-  Ak je karta skrytá, obnovu odloží, kým sa nezobrazí **[OVERENÉ]** (JS). Pri obnove QR stránka **nevolala** žiadny REST endpoint **[OVERENÉ]** (network log).
-- Ak nepríde `heartbeat_ack` pred ďalším heartbeatom, klient zavrie socket a reštartuje reláciu **[OVERENÉ]** (JS).
+- **Fingerprint** = `base64url(SHA-256(SPKI DER public key))` without padding, 43 characters **[VERIFIED]** (JS + traffic).
+  Client compares its fingerprint with that from `pending_remote_init`. On mismatch, throws error `bad fingerprint` **[VERIFIED]** (JS).
+- **QR text:** `https://discord.com/ra/<fingerprint>` **[VERIFIED]**. State: props of QR component matched the last
+  `pending_remote_init.fingerprint`. Route `/ra/:remoteAuthFingerprint` exists on web as well **[VERIFIED]** (JS).
+- Rendering: library `qrcode.react`, `level:"M"`, black on white, 160 px, Discord logo in center (overlay only, not
+  part of data) **[VERIFIED]** (JS).
+- Text length is 66 characters. At ECC M this yields QR version 5 (37 × 37 modules, with quiet zone 45 × 45) **[ASSUMPTION]** (calculation per QR standard).
+- **Validity:** `timeout_ms` from `hello`. Observed values were 272,373 ms and 253,736 ms, i.e. ~4.2 – 4.5 min, randomised **[VERIFIED]** (traffic).
+  Client logs this value only and does not use it for a timer **[VERIFIED]** (JS).
+- **On expiration:** server closes socket (`4003 Handshake Timeout`). Client logs error and following backoff
+  (min 1.5 s, max 30 s, with jitter) opens a new connection with a new key, thus generating a new QR **[VERIFIED]**.
+  Traffic: new socket in 2.4 s, new `hello` and full handshake. JS: `new Backoff(1500, 30000)`.
+  If tab is hidden, refresh is deferred until visible **[VERIFIED]** (JS). During QR refresh the page **did not call** any REST endpoint **[VERIFIED]** (network log).
+- If `heartbeat_ack` does not arrive before next heartbeat, client closes socket and restarts session **[VERIFIED]** (JS).
 
-### 2.6 Posledný krok po potvrdení na telefóne
+### 2.6 Final Step After Confirmation on Phone
 
-Zo JS **[OVERENÉ]**:
+From JS **[VERIFIED]**:
 ```
 POST https://discord.com/api/v9/users/@me/remote-auth/login
 Content-Type: application/json
-{"ticket": "<ticket z pending_login>"}
+{"ticket": "<ticket from pending_login>"}
 
-→ 200 {"encrypted_token": "<base64, RSA-OAEP-SHA256 šifrový text>"}
+→ 200 {"encrypted_token": "<base64, RSA-OAEP-SHA256 ciphertext>"}
 token = UTF-8( RSA_OAEP_SHA256_decrypt(private_key, base64decode(encrypted_token)) )
 ```
-- Request ide cez spoločný HTTP klient s globálnymi hlavičkami (sekcia 4.2) a bez `Authorization`,
-  keďže používateľ nie je prihlásený **[OVERENÉ]** (JS).
-- Ide aj cez **globálny captcha interceptor**: ak by server vrátil `400` s `captcha_key`, web ukáže captchu a
-  request zopakuje s hlavičkami `X-Captcha-Key`, `X-Captcha-Rqtoken` a `X-Captcha-Session-Id` **[OVERENÉ]** (JS).
-  Či Discord pri QR login captchu reálne pýta, je neoverené. Bežne nie **[PREDPOKLAD]**.
-- Pri akejkoľvek chybe tohto requestu web reláciu zahodí a začne odznova (nový QR) **[OVERENÉ]** (JS).
-- Po úspechu web zavolá `loginToken(token)` (dispatch `LOGIN_SUCCESS`) a pripojí sa na bežný gateway **[OVERENÉ]** (JS).
-- Endpointy pre stranu telefónu (prihlásený klient, ktorý skenuje): `POST /users/@me/remote-auth`,
-  `/users/@me/remote-auth/finish`, `/users/@me/remote-auth/cancel` **[OVERENÉ]** (iba názvy v tabuľke endpointov, web ich nevolá).
-  Ich telá CLI nepotrebuje **[PREDPOKLAD]**.
+- Request uses shared HTTP client with global headers (Section 4.2) and no `Authorization`,
+  as the user is unauthenticated **[VERIFIED]** (JS).
+- Passes through **global captcha interceptor**: if server returns `400` with `captcha_key`, web displays captcha and
+  retries request with headers `X-Captcha-Key`, `X-Captcha-Rqtoken`, and `X-Captcha-Session-Id` **[VERIFIED]** (JS).
+  Whether Discord actually prompts for captcha on QR login is unverified. Typically not **[ASSUMPTION]**.
+- On any error in this request, web discards session and starts over (new QR) **[VERIFIED]** (JS).
+- On success, web calls `loginToken(token)` (dispatch `LOGIN_SUCCESS`) and connects to regular gateway **[VERIFIED]** (JS).
+- Phone-side endpoints (authenticated scanning client): `POST /users/@me/remote-auth`,
+  `/users/@me/remote-auth/finish`, `/users/@me/remote-auth/cancel` **[VERIFIED]** (names in endpoint table only, web does not call them).
+  CLI does not need their request bodies **[ASSUMPTION]**.
 
-### 2.7 Čo klient zobrazí po naskenovaní
+### 2.7 What the Client Displays After Scanning
 
-- `encrypted_user_payload` sa dešifruje rovnako ako token a výsledok musí sedieť na regex
-  `^(\d+):(\d{1,4}):([a-zA-Z0-9_]+):(.*)$` **[OVERENÉ]** (JS):
-  `"<user_id>:<discriminator>:<avatar_hash alebo 0>:<username>"`.
-  `avatar == "0"` znamená bez avatara. Pri nových (pomelo) menách je `discriminator` `"0"` **[PREDPOKLAD]**.
-- UI: avatar (120 px), nadpis „Check your phone!“, text „Logging in as <username>“ a tlačidlo
-  „Not me, start over“. Tlačidlo iba lokálne zahodí reláciu a otvorí novú **[OVERENÉ]** (JS + lokalizačné reťazce).
-- Pred naskenovaním: „Log in with QR Code“ / „Scan this with the Discord mobile app to log in instantly.“ **[OVERENÉ]** (stav).
+- `encrypted_user_payload` is decrypted identically to the token and the result must match regex
+  `^(\d+):(\d{1,4}):([a-zA-Z0-9_]+):(.*)$` **[VERIFIED]** (JS):
+  `"<user_id>:<discriminator>:<avatar_hash or 0>:<username>"`.
+  `avatar == "0"` indicates no avatar. For new (pomelo) usernames, `discriminator` is `"0"` **[ASSUMPTION]**.
+- UI: avatar (120 px), heading "Check your phone!", text "Logging in as <username>", and button
+  "Not me, start over". Button locally discards session and opens a new one **[VERIFIED]** (JS + localization strings).
+- Before scanning: "Log in with QR Code" / "Scan this with the Discord mobile app to log in instantly." **[VERIFIED]** (state).
 
-### 2.8 Stavový automat klienta
+### 2.8 Client State Machine
 
-`INITIALIZING → PENDING_REMOTE_INIT (QR) → PENDING_TICKET (meno) → PENDING_LOGIN (REST) → FINISH` **[OVERENÉ]** (JS, enum).
-Každá chyba (close, chyba socketu, zlý fingerprint, chyba REST, chýbajúci ticket, `cancel`) vedie späť na `INITIALIZING` s backoffom.
+`INITIALIZING → PENDING_REMOTE_INIT (QR) → PENDING_TICKET (username) → PENDING_LOGIN (REST) → FINISH` **[VERIFIED]** (JS, enum).
+Any error (close, socket error, bad fingerprint, REST error, missing ticket, `cancel`) transitions back to `INITIALIZING` with backoff.
 
 ---
 
-## 3. Prihlásenie emailom a heslom (iba JS, nič neodoslané)
+## 3. Email and Password Login (JS Only, Nothing Sent)
 
 ### 3.1 Login
 
 ```
 POST /api/v9/auth/login
-{"login": "<email alebo telefón>", "password": "<heslo>", "undelete": false,
+{"login": "<email or phone>", "password": "<password>", "undelete": false,
  "login_source": null, "gift_code_sku_id": null}
 ```
-**[OVERENÉ]** (JS `AuthenticationActionCreators.login`, `retries:2`). Pri telefóne klient pred `login` pridá predvoľbu krajiny **[OVERENÉ]** (JS).
+**[VERIFIED]** (JS `AuthenticationActionCreators.login`, `retries:2`). For phone login, client prepends country dialing code before `login` **[VERIFIED]** (JS).
 
-**Odpovede** (polia, ktoré klient číta) **[OVERENÉ]** (JS):
-- **Úspech:** `{ "token": "<token>", "user_id": "<id>", "required_actions": [...]? }`
-- **Treba MFA:** `{ "mfa": true, "ticket": "<mfa ticket>", "totp": bool, "sms": bool, "backup": bool,
-  "webauthn": "<JSON reťazec s WebAuthn challenge>" | null, "login_instance_id": "<id>", "user_id": "<id>" }`.
-  Z toho klient poskladá ponuku metód v poradí `webauthn`, `totp`, `backup`, `sms`.
-- **Captcha:** HTTP `400` s `captcha_key` (pole). Ďalšie polia, ktoré klient číta: `captcha_service`
+**Responses** (fields read by client) **[VERIFIED]** (JS):
+- **Success:** `{ "token": "<token>", "user_id": "<id>", "required_actions": [...]? }`
+- **MFA required:** `{ "mfa": true, "ticket": "<mfa ticket>", "totp": bool, "sms": bool, "backup": bool,
+  "webauthn": "<JSON string with WebAuthn challenge>" | null, "login_instance_id": "<id>", "user_id": "<id>" }`.
+  From this client constructs method options in order `webauthn`, `totp`, `backup`, `sms`.
+- **Captcha:** HTTP `400` with `captcha_key` (array). Other fields read by client: `captcha_service`
   (`hcaptcha` | `recaptcha` | `recaptcha_enterprise` | `turnstile`), `captcha_sitekey`, `captcha_session_id`,
-  `captcha_rqdata`, `captcha_rqtoken`, `should_serve_invisible`, `user_flow`. Retry posiela hlavičky
-  `X-Captcha-Key: <riešenie>`, `X-Captcha-Rqtoken` a `X-Captcha-Session-Id` **[OVERENÉ]** (JS).
-- **Chyby podľa `code`:** `20011` účet naplánovaný na zmazanie (umožní `undelete`), `20013` účet vypnutý,
-  `70007` treba overiť telefón („IP authorization“), `suspended_user_token` znamená suspendovaný účet. Inak všeobecná chyba
-  formulára (`50035` Invalid Form Body) **[OVERENÉ]** (JS, mapa kódov).
-- Overenie novej lokality (email „Verify login location“) ide cez `POST /auth/authorize-ip {token}` **[OVERENÉ]** (názov endpointu a telo).
-  Kedy ho server vyžaduje, je **[PREDPOKLAD]**.
+  `captcha_rqdata`, `captcha_rqtoken`, `should_serve_invisible`, `user_flow`. Retry sends headers
+  `X-Captcha-Key: <solution>`, `X-Captcha-Rqtoken`, and `X-Captcha-Session-Id` **[VERIFIED]** (JS).
+- **Errors by `code`:** `20011` account scheduled for deletion (allows `undelete`), `20013` account disabled,
+  `70007` phone verification required ("IP authorization"), `suspended_user_token` indicates suspended account. Otherwise generic form
+  error (`50035` Invalid Form Body) **[VERIFIED]** (JS, code map).
+- New location verification (email "Verify login location") uses `POST /auth/authorize-ip {token}` **[VERIFIED]** (endpoint name and body).
+  Under what conditions the server requires it is an **[ASSUMPTION]**.
 
-### 3.2 MFA endpointy
+### 3.2 MFA Endpoints
 
 ```
 POST /api/v9/auth/mfa/{totp|sms|backup|webauthn}
-{"code": "<kód>", "ticket": "<mfa ticket>", "login_source": null,
- "gift_code_sku_id": null, "login_instance_id": "<z login odpovede>"}
+{"code": "<code>", "ticket": "<mfa ticket>", "login_source": null,
+ "gift_code_sku_id": null, "login_instance_id": "<from login response>"}
 → {"token": "<token>"}
 ```
-**[OVERENÉ]** (JS `loginMFAv2`, `retries:2`). Chyba `60008` = nesprávny kód **[OVERENÉ]** (JS).
-- `totp`: 6 číslic **[OVERENÉ]** (JS, konštanta 6).
-- `sms`: najprv `POST /auth/mfa/sms/send {"ticket"}` → `{"phone":"<maskované číslo>"}`, potom kód (6 číslic) **[OVERENÉ]** (JS).
-- `backup`: záložný kód bez pomlčiek, 8 až 11 znakov **[OVERENÉ]** (JS, konštanty 8 a 11, `replace(/-/g,"")`).
-- `webauthn`: `code` je JSON reťazec s WebAuthn assertion (`id`, `rawId`, `response.{authenticatorData,
-  clientDataJSON, signature, userHandle}`, všetko base64url) **[OVERENÉ]** (JS). V termináli to nie je praktické.
-- Mimo loginu: `POST /mfa/finish {ticket, mfa_type, data}` → hlavička `X-Discord-MFA-Authorization` pre citlivé
-  akcie v prihlásenom stave **[OVERENÉ]** (JS). Pre CLI to nie je potrebné.
+**[VERIFIED]** (JS `loginMFAv2`, `retries:2`). Error `60008` = invalid code **[VERIFIED]** (JS).
+- `totp`: 6 digits **[VERIFIED]** (JS, constant 6).
+- `sms`: first `POST /auth/mfa/sms/send {"ticket"}` → `{"phone":"<masked number>"}`, then code (6 digits) **[VERIFIED]** (JS).
+- `backup`: backup code without hyphens, 8 to 11 characters **[VERIFIED]** (JS, constants 8 and 11, `replace(/-/g,"")`).
+- `webauthn`: `code` is a JSON string with WebAuthn assertion (`id`, `rawId`, `response.{authenticatorData,
+  clientDataJSON, signature, userHandle}`, all base64url) **[VERIFIED]** (JS). Impractical in a terminal.
+- Outside login: `POST /mfa/finish {ticket, mfa_type, data}` → header `X-Discord-MFA-Authorization` for sensitive
+  actions in authenticated state **[VERIFIED]** (JS). Not needed for CLI.
 
 ---
 
-## 4. Čo stránka volá pred prihlásením
+## 4. What the Page Calls Prior to Login
 
-### 4.1 Requesty (pozorované)
+### 4.1 Requests (Observed)
 
-| Request | Odpoveď (štruktúra) | Načo |
+| Request | Response (structure) | Purpose |
 |---|---|---|
-| `GET /api/v9/experiments?with_guild_experiments=true` | `{"fingerprint":"<snowflake>.<~27 znakov>","assignments":[...],"guild_experiments":[...]}` | **zdroj `X-Fingerprint`** |
-| `GET /api/v9/apex/experiments?surface=2` | `{"assignments":{"1":{"<id>":{"evaluation_id":"…","assignments":[...]}}}}` | experimenty |
-| `GET /api/v9/auth/location-metadata` | `{"consent_required":bool,"country_code":"<2 písmená>","minimum_age":null,"promotional_email_opt_in":{"required":bool,"pre_checked":bool}}` | GDPR/vekové pravidlá pre registráciu |
-| `POST /api/v9/auth/conditional/start` | `{"challenge":"<JSON reťazec: {publicKey:{challenge, timeout:300000, rpId:'discord.com', allowCredentials:[], userVerification:'required', extensions:{uvm:true}}, mediation:'conditional'}>","ticket":"<uuid>"}` | passkey autofill (sekcia 5) |
-| `POST /api/v9/science` → `204` | – | analytika (`LOGIN_VIEWED`, `REGISTER_VIEWED`, …) |
-| `wss://remote-auth-gateway.discord.gg/?v=2` | sekcia 2 | QR |
+| `GET /api/v9/experiments?with_guild_experiments=true` | `{"fingerprint":"<snowflake>.<~27 chars>","assignments":[...],"guild_experiments":[...]}` | **source of `X-Fingerprint`** |
+| `GET /api/v9/apex/experiments?surface=2` | `{"assignments":{"1":{"<id>":{"evaluation_id":"…","assignments":[...]}}}}` | experiments |
+| `GET /api/v9/auth/location-metadata` | `{"consent_required":bool,"country_code":"<2 letters>","minimum_age":null,"promotional_email_opt_in":{"required":bool,"pre_checked":bool}}` | GDPR/age rules for registration |
+| `POST /api/v9/auth/conditional/start` | `{"challenge":"<JSON string: {publicKey:{challenge, timeout:300000, rpId:'discord.com', allowCredentials:[], userVerification:'required', extensions:{uvm:true}}, mediation:'conditional'}>","ticket":"<uuid>"}` | passkey autofill (Section 5) |
+| `POST /api/v9/science` → `204` | – | analytics (`LOGIN_VIEWED`, `REGISTER_VIEWED`, …) |
+| `wss://remote-auth-gateway.discord.gg/?v=2` | Section 2 | QR |
 
-Všetko **[OVERENÉ]** (prevádzka). Výhrada: network buffer držal iba posledných 500 requestov, takže úplne prvé
-requesty pri načítaní stránky (pred `experiments`) mohli vypadnúť.
+All **[VERIFIED]** (traffic). Caveat: network buffer held only the last 500 requests, so the very first
+requests upon page load (prior to `experiments`) may have dropped out.
 
-### 4.2 Hlavičky requestov (iba mená, z JS)
+### 4.2 Request Headers (Names Only, from JS)
 
-HTTP klient ich pridáva ku každému requestu na `/api/...` **[OVERENÉ]** (JS `prepareRequest`). Reálne hlavičky
-v prevádzke som nevidel, nástroj ich neukazuje.
-- `Authorization` (iba ak existuje token)
-- `X-Super-Properties`: base64 JSON s kľúčmi `os`, `browser`, `device`, `system_locale`, `has_client_mods`,
+HTTP client adds them to every request to `/api/...` **[VERIFIED]** (JS `prepareRequest`). Real headers
+in traffic were not visible; the tool does not expose them.
+- `Authorization` (only if token exists)
+- `X-Super-Properties`: base64 JSON with keys `os`, `browser`, `device`, `system_locale`, `has_client_mods`,
   `browser_user_agent`, `browser_version`, `os_version`, `referrer`, `referring_domain`, `*_current`,
   `release_channel`, `client_build_number`, `client_event_source`, `client_launch_id`, `client_heartbeat_session_id`, `client_app_state`
-- `X-Fingerprint`: hodnota `fingerprint` z `/experiments`. Pri ďalších načítaniach sa berie z lokálneho úložiska
-- `X-Installation-ID` (ak ho server pridelil, v tejto odpovedi chýbal)
+- `X-Fingerprint`: `fingerprint` value from `/experiments`. On subsequent loads retrieved from local storage
+- `X-Installation-ID` (if allocated by server; absent in this response)
 - `X-Discord-Locale`, `X-Discord-Timezone`
-- `X-Debug-Options`, `X-Routing-Key`, `x-client-trace-id` (iba v debug/tracing režime)
-- `Accept-Language` (iba desktop appka)
-- `Content-Type: application/json` pri telách
-- pri retry po captche `X-Captcha-Key`, `X-Captcha-Rqtoken`, `X-Captcha-Session-Id`
-- pri pozvánkach `X-Context-Properties`
+- `X-Debug-Options`, `X-Routing-Key`, `x-client-trace-id` (debug/tracing mode only)
+- `Accept-Language` (desktop app only)
+- `Content-Type: application/json` for request bodies
+- on captcha retry: `X-Captcha-Key`, `X-Captcha-Rqtoken`, `X-Captcha-Session-Id`
+- on invites: `X-Context-Properties`
 
-Čo z toho login reálne potrebuje: pravdepodobne nič okrem JSON tela. `X-Super-Properties` a `X-Fingerprint` však
-môžu ovplyvniť, či server pýta captchu **[PREDPOKLAD]**. Discord pri odpovediach nastavuje Cloudflare/anti-bot
-cookies (`__dcfduid`, `__sdcfduid`, `__cfruid`, `_cfuvid`) **[PREDPOKLAD]** (cookies som podľa pravidiel nečítal).
+What login actually requires from this: probably nothing beyond the JSON body. `X-Super-Properties` and `X-Fingerprint`
+may, however, influence whether the server prompts for a captcha **[ASSUMPTION]**. Discord sets Cloudflare/anti-bot
+cookies in responses (`__dcfduid`, `__sdcfduid`, `__cfruid`, `_cfuvid`) **[ASSUMPTION]** (cookies were not read, adhering to rules).
 
 ---
 
-## 5. Iné spôsoby prihlásenia
+## 5. Other Login Methods
 
-Názvy endpointov sú z tabuľky endpointov v JS **[OVERENÉ]**:
+Endpoint names from JS endpoint table **[VERIFIED]**:
 - **Passkey, conditional UI (autofill):** `POST /auth/conditional/start` → `navigator.credentials.get({mediation:"conditional"})`
   → `POST /auth/conditional/finish {credential, ticket, source, giftCodeSKUId}` → `{token, user_id, required_actions}`.
-  Spúšťa sa **automaticky** pri každom zobrazení login formulára, ak prehliadač hlási
-  `isConditionalMediationAvailable()` alebo `getClientCapabilities().conditionalGet` **[OVERENÉ]** (JS + prevádzka: 3× `conditional/start`).
-- **Passkey, tlačidlo „Or sign in with a passkey“:** `POST /auth/passwordless/start` → `navigator.credentials.get` → `POST /auth/conditional/finish` **[OVERENÉ]** (JS).
-- **SSO:** login stránka nemá Google/Apple/SSO tlačidlá **[OVERENÉ]** (stav). `GET /sso` a `/sso-token` slúžia na to, aby
-  sa Discord účtom prihlásilo do iných služieb (parameter `service`). Nie je to login do Discordu **[OVERENÉ]** (JS).
-- **Ďalšie toky s tokenom:** `POST /auth/one-time-login {ticket}` → `{token}`; handoff z desktop appky
-  `POST /auth/handoff {key}` → `{handoff_token}` a `POST /auth/handoff/exchange {key, handoff_token}` → `{token, user}`;
-  `POST /auth/verify {token}` (overenie emailu, vráti token) **[OVERENÉ]** (JS). Pre CLI nie sú použiteľné bez prehliadača alebo appky **[PREDPOKLAD]**.
-- **OAuth2 device flow:** `/oauth2/device/verify` a `/oauth2/device/finish` existujú **[OVERENÉ]** (názvy).
-  Ide o prepojenie konzol a aplikácií. Užívateľský token nevracia **[PREDPOKLAD]**.
+  Runs **automatically** on every display of login form if browser reports
+  `isConditionalMediationAvailable()` or `getClientCapabilities().conditionalGet` **[VERIFIED]** (JS + traffic: 3× `conditional/start`).
+- **Passkey, button "Or sign in with a passkey":** `POST /auth/passwordless/start` → `navigator.credentials.get` → `POST /auth/conditional/finish` **[VERIFIED]** (JS).
+- **SSO:** login page has no Google/Apple/SSO buttons **[VERIFIED]** (state). `GET /sso` and `/sso-token` serve to
+  log into third-party services using Discord account (parameter `service`). Not login into Discord **[VERIFIED]** (JS).
+- **Other token flows:** `POST /auth/one-time-login {ticket}` → `{token}`; handoff from desktop app
+  `POST /auth/handoff {key}` → `{handoff_token}` and `POST /auth/handoff/exchange {key, handoff_token}` → `{token, user}`;
+  `POST /auth/verify {token}` (email verification, returns token) **[VERIFIED]** (JS). Unusable for CLI without browser or app **[ASSUMPTION]**.
+- **OAuth2 device flow:** `/oauth2/device/verify` and `/oauth2/device/finish` exist **[VERIFIED]** (names).
+  Used for linking consoles and applications. Does not return user token **[ASSUMPTION]**.
 
 ---
 
-## 6. Dôsledky pre CLI nástroj
+## 6. Consequences for the CLI Tool
 
-### 6.1 Dá sa QR login spraviť úplne bez prehliadača?
+### 6.1 Can QR Login Be Implemented Entirely Without a Browser?
 
-**Áno.** Celý protokol je obyčajný WebSocket s JSON správami, RSA-OAEP-SHA256 a jeden REST POST. Klient
-nepoužíva nič, čo vie iba prehliadač: žiadnu captchu v QR toku, žiadny podpis zariadenia, žiadne cookies vo WebSocket
-handshaku (zistenia sú z [OVERENÉ] JS a prevádzky). Neoverené ostáva, či server toleruje ne-prehliadačového klienta (sekcia 7).
+**Yes.** The entire protocol consists of plain WebSocket with JSON messages, RSA-OAEP-SHA256, and a single REST POST. Client
+uses nothing browser-exclusive: no captcha in QR flow, no device attestation, no cookies in WebSocket
+handshake (findings from [VERIFIED] JS and traffic). Whether the server tolerates non-browser clients remains unverified (Section 7).
 
-**Čo treba (Python, cross-platform Windows/Linux/macOS):**
+**Requirements (Python, cross-platform Windows/Linux/macOS):**
 
-| Časť | Knižnica | Poznámka |
+| Component | Library | Note |
 |---|---|---|
-| WebSocket | `websockets` (asyncio) | nastaviť hlavičku `Origin: https://discord.com` a rozumný `User-Agent` |
-| Krypto | `cryptography` | `rsa.generate_private_key(65537, 2048)`, SPKI DER (`PublicFormat.SubjectPublicKeyInfo`), `OAEP(MGF1(SHA256), SHA256, None)` |
-| REST | `httpx` (už v návrhu) | `POST /api/v9/users/@me/remote-auth/login`, potom `GET /users/@me` na overenie |
-| QR v termináli | `segno` alebo `qrcode` | ECC **M**, tmavé moduly na svetlom pozadí, tichá zóna 4 moduly, vykreslenie cez polovičné bloky (`▀▄█`, ~45 stĺpcov × 23 riadkov) |
-| Uloženie tokenu | `keyring` | Windows Credential Manager, macOS Keychain, Linux Secret Service. Na headless Linuxe môže backend chýbať, treba fallback (súbor s právami `0600`) |
+| WebSocket | `websockets` (asyncio) | set header `Origin: https://discord.com` and reasonable `User-Agent` |
+| Crypto | `cryptography` | `rsa.generate_private_key(65537, 2048)`, SPKI DER (`PublicFormat.SubjectPublicKeyInfo`), `OAEP(MGF1(SHA256), SHA256, None)` |
+| REST | `httpx` (already planned) | `POST /api/v9/users/@me/remote-auth/login`, then `GET /users/@me` for verification |
+| Terminal QR | `segno` or `qrcode` | ECC **M**, dark modules on light background, 4-module quiet zone, half-block rendering (`▀▄█`, ~45 columns × 23 rows) |
+| Token storage | `keyring` | Windows Credential Manager, macOS Keychain, Linux Secret Service. Backend may be absent on headless Linux, requires fallback (file with `0600` permissions) |
 
-**Navrhovaný tok `discoop login`:**
-1. Pripojiť sa na `wss://remote-auth-gateway.discord.gg/?v=2` (s `Origin`).
-2. Prijať `hello`, spustiť heartbeat (prvý po `random() * interval`, potom každý `interval`). Bez `heartbeat_ack` reconnect.
-3. Vygenerovať RSA-2048 a poslať `init`.
-4. Na `nonce_proof` dešifrovať nonce a poslať `{"op":"nonce_proof","nonce":base64url(nonce)}`.
-5. Na `pending_remote_init` overiť fingerprint a vykresliť QR `https://discord.com/ra/<fingerprint>`.
-   K tomu vypísať text „naskenuj v Discord appke (Settings → Scan QR Code)“ a odpočet z `timeout_ms`.
-6. Na `pending_ticket` dešifrovať payload a vypísať „Prihlasuje sa <username>, potvrď na telefóne“.
-7. Na `pending_login` zavolať REST, dešifrovať `encrypted_token`, overiť ho cez `GET /users/@me`, uložiť do keyringu a zavrieť socket.
-8. Na `cancel` alebo `4003` vygenerovať nový QR. Po N pokusoch (napr. 3, teda ~13 min) skončiť s exit kódom.
-9. V `--agent` režime vypísať aj samotný text QR (URL) a čakať. Človek ho môže naskenovať z iného miesta.
+**Proposed flow for `discoop login`:**
+1. Connect to `wss://remote-auth-gateway.discord.gg/?v=2` (with `Origin`).
+2. Receive `hello`, start heartbeat (first after `random() * interval`, then every `interval`). Reconnect if `heartbeat_ack` is missed.
+3. Generate RSA-2048 and send `init`.
+4. On `nonce_proof`, decrypt nonce and send `{"op":"nonce_proof","nonce":base64url(nonce)}`.
+5. On `pending_remote_init`, verify fingerprint and render QR `https://discord.com/ra/<fingerprint>`.
+   Print instructions "scan in Discord app (Settings → Scan QR Code)" and countdown from `timeout_ms`.
+6. On `pending_ticket`, decrypt payload and print "Logging in as <username>, confirm on your phone".
+7. On `pending_login`, call REST, decrypt `encrypted_token`, verify via `GET /users/@me`, save to keyring, and close socket.
+8. On `cancel` or `4003`, generate new QR. After N attempts (e.g. 3, ~13 min), exit with non-zero exit code.
+9. In `--agent` mode, also print raw QR text (URL) and wait. A human can scan it from another location.
 
-### 6.2 Riziká
+### 6.2 Risks
 
-- **Kontrola `Origin`:** bez správnej hlavičky môže gateway spojenie odmietnuť **[PREDPOKLAD]**. Rieši sa jednou hlavičkou.
-- **Captcha na `remote-auth/login`:** HTTP klient je na ňu pripravený **[OVERENÉ]** (JS). Ak ju server začne vyžadovať,
-  v termináli sa vyriešiť nedá a treba fallback (6.3).
-- **Zmena protokolu:** `v=2` je už druhá verzia. Discord ho môže kedykoľvek zmeniť alebo pridať kontrolu klienta.
-  Nástroj by mal pri neznámom `op` alebo zatvorení s neznámym kódom vypísať zrozumiteľnú chybu a ponúknuť fallback.
-- **Detekcia ne-prehliadačového klienta:** Cloudflare/TLS fingerprint pri REST volaní, chýbajúce `X-Super-Properties`.
-  Môže to viesť k captche alebo zablokovaniu requestu **[PREDPOKLAD]**.
-- **ToS a účet:** token z QR je plnohodnotný používateľský token. Discord eviduje novú reláciu v zozname zariadení
-  **[PREDPOKLAD]**. Automatizované používanie user tokenu porušuje ToS, používateľ to akceptuje.
-- **Bezpečnosť:** QR je de facto prihlasovací odkaz. Nesmie sa dostať do logov, histórie ani výstupu pre agenta,
-  ktorý by ho mohol preposlať ďalej. Token ani fingerprint nikdy nelogovať.
+- **`Origin` check:** without proper header gateway may reject connection **[ASSUMPTION]**. Solved with a single header.
+- **Captcha on `remote-auth/login`:** HTTP client handles it **[VERIFIED]** (JS). If server starts requiring it,
+  terminal cannot resolve it and fallback is required (6.3).
+- **Protocol changes:** `v=2` is already the second version. Discord may change it or add client checks at any time.
+  Tool should provide a clear error message on unknown `op` or unexpected close code, offering fallback.
+- **Non-browser client detection:** Cloudflare/TLS fingerprint on REST call, missing `X-Super-Properties`.
+  May lead to captcha or request blocking **[ASSUMPTION]**.
+- **ToS and account safety:** token obtained via QR is a full user token. Discord registers a new session in device list
+  **[ASSUMPTION]**. Automated use of a user token violates ToS; the user accepts this.
+- **Security:** QR is effectively a login link. Must not enter logs, history, or agent output that
+  could be forwarded. Never log token or fingerprint.
 
-### 6.3 Fallbacky (v poradí, ako ich odporúčam)
+### 6.3 Fallbacks (Recommended Order)
 
-1. **Ručné vloženie tokenu** (`discoop login --token`, vstup cez skrytý prompt alebo stdin, nie ako argument v histórii).
-   Funguje vždy a všade a je najjednoduchší. Nevýhoda: používateľ musí vedieť token získať z DevTools.
-2. **Prihlásenie cez prehliadač** (pôvodný návod v `design.md` 4.1, Playwright).
-   Zvládne captchu, 2FA aj passkey. Na Linuxe/macOS treba nainštalovaný Chrome alebo Chromium, takže je to ťažšia závislosť.
-   Pozor: na Windows môže prehliadač pri otvorení `/login` sám vyvolať passkey dialóg (sekcia 8).
-3. **Email/heslo + TOTP cez API** (`/auth/login` → `/auth/mfa/totp`). Technicky jednoduché, ale ne-prehliadačový klient
-   pravdepodobne často dostane captchu **[PREDPOKLAD]**. Nástroj by navyše musel pracovať s heslom. Neodporúčam ako
-   hlavnú cestu, nanajvýš ako experimentálnu.
+1. **Manual token entry** (`discoop login --token`, input via hidden prompt or stdin, not command-line argument in shell history).
+   Works everywhere and simplest. Drawback: the user must extract token from DevTools.
+2. **Browser-based login** (original guide in `design.md` 4.1, Playwright).
+   Handles captcha, 2FA, and passkeys. Requires Chrome/Chromium installed on Linux/macOS, heavier dependency.
+   Warning: on Windows opening `/login` may trigger passkey prompt automatically (Section 8).
+3. **Email/password + TOTP via API** (`/auth/login` → `/auth/mfa/totp`). Technically simple, but a non-browser client
+   is likely to encounter captcha frequently **[ASSUMPTION]**. The tool would also have to handle passwords. Not recommended as
+   primary path; experimental at most.
 
-### 6.4 Dopad na návrh (`design.md` som needitoval)
+### 6.4 Impact on Design (`design.md` Was Not Edited)
 
-- Sekcia 3 („Login: Playwright + nainštalovaný Chrome“) a sekcia 4.1 by sa pri novej požiadavke zmenili na QR login cez
-  `websockets` + `cryptography`. Playwright by ostal ako voliteľný fallback.
-- Tabuľka technológií: `keyring` nie je iba „Windows Credential Manager“. Na Linuxe treba riešiť chýbajúci Secret Service.
-- Nové závislosti: `websockets`, `cryptography`, `segno` (alebo `qrcode`).
+- Section 3 ("Login: Playwright + installed Chrome") and Section 4.1 would change under new requirements to QR login via
+  `websockets` + `cryptography`. Playwright would remain as optional fallback.
+- Technology table: `keyring` is not just "Windows Credential Manager". On Linux, a missing Secret Service must be handled.
+- New dependencies: `websockets`, `cryptography`, `segno` (or `qrcode`).
 
 ---
 
-## 7. Neoverené / otvorené otázky
+## 7. Unverified / Open Questions
 
-> **Doplnené 2026-11-03, prototyp** (`discoop login --handshake-only --trace`, bez prihlásenia):
-> - Gateway **prijal klienta mimo prehliadača** (Python `websockets`, `Origin: https://discord.com`,
->   `User-Agent: discoop/0.1.0`) a prešiel celý handshake po `pending_remote_init` **[OVERENÉ]** (prototyp).
-> - Dĺžky polí sedia s analýzou: `encoded_public_key` 392, `encrypted_nonce` 344, `nonce` 254, `fingerprint` 43 znakov.
-> - `heartbeat_interval` 41 250 ms, `timeout_ms` 245 280 ms (v rozsahu ~4 – 4,5 min).
+> **Added 2026-11-03, prototype** (`discoop login --handshake-only --trace`, without login):
+> - Gateway **accepted non-browser client** (Python `websockets`, `Origin: https://discord.com`,
+>   `User-Agent: discoop/0.1.0`) and completed full handshake up to `pending_remote_init` **[VERIFIED]** (prototype).
+> - Field lengths match analysis: `encoded_public_key` 392, `encrypted_nonce` 344, `nonce` 254, `fingerprint` 43 characters.
+> - `heartbeat_interval` 41,250 ms, `timeout_ms` 245,280 ms (within ~4 – 4.5 min range).
 >
-> **Doplnené 2026-11-03, prvý reálny login** (`discoop login --trace`, používateľ naskenoval QR) **[OVERENÉ]** (prototyp):
-> - **Celý tok prešiel bez prehliadača a bez captchy:**
->   `pending_remote_init` → (sken po ~52 s) `pending_ticket` → (potvrdenie po ~16 s) `pending_login`
->   → `POST /users/@me/remote-auth/login` `200` → token overený cez `GET /users/@me`.
-> - **Tvary sedia s JS:**
->   - `pending_ticket.encrypted_user_payload` 344 znakov (256 B RSA),
->   - `pending_login.ticket` 70 znakov,
->   - odpoveď `{"encrypted_token": <344 znakov>}`.
-> - **Heartbeaty** počas čakania na sken a potvrdenie prebiehali normálne (`heartbeat` → `heartbeat_ack` ~110 ms).
-> - **`timeout_ms` bol 344 035 ms (~5,7 min).** Platnosť QR teda kolíše viac, než ukázala analýza (~4 – 5,7 min).
+> **Added 2026-11-03, first real login** (`discoop login --trace`, the user scanned QR) **[VERIFIED]** (prototype):
+> - **Full flow succeeded without browser and without captcha:**
+>   `pending_remote_init` → (scan after ~52 s) `pending_ticket` → (confirmation after ~16 s) `pending_login`
+>   → `POST /users/@me/remote-auth/login` `200` → token verified via `GET /users/@me`.
+> - **Shapes match JS:**
+>   - `pending_ticket.encrypted_user_payload` 344 characters (256 B RSA),
+>   - `pending_login.ticket` 70 characters,
+>   - response `{"encrypted_token": <344 characters>}`.
+> - **Heartbeats** while awaiting scan and confirmation operated normally (`heartbeat` → `heartbeat_ack` ~110 ms).
+> - **`timeout_ms` was 344,035 ms (~5.7 min).** QR validity varies more than shown by initial analysis (~4 – 5.7 min).
 
-- Či gateway **vyžaduje** `Origin: https://discord.com`: s ním funguje (pozri vyššie). Bez neho sa neskúšalo.
-  Close kódy pri odmietnutí sú neznáme.
-- Tvar a obsah `pending_ticket`, `pending_login`, `cancel` a odpovede `remote-auth/login` je iba zo zdrojového kódu.
-  Reálne rámce som nevidel (QR som neskenoval).
-- Či `POST /users/@me/remote-auth/login` pri ne-prehliadačovom klientovi vracia captchu a či potrebuje
-  `X-Super-Properties`, `X-Fingerprint` alebo Cloudflare cookies.
-- Ďalšie close kódy gateway okrem `4003 Handshake Timeout`.
-- Či token z QR loginu má nejaké obmedzenie oproti tokenu z bežného loginu.
-- Reálne hlavičky requestov (vidno iba v JS, nie v prevádzke).
-- Reálne odpovede `/auth/login` a `/auth/mfa/*` (iba JS, nič neodoslané).
-- Či je dĺžka nonce (190 B) pevná, alebo iba náhodou rovnaká v dvoch reláciách.
-- Úplne prvé requesty pri načítaní stránky (vypadli z network bufferu).
+- Whether gateway **requires** `Origin: https://discord.com`: works with it (see above). Untested without it.
+  Close codes on rejection unknown.
+- Shape and content of `pending_ticket`, `pending_login`, `cancel`, and `remote-auth/login` response was known only from source code.
+  Real frames not inspected in initial run (QR was not scanned).
+- Whether `POST /users/@me/remote-auth/login` triggers captcha for non-browser client and whether it needs
+  `X-Super-Properties`, `X-Fingerprint`, or Cloudflare cookies.
+- Other gateway close codes besides `4003 Handshake Timeout`.
+- Whether token from QR login has restrictions compared to normal login token.
+- Real request headers (visible in JS only, not in traffic).
+- Real responses of `/auth/login` and `/auth/mfa/*` (JS only, nothing sent).
+- Whether nonce length (190 B) is fixed or coincidentally identical across two sessions.
+- Very first requests on page load (dropped from network buffer).
 
 ---
 
-## 8. Vedľajšie účinky analýzy
+## 8. Side Effects of the Analysis
 
-1. **Okno Windows Security pre passkey („Making sure it's you… Insert your security key“).**
-   - **Príčina:** login stránka pri **každom** zobrazení login formulára automaticky volá
-     `POST /api/v9/auth/conditional/start` a hneď potom `navigator.credentials.get({publicKey, mediation:"conditional"})`
-     **[OVERENÉ]** (JS: modul `ConditionalMediation` v `541cc3384b699976.js` sa volá v `useMount` login stránky).
-     V bežnom Chrome ide iba o tichý autofill. Vstavaný prehliadač na Windows to zjavne poslal do Windows WebAuthn ako modálne okno.
-   - **Akcie, ktoré to spustili:**
-     - otvorenie `https://discord.com/login` cez `preview_start` (12:22:20 UTC). Pri načítaní prebehli **2×** `conditional/start`.
-     - môj klik na „Already have an account? Log in“ na `/register` (~12:23:14 UTC). Znova sa pripojil login formulár a prebehol **3.** `conditional/start`.
-     - **Poslednou mojou akciou pred hlásením okna bol tento klik.** Presný čas zobrazenia okna nepoznám, takže okno mohlo
-       vzniknúť už pri prvom načítaní.
-   - Na nič súvisiace s passkey som neklikol, polia email/heslo som nefokusoval a `navigator.credentials` som nevolal ani neobaľoval.
-     Po hlásení som už nenavigoval a stránku som nenačítal znova.
-   - Server vydal 3 conditional challenge s `ticket`, platnosť `timeout: 300000` ms. Nepoužité vypršia.
-2. **Remote-auth relácie:** gateway videla 3 QR relácie (1 pri načítaní, 1 po mojej navigácii, 1 automatická obnova
-   po vypršaní). Karta ostala otvorená na `/login` (karty nezatváram), takže stránka bude každé ~4,5 min generovať nový QR,
-   kým je karta viditeľná. Nikto nič neskenoval, nijaký login nevznikol.
-3. **Analytika:** stránka sama poslala `POST /api/v9/science` (zobrazenie login a register stránky) z neprihláseného prehliadača.
-4. **Stiahnutie JS:** ~630 verejných JS súborov cez `fetch` z kontextu stránky (`force-cache`, bez cookies), aby sa
-   dali prehľadať. Väčšina išla z cache.
-5. **Observer v stránke:** obal nad `window.WebSocket` ostáva v karte do jej ďalšieho načítania. Na konci som ho prepol
-   na no-op (nič už neukladá), zmazal zaznamenané rámce aj stiahnuté JS z pamäte stránky. Na disk som živé hodnoty neukladal.
-6. Žiadny vstup z klávesnice, žiadny formulár, žiadna správa cez socket, žiadne vlastné API volanie, žiadne čítanie cookies ani tokenu.
+1. **Windows Security passkey prompt ("Making sure it's you… Insert your security key").**
+   - **Cause:** login page automatically calls `POST /api/v9/auth/conditional/start` and immediately
+     `navigator.credentials.get({publicKey, mediation:"conditional"})` on **every** render of login form
+     **[VERIFIED]** (JS: module `ConditionalMediation` in `541cc3384b699976.js` called in `useMount` of login page).
+     In regular Chrome this is silent autofill. Built-in browser on Windows forwarded it to Windows WebAuthn as a modal prompt.
+   - **Actions that triggered it:**
+     - opening `https://discord.com/login` via `preview_start` (12:22:20 UTC). During initial load, **2×** `conditional/start` occurred.
+     - click on "Already have an account? Log in" on `/register` (~12:23:14 UTC). Remounted login form and triggered a **3rd** `conditional/start`.
+     - **This click was my last action before the prompt appeared.** Exact time prompt appeared is unknown, so prompt may have
+       originated on initial load.
+   - Did not click anything passkey-related, did not focus email/password fields, and did not call or wrap `navigator.credentials`.
+     Did not navigate or reload page after the prompt.
+   - Server issued 3 conditional challenges with `ticket`, validity `timeout: 300000` ms. Unused challenges expire.
+2. **Remote-auth sessions:** gateway observed 3 QR sessions (1 on initial load, 1 after navigation, 1 automatic refresh
+   after expiry). Tab remained open on `/login` (I do not close tabs), so page will generate a new QR every ~4.5 min while tab is visible.
+   Nobody scanned anything; no login occurred.
+3. **Analytics:** page sent `POST /api/v9/science` (login and register page view) from unauthenticated browser.
+4. **JS download:** ~630 public JS files fetched from page context (`force-cache`, no cookies) for inspection. Most served from cache.
+5. **In-page observer:** wrapper around `window.WebSocket` remains in tab until reload. At the end switched to no-op (records nothing),
+   deleted captured frames and downloaded JS from page memory. Did not store live values to disk.
+6. No keyboard input, no forms submitted, no socket messages sent, no custom API calls, no reading cookies or tokens.
