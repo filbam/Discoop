@@ -1,3 +1,4 @@
+import os
 from datetime import timedelta
 
 import httpx
@@ -11,10 +12,13 @@ from discoop.attachments import (
     SKIPPED,
     Downloader,
     FileJob,
+    Stored,
     channel_folders,
     cdn_client,
     file_name,
     plan,
+    replace_file,
+    reuse_stored,
     safe_name,
     url_expiry,
 )
@@ -89,6 +93,14 @@ def test_channel_folders_avoid_collisions():
     }
 
 
+def test_channel_folders_keep_existing_names():
+    first = [Channel("1", FIT, "general", 0), Channel("2", FIT, "General", 0)]
+    folders = channel_folders(first)
+    later = Channel("3", FIT, "GENERAL", 0)  # turns up later and must not take a name that is used
+    assert channel_folders([later, first[0]], existing=folders) == {**folders, "3": "GENERAL_3"}
+    assert channel_folders([], existing=folders) == folders and folders == {"1": "general", "2": "General_2"}
+
+
 def test_url_expiry():
     assert url_expiry(signed_url("1", "2", "f.png", expires=NOW)) == int(NOW.timestamp())
     assert url_expiry("https://cdn.discordapp.com/emojis/827833315666558996.webp?size=48") is None
@@ -103,6 +115,71 @@ def test_plan_saves_an_attachment_once():
     result = ChannelMessages(Server(FIT, "VUT FIT"), Channel("200", FIT, "x", 0), (first, forward))
     jobs = plan([result], {"200": "x"})
     assert [(job.message_id, job.path) for job in jobs] == [("10", "files/x/800000000000000001_a.pdf")]
+
+
+def test_plan_carries_over_between_calls():
+    author = Author("1", "A", "a")
+    shared = Attachment("800000000000000001", "a.pdf", None, 3, "https://cdn.discordapp.com/attachments/1/2/a.pdf")
+    own = Attachment("800000000000000002", "b.pdf", None, 3, "https://cdn.discordapp.com/attachments/1/3/b.pdf")
+    anonymous = Attachment("", "c.pdf", None, 3, "https://cdn.discordapp.com/attachments/1/4/c.pdf")
+    server = Server(FIT, "VUT FIT")
+    first = ChannelMessages(
+        server, Channel("200", FIT, "x", 0), (Message("10", 0, NOW, None, author, "", attachments=(shared,)),)
+    )
+    second = ChannelMessages(
+        server,
+        Channel("202", FIT, "y", 0),
+        (Message("11", 0, NOW, None, author, "", attachments=(shared, own, anonymous)),),
+    )
+    folders = {"200": "x", "202": "y"}
+    seen: dict[str, FileJob] = {}
+    new_first = plan([first], folders, seen)
+    new_second = plan([second], folders, seen)
+    assert [j.path for j in new_first] == ["files/x/800000000000000001_a.pdf"]
+    assert [j.path for j in new_second] == ["files/y/800000000000000002_b.pdf", "files/y/11-2_c.pdf"]  # not `shared`
+    assert list(seen) == ["800000000000000001", "800000000000000002", "11-2"]
+    assert plan([first, second], folders, seen) == []  # nothing new
+    # the same jobs as one call for everything
+    assert [j.path for j in plan([first, second], folders)] == [j.path for j in new_first + new_second]
+
+
+def test_reuse_stored():
+    attachment = Attachment("800000000000000001", "a.bin", None, 3, "https://cdn.discordapp.com/a")
+    short, whole = "files/old/800000000000000001_a.bin", "files/x/800000000000000001_a.bin"
+    job = FileJob(attachment, "10", "200", "files/new/800000000000000001_a.bin", attachment.url)
+    assert reuse_stored(job, {attachment.id: [Stored(short, 2), Stored(whole, 3)]})
+    assert (job.status, job.path) == (PRESENT, whole)
+    other = FileJob(attachment, "10", "200", "files/new/800000000000000001_a.bin", attachment.url)
+    assert not reuse_stored(other, {attachment.id: [Stored(short, 2)]})  # the size differs
+    assert other.status == "pending" and not reuse_stored(other, {})
+
+
+def test_replace_file_retries_after_permission_errors(tmp_path, monkeypatch):
+    source, target = tmp_path / "a", tmp_path / "b"
+    source.write_bytes(b"new")
+    target.write_bytes(b"old")
+    real = os.replace
+    refused = [2]
+
+    def flaky(src, dst):
+        if refused[0]:
+            refused[0] -= 1
+            raise PermissionError(13, "Access is denied")
+        return real(src, dst)
+
+    monkeypatch.setattr(os, "replace", flaky)
+    sleeps: list[float] = []
+    replace_file(source, target, sleep=sleeps.append)
+    assert target.read_bytes() == b"new" and sleeps == [0.05, 0.1]
+    source.write_bytes(b"newer")
+    refused[0] = 99
+    sleeps.clear()
+    with pytest.raises(PermissionError):
+        replace_file(source, target, sleep=sleeps.append)
+    assert sleeps == [0.05, 0.1, 0.2, 0.4] and target.read_bytes() == b"new"
+    refused[0] = 0
+    with pytest.raises(FileNotFoundError):  # only PermissionError is retried
+        replace_file(tmp_path / "missing", target, sleep=pytest.fail)
 
 
 # --- downloading -----------------------------------------------------------------------------------
@@ -192,6 +269,24 @@ def test_refused_url_is_refreshed_once(tmp_path, net):
     assert (gone.status, gone.reason) == (FAILED, "HTTP 404 (also after refreshing the URL)")
     assert (unchanged.status, unchanged.reason) == (FAILED, "HTTP 403; Discord gave no new URL")
     assert net.discord.refresh_batches == [originals]  # one request for all refused URLs
+
+
+def test_download_rename_is_retried(tmp_path, net, monkeypatch):
+    item = job("800000000000000001", b"data")
+    net.cdn.add(item.url, b"data")
+    real = os.replace
+    refused = [1]
+
+    def flaky(src, dst):
+        if refused[0] and str(dst).endswith(item.path.rsplit("/", 1)[1]):
+            refused[0] -= 1
+            raise PermissionError(13, "Access is denied")
+        return real(src, dst)
+
+    monkeypatch.setattr(os, "replace", flaky)
+    downloader(net, tmp_path).run([item])
+    assert item.status == DOWNLOADED and (tmp_path / item.path).read_bytes() == b"data"
+    assert net.sleeps == [0.05]
 
 
 def test_failing_refresh_marks_the_files_failed(tmp_path, net):

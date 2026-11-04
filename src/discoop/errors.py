@@ -15,6 +15,7 @@ class ExitCode(IntEnum):
     RATE_LIMITED = 6
     NETWORK = 7
     BAD_ARGS = 8
+    PARTIAL = 9  # finished, but a channel was skipped (no access, not found) or a file could not be downloaded
 
 
 AUTH_HINT = "Run `discoop login`. AI agents: ask the user to run it in their own terminal."

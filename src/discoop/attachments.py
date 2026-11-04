@@ -40,6 +40,7 @@ REFRESH_BATCH = 50  # URLs per refresh-urls request (assumed limit)
 EXPIRY_MARGIN = 60  # seconds: a URL that expires sooner is refreshed before the download
 REFRESHABLE = {403, 404, 410}  # CDN answers that can mean an expired URL
 RETRY_WAITS = (1.0, 2.0)  # pauses before the 2nd and 3rd attempt after a network error, 429 or 5xx
+REPLACE_WAITS = (0.05, 0.1, 0.2, 0.4)  # pauses before retrying a rename that Windows refuses for a moment
 _RETRY_STATUSES = {429, 500, 502, 503, 504}
 CHUNK = 64 * 1024
 
@@ -60,6 +61,28 @@ _RESERVED = {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"} | {
     f"{device}{digit}" for device in ("COM", "LPT") for digit in _DEVICE_DIGITS
 }
 STORED_NAME = re.compile(r"(\d+)_.")  # a saved file: attachment ID, `_`, file name
+
+
+def replace_file(
+    source: Path | str,
+    target: Path | str,
+    *,
+    sleep: Callable[[float], None] = time.sleep,
+    waits: Sequence[float] = REPLACE_WAITS,
+) -> None:
+    """`os.replace`, tried again after a short pause when it fails with PermissionError.
+
+    On Windows an antivirus scanner or the indexer may hold a file we have just written for a moment, and the rename
+    fails although nothing is wrong. After the last pause the error is raised.
+    """
+    for wait in (*waits, None):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if wait is None:
+                raise
+            sleep(wait)
 
 
 def safe_name(
@@ -104,13 +127,15 @@ def file_name(attachment_id: str, filename: str) -> str:
     return prefix + safe_name(filename, "file", MAX_FILE_CHARS - len(prefix), MAX_NAME_BYTES - len(prefix))
 
 
-def channel_folders(channels: Iterable[Channel]) -> dict[str, str]:
+def channel_folders(channels: Iterable[Channel], existing: Mapping[str, str] | None = None) -> dict[str, str]:
     """A folder name per channel ID: the safe channel name, with `_<channel id>` when an earlier channel has it.
 
-    Names are compared without regard to case, as Windows and macOS do.
+    Names are compared without regard to case, as Windows and macOS do. Give it all channels of an export at once, so
+    the names do not depend on the order in which their messages arrive. `existing` names are kept and count as
+    taken (for a channel that turns up later); the result has them too.
     """
-    folders: dict[str, str] = {}
-    taken: set[str] = set()
+    folders: dict[str, str] = dict(existing or {})
+    taken: set[str] = {name.casefold() for name in folders.values()}
     for channel in channels:
         if channel.id in folders:
             continue
@@ -159,9 +184,16 @@ class FileJob:
         self.status, self.reason = FAILED, reason
 
 
-def plan(results: Sequence[ChannelMessages], folders: Mapping[str, str]) -> list[FileJob]:
-    """One job per attachment, in message order. An attachment seen twice (e.g. also forwarded) is saved once."""
-    jobs: dict[str, FileJob] = {}
+def plan(
+    results: Sequence[ChannelMessages], folders: Mapping[str, str], seen: dict[str, FileJob] | None = None
+) -> list[FileJob]:
+    """One job per attachment, in message order. An attachment seen twice (e.g. also forwarded) is saved once.
+
+    `seen` carries that across calls when channels arrive one at a time: it maps the attachment key to its job, gets
+    every new job added, and an attachment already in it makes no new job. The result holds only the new jobs.
+    """
+    jobs = {} if seen is None else seen
+    new: list[FileJob] = []
     for result in results:
         folder = folders[result.channel.id]
         for message in result.messages:
@@ -169,8 +201,9 @@ def plan(results: Sequence[ChannelMessages], folders: Mapping[str, str]) -> list
                 key = attachment.id or f"{message.id}-{number}"
                 if key not in jobs:
                     path = f"{FILES_DIR}/{folder}/{file_name(key, attachment.filename)}"
-                    jobs[key] = FileJob(attachment, message.id, result.channel.id, path, attachment.url)
-    return list(jobs.values())
+                    jobs[key] = job = FileJob(attachment, message.id, result.channel.id, path, attachment.url)
+                    new.append(job)
+    return new
 
 
 @dataclass(frozen=True)
@@ -190,6 +223,16 @@ def stored_files(root: Path) -> dict[str, list[Stored]]:
                 stored = Stored(path.relative_to(root).as_posix(), path.stat().st_size)
                 found.setdefault(match.group(1), []).append(stored)
     return found
+
+
+def reuse_stored(job: FileJob, stored: Mapping[str, list[Stored]]) -> bool:
+    """Mark `job` as `present` if a saved file with its attachment ID and size exists. True if it did."""
+    size = job.attachment.size
+    for item in stored.get(job.attachment.id, []):
+        if size <= 0 or item.size == size:
+            job.path, job.status, job.reason = item.path, PRESENT, None
+            return True
+    return False
 
 
 class Progress:
@@ -260,10 +303,8 @@ class Downloader:
 
     def _needed(self, job: FileJob, stored: Mapping[str, list[Stored]], max_size: int | None) -> bool:
         size = job.attachment.size
-        for item in stored.get(job.attachment.id, []):
-            if size <= 0 or item.size == size:
-                job.path, job.status, job.reason = item.path, PRESENT, None
-                return False
+        if reuse_stored(job, stored):
+            return False
         if max_size is not None and size > max_size:
             job.status, job.reason = SKIPPED, TOO_LARGE
             return False
@@ -388,7 +429,7 @@ class Downloader:
                 if status != 200:
                     job.fail(f"HTTP {status}")
                     return status
-                os.replace(part, target)
+                replace_file(part, target, sleep=self._sleep)
                 job.status, job.reason = DOWNLOADED, None
                 return None
         except OSError as e:
