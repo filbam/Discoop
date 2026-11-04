@@ -4,10 +4,19 @@ Run it yourself after `discoop login`:
 
     uv run python prototype/probe_threads.py
 
-It sends GET requests only, paced at 1 second per request:
+It sends GET requests only, paced at 1 second per request (about 59 to 64 requests, roughly 1.5 minutes):
 - Thread search page size (limit=25 vs limit=50)
 - Offset reachability (0, 25, 100, 500, end)
 - Response 202 ("not indexed") detection
+- `first_messages` and `members` parts of a thread search response (counts and field names, no extra request)
+- Thread search in text channels: up to 6 text/announcement channels with a last_message_id, newest first,
+  tried until one answers 200 (`threads_search_text_candidates`), then the active search there
+  (`threads_search_text_active`). `--channel` overrides the choice with exactly one channel.
+- Short page vs end (`threads_search_after_short_page`): the next page (offset=25) of the forum's active search when
+  that search returned fewer than 25 threads; past the end (`threads_search_past_end`): the archived forum search at
+  offset=total_results and total_results+25
+- Readable thread messages (`thread_messages_readable`): the oldest message of the newest archived forum thread
+  and of the newest active one (`limit=1&after=0`), plus one `limit=100` call on the first thread
 - Private threads presence and metadata attributes
 - total_results vs returned & unique pagination comparison
 - Channel last_message_id presence and comparison against latest message
@@ -35,6 +44,8 @@ from discoop.tokenstore import TokenStore
 DEFAULT_GUILD = "461541385204400138"  # VUT FIT
 DEFAULT_CHANNEL = "1282100102743330887"  # #2bit-general
 OUT_DIR = Path(__file__).parent / "out"
+MAX_TEXT_CANDIDATES = 6
+TEXT_CHANNEL_TYPES = (0, 5)  # text and announcement
 
 
 class Probe:
@@ -74,6 +85,129 @@ def error_summary(response: httpx.Response) -> dict[str, Any]:
     return {}
 
 
+def snowflake(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def thread_list(data: dict[str, Any]) -> list[dict[str, Any]]:
+    threads = data.get("threads")
+    return [t for t in threads if isinstance(t, dict)] if isinstance(threads, list) else []
+
+
+def first_thread_id(threads: list[dict[str, Any]]) -> str | None:
+    return str(threads[0]["id"]) if threads and isinstance(threads[0], dict) and "id" in threads[0] else None
+
+
+def search_params(archived: bool, offset: int = 0, limit: int = 25) -> dict[str, Any]:
+    return {
+        "archived": "true" if archived else "false",
+        "sort_by": "last_message_time",
+        "sort_order": "desc",
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+def pick_text_candidates(channels: list[dict[str, Any]], limit: int = MAX_TEXT_CANDIDATES) -> list[dict[str, Any]]:
+    """Text and announcement channels that have a last_message_id, newest last message first."""
+    keyed: list[tuple[int, dict[str, Any]]] = []
+    for c in channels:
+        if not isinstance(c, dict) or c.get("type") not in TEXT_CHANNEL_TYPES or not c.get("id"):
+            continue
+        key = snowflake(c.get("last_message_id"))
+        if key:
+            keyed.append((key, c))
+    keyed.sort(key=lambda item: item[0], reverse=True)
+    return [c for _, c in keyed[:limit]]
+
+
+def search_summary(response: httpx.Response) -> dict[str, Any]:
+    """Error code, number of threads and presence of the `threads` key of a threads/search response."""
+    data = body(response)
+    data = data if isinstance(data, dict) else {}
+    threads = data.get("threads")
+    summary: dict[str, Any] = {
+        "error_code": None if response.status_code in (200, 202) else data.get("code"),
+        "returned": len(threads) if response.status_code == 200 and isinstance(threads, list) else None,
+        "has_threads_key": "threads" in data,
+    }
+    if response.status_code == 202:
+        summary["keys"] = sorted(data.keys())
+    return summary
+
+
+def objects_of(raw: Any) -> list[dict[str, Any]]:
+    """Objects held by a JSON array or by the values of a JSON object."""
+    items = raw.values() if isinstance(raw, dict) else raw if isinstance(raw, list) else []
+    return [i for i in items if isinstance(i, dict)]
+
+
+def first_messages_summary(data: dict[str, Any], threads: list[dict[str, Any]]) -> dict[str, Any]:
+    """Counts and field names of the `first_messages` and `members` parts of a threads/search response."""
+    raw = data.get("first_messages")
+    messages = objects_of(raw)
+    members = objects_of(data.get("members"))
+    thread_ids = {str(t["id"]) for t in threads if "id" in t}
+    return {
+        "container": "missing" if raw is None else type(raw).__name__,
+        "threads": len(thread_ids),
+        "first_messages": len(messages),
+        "message_id_equals_thread_id": sum(1 for m in messages if str(m.get("id")) in thread_ids),
+        "message_channel_is_thread": sum(1 for m in messages if str(m.get("channel_id")) in thread_ids),
+        "message_types": dict(sorted(Counter(str(m.get("type")) for m in messages).items())),
+        "message_fields": fields(messages),
+        "members": len(members) if isinstance(data.get("members"), (dict, list)) else None,
+        "member_fields": fields(members),
+    }
+
+
+def page_findings(response: httpx.Response, *, with_has_more: bool = False) -> dict[str, Any]:
+    """Status and number of threads of a threads/search page (`has_more` only on request). No IDs or names."""
+    data = body(response)
+    data = data if isinstance(data, dict) else {}
+    threads = data.get("threads")
+    findings: dict[str, Any] = {
+        "status": response.status_code,
+        "returned": len(threads) if response.status_code == 200 and isinstance(threads, list) else None,
+    }
+    if with_has_more:
+        findings["has_more"] = data.get("has_more")
+    if response.status_code not in (200, 202):
+        findings["error_code"] = data.get("code")
+    return findings
+
+
+def message_sample(response: httpx.Response, thread_id: str, limit: int) -> dict[str, Any]:
+    """Structure of a /channels/{thread}/messages response. Counts, types and booleans only: no IDs or texts."""
+    sample: dict[str, Any] = {"limit": limit, "status": response.status_code}
+    data = body(response)
+    if response.status_code != 200 or not isinstance(data, list):
+        sample["returned"] = None
+        if response.status_code != 200:
+            sample.update(error_summary(response))
+        return sample
+    messages = [m for m in data if isinstance(m, dict)]
+    ids = [i for i in (snowflake(m.get("id")) for m in messages) if i is not None]
+    thread_key = snowflake(thread_id)
+    sample["returned"] = len(messages)
+    if limit == 1:
+        sample["first_message_id_equals_thread_id"] = (
+            snowflake(messages[0].get("id")) == thread_key if messages else None
+        )
+        sample["message_type"] = messages[0].get("type") if messages else None
+    else:
+        complete = len(messages) < limit  # the batch then holds the whole thread, so its oldest message is the first
+        sample["more_than_one"] = len(messages) > 1
+        sample["types"] = dict(sorted(Counter(str(m.get("type")) for m in messages).items()))
+        sample["message_fields"] = fields(messages)
+        sample["batch_complete"] = complete
+        sample["oldest_message_id_equals_thread_id"] = (min(ids) == thread_key) if complete and ids else None
+    return sample
+
+
 def run(
     probe: Probe,
     guild: str,
@@ -96,8 +230,14 @@ def run(
         if forum is None:
             forum = next((c["id"] for c in channels if c.get("type") == 15), None)
 
-    if channel is None:
-        channel = next((c["id"] for c in channels if c.get("type") == 0), DEFAULT_CHANNEL)
+    # Text channels for the thread search: an explicit --channel wins, otherwise the text and announcement channels
+    # with the newest last_message_id (most likely readable and active), at most MAX_TEXT_CANDIDATES.
+    if channel is not None:
+        text_candidates: list[dict[str, Any]] = [{"id": channel}]
+    elif r_channels.status_code != 200:
+        text_candidates = [{"id": DEFAULT_CHANNEL}]
+    else:
+        text_candidates = pick_text_candidates(channels)
 
     # 1. Thread search page size (limit 25 and limit 50)
     data25: dict[str, Any] | None = None
@@ -139,6 +279,13 @@ def run(
             keys=sorted(data25.keys()) if isinstance(data25, dict) else None,
             **({} if r25.status_code in (200, 202) else error_summary(r25)),
         )
+        if r25.status_code == 200:
+            p.check(
+                "threads_search_first_messages",
+                "parts of the threads_search_limit_25 response (no extra request)",
+                r25,
+                **first_messages_summary(data25, threads25),
+            )
 
         r50 = p.call(
             "GET",
@@ -246,57 +393,61 @@ def run(
 
     text_threads_archived: list[dict[str, Any]] = []
     text_threads_active: list[dict[str, Any]] = []
-    if channel is not None:
-        r_text_arch = p.call(
-            "GET",
-            f"/channels/{channel}/threads/search",
-            params={
-                "archived": "true",
-                "sort_by": "last_message_time",
-                "sort_order": "desc",
-                "limit": 25,
-                "offset": 0,
-            },
-        )
-        if r_text_arch.status_code == 202:
-            not_indexed_responses.append(r_text_arch)
-        raw_ta = body(r_text_arch)
-        data_ta = raw_ta if isinstance(raw_ta, dict) else {}
-        text_threads_archived = data_ta.get("threads", []) if isinstance(data_ta.get("threads"), list) else []
+    text_records: list[dict[str, Any]] = []
+    text_ok_index: int | None = None
+    text_ok_id: str | None = None
+    for idx, candidate in enumerate(text_candidates, start=1):
+        r_cand = p.call("GET", f"/channels/{candidate['id']}/threads/search", params=search_params(archived=True))
+        if r_cand.status_code == 202:
+            not_indexed_responses.append(r_cand)
+        text_records.append({"index": idx, "status": r_cand.status_code, **search_summary(r_cand)})
+        if r_cand.status_code == 200:
+            text_ok_index, text_ok_id = idx, str(candidate["id"])
+            raw_cand = body(r_cand)
+            text_threads_archived = thread_list(raw_cand if isinstance(raw_cand, dict) else {})
+            break
+
+    if not text_candidates:
         p.check(
-            "threads_search_text_archived",
-            f"GET /channels/{channel}/threads/search?archived=true&limit=25",
-            r_text_arch,
-            returned=len(text_threads_archived) if r_text_arch.status_code == 200 else None,
-            has_more=data_ta.get("has_more"),
-            total_results=data_ta.get("total_results"),
-            **({} if r_text_arch.status_code in (200, 202) else error_summary(r_text_arch)),
+            "threads_search_text_candidates",
+            "GET /channels/<text candidate>/threads/search",
+            None,
+            skipped="no text or announcement channel with a last_message_id found",
+        )
+    else:
+        p.check(
+            "threads_search_text_candidates",
+            "GET /channels/<text candidate>/threads/search?archived=true&sort_by=last_message_time&sort_order=desc"
+            "&limit=25&offset=0 (candidates in order of newest last_message_id, stops at the first 200)",
+            None,
+            override=channel is not None,
+            candidates=len(text_candidates),
+            tried=len(text_records),
+            first_ok_index=text_ok_index,
+            status_counts=dict(sorted(Counter(str(r["status"]) for r in text_records).items())),
+            details=text_records,
         )
 
-        r_text_act = p.call(
-            "GET",
-            f"/channels/{channel}/threads/search",
-            params={
-                "archived": "false",
-                "sort_by": "last_message_time",
-                "sort_order": "desc",
-                "limit": 25,
-                "offset": 0,
-            },
+    if text_ok_id is None:
+        p.check(
+            "threads_search_text_active",
+            "GET /channels/<first text candidate that answered 200>/threads/search?archived=false",
+            None,
+            skipped="no text channel candidate answered 200",
         )
+    else:
+        r_text_act = p.call("GET", f"/channels/{text_ok_id}/threads/search", params=search_params(archived=False))
         if r_text_act.status_code == 202:
             not_indexed_responses.append(r_text_act)
         raw_tact = body(r_text_act)
-        data_tact = raw_tact if isinstance(raw_tact, dict) else {}
-        text_threads_active = data_tact.get("threads", []) if isinstance(data_tact.get("threads"), list) else []
+        text_threads_active = thread_list(raw_tact if isinstance(raw_tact, dict) else {})
         p.check(
             "threads_search_text_active",
-            f"GET /channels/{channel}/threads/search?archived=false&limit=25",
+            f"GET /channels/<text candidate {text_ok_index}>/threads/search?archived=false&sort_by=last_message_time"
+            "&sort_order=desc&limit=25&offset=0",
             r_text_act,
-            returned=len(text_threads_active) if r_text_act.status_code == 200 else None,
-            has_more=data_tact.get("has_more"),
-            total_results=data_tact.get("total_results"),
-            **({} if r_text_act.status_code in (200, 202) else error_summary(r_text_act)),
+            candidate_index=text_ok_index,
+            **search_summary(r_text_act),
         )
 
     forum_threads_active: list[dict[str, Any]] = []
@@ -325,6 +476,32 @@ def run(
             has_more=data_fa.get("has_more"),
             total_results=data_fa.get("total_results"),
             **({} if r_forum_act.status_code in (200, 202) else error_summary(r_forum_act)),
+        )
+
+        # Does a page shorter than 25 really mean the end? Ask for the next page of the same search.
+        if r_forum_act.status_code == 200 and len(forum_threads_active) < 25:
+            r_after_short = p.call("GET", f"/channels/{forum}/threads/search", params=search_params(archived=False, offset=25))
+            p.check(
+                "threads_search_after_short_page",
+                f"GET /channels/{forum}/threads/search?archived=false&sort_by=last_message_time&sort_order=desc"
+                "&limit=25&offset=25 (next page after the short forum_active page)",
+                r_after_short,
+                short_page_returned=len(forum_threads_active),
+                **page_findings(r_after_short, with_has_more=True),
+            )
+        else:
+            p.check(
+                "threads_search_after_short_page",
+                "GET /channels/<forum>/threads/search?archived=false&offset=25",
+                None,
+                skipped="the forum_active page was not a successful page shorter than 25",
+            )
+    else:
+        p.check(
+            "threads_search_after_short_page",
+            "GET /channels/<forum>/threads/search?archived=false&offset=25",
+            None,
+            skipped="no forum channel found",
         )
 
     # Collect and deduplicate all discovered threads for structural analysis
@@ -361,6 +538,76 @@ def run(
         thread_fields=fields(unique_threads),
         thread_metadata_fields=fields(metadata_list),
     )
+
+    # 4b. Can thread messages be read? The oldest message (limit=1&after=0) of the newest archived forum thread and of
+    # the newest active one, then 100 newest messages of the first thread. Only counts, types and booleans are kept.
+    message_targets: list[tuple[str, str]] = []
+    archived_thread_id = first_thread_id(threads25)
+    if archived_thread_id:
+        message_targets.append(("archived_forum", archived_thread_id))
+    for label, pool in (("active_forum", forum_threads_active), ("active_text", text_threads_active)):
+        active_thread_id = first_thread_id(pool)
+        if active_thread_id:
+            message_targets.append((label, active_thread_id))
+            break
+
+    if not message_targets:
+        p.check(
+            "thread_messages_readable",
+            "GET /channels/<thread>/messages",
+            None,
+            skipped="no thread found",
+        )
+    else:
+        message_samples: list[dict[str, Any]] = []
+        statuses: list[int] = []
+        for position, (label, thread_id) in enumerate(message_targets):
+            r_oldest = p.call("GET", f"/channels/{thread_id}/messages", params={"limit": 1, "after": 0})
+            sample: dict[str, Any] = {"thread": label, "oldest_message": message_sample(r_oldest, thread_id, 1)}
+            statuses.append(r_oldest.status_code)
+            if position == 0:
+                r_batch = p.call("GET", f"/channels/{thread_id}/messages", params={"limit": 100})
+                sample["newest_100"] = message_sample(r_batch, thread_id, 100)
+                statuses.append(r_batch.status_code)
+            message_samples.append(sample)
+        p.check(
+            "thread_messages_readable",
+            "GET /channels/<thread>/messages?limit=1&after=0 (oldest message), then ?limit=100 on the first thread",
+            None,
+            threads_tested=len(message_samples),
+            statuses=statuses,
+            samples=message_samples,
+        )
+
+    # 4c. Past the end of the archived list: offset = total_results and total_results + 25 (the first page's total).
+    if forum is None:
+        past_end_skip: str | None = "no forum channel found"
+    elif total_results_first is None:
+        past_end_skip = "total_results of the first search is unknown"
+    else:
+        past_end_skip = None
+    if past_end_skip is not None:
+        p.check(
+            "threads_search_past_end",
+            "GET /channels/<forum>/threads/search?archived=true&offset=<total_results>",
+            None,
+            skipped=past_end_skip,
+        )
+    else:
+        past_end_pages: list[dict[str, Any]] = []
+        for label, off in (("total_results", total_results_first), ("total_results_plus_25", total_results_first + 25)):
+            r_past = p.call("GET", f"/channels/{forum}/threads/search", params=search_params(archived=True, offset=off))
+            past_end_pages.append({"offset_kind": label, "offset": off, **page_findings(r_past)})
+        p.check(
+            "threads_search_past_end",
+            f"GET /channels/{forum}/threads/search?archived=true&sort_by=last_message_time&sort_order=desc&limit=25"
+            "&offset=<total_results> and <total_results + 25>",
+            None,
+            total_results=total_results_first,
+            statuses=[page["status"] for page in past_end_pages],
+            returned=[page["returned"] for page in past_end_pages],
+            pages=past_end_pages,
+        )
 
     # 5. Difference between total_results and returned/unique threads across pagination
     if forum is None:
@@ -474,10 +721,10 @@ def run(
         **({} if r_channels.status_code == 200 else error_summary(r_channels)),
     )
 
-    text_candidates = [c for c in channels_with_lmid if c.get("type") == 0][:3]
+    lmid_samples = [c for c in channels_with_lmid if c.get("type") == 0][:3]
     comparisons: list[dict[str, Any]] = []
 
-    for idx, c in enumerate(text_candidates):
+    for idx, c in enumerate(lmid_samples):
         cid = c.get("id")
         c_lmid = c.get("last_message_id")
         r_msg = p.call("GET", f"/channels/{cid}/messages", params={"limit": 1})
@@ -510,13 +757,14 @@ def run(
         "channels_last_message_vs_latest",
         "GET /channels/{id}/messages?limit=1 (compare last_message_id on 3 text channels)",
         None,
-        tested_channels=len(text_candidates),
+        tested_channels=len(lmid_samples),
         results=[item["result"] for item in comparisons],
         result_counts=dict(Counter(item["result"] for item in comparisons)),
         details=comparisons,
     )
 
-    return {"forum": forum, "channel": channel}
+    text_channel = text_ok_id or (str(text_candidates[0]["id"]) if text_candidates else None)
+    return {"forum": forum, "channel": text_channel}
 
 
 def main() -> int:
@@ -525,7 +773,11 @@ def main() -> int:
     parser.add_argument(
         "--channel",
         default=None,
-        help=f"text channel ID (default: find first type 0, or {DEFAULT_CHANNEL})",
+        help=(
+            "text channel ID for the thread search; skips the automatic choice "
+            f"(default: up to {MAX_TEXT_CANDIDATES} newest text/announcement channels, or {DEFAULT_CHANNEL} "
+            "when the channel list fails)"
+        ),
     )
     parser.add_argument(
         "--forum",
@@ -592,6 +844,13 @@ def main() -> int:
                 "results",
                 "has_private_threads",
                 "received_202",
+                "tried",
+                "first_ok_index",
+                "status_counts",
+                "statuses",
+                "first_messages",
+                "message_id_equals_thread_id",
+                "short_page_returned",
             }
         }
         table.add_row(c["check"], str(c["status"]), json.dumps(detail, ensure_ascii=False))
