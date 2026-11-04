@@ -155,7 +155,7 @@ def test_retries_after_server_errors_and_network_errors(tmp_path, net):
         raise httpx.ConnectError("connection refused", request=request)
 
     lost = job("800000000000000003", b"x")
-    Downloader(None, cdn_client(httpx.MockTransport(offline)), tmp_path, sleep=lambda s: None).run([lost])
+    Downloader(None, cdn_client(httpx.MockTransport(offline)), tmp_path, now=NOW.timestamp, sleep=lambda s: None).run([lost])
     assert (lost.status, lost.reason) == (FAILED, "network error: connection refused")
     assert not list(tmp_path.rglob("*.part"))
 
@@ -163,14 +163,14 @@ def test_retries_after_server_errors_and_network_errors(tmp_path, net):
         return httpx.Response(302, headers={"Location": str(request.url)})
 
     looping = job("800000000000000004", b"x")
-    Downloader(None, cdn_client(httpx.MockTransport(loop)), tmp_path, sleep=pytest.fail).run([looping])
+    Downloader(None, cdn_client(httpx.MockTransport(loop)), tmp_path, now=NOW.timestamp, sleep=pytest.fail).run([looping])
     assert looping.status == FAILED and looping.reason.startswith("download error: Exceeded maximum allowed redirects")
 
     def bad_proto(request: httpx.Request) -> httpx.Response:
         return httpx.Response(302, headers={"Location": "ftp://example.com/file.bin"})
 
     wrong_proto = job("800000000000000005", b"x")
-    Downloader(None, cdn_client(httpx.MockTransport(bad_proto)), tmp_path, sleep=pytest.fail).run([wrong_proto])
+    Downloader(None, cdn_client(httpx.MockTransport(bad_proto)), tmp_path, now=NOW.timestamp, sleep=pytest.fail).run([wrong_proto])
     assert wrong_proto.status == FAILED and wrong_proto.reason.startswith("download error: ")
 
     bad_url_job = job("800000000000000006", b"x")
