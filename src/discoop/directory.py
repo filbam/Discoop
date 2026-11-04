@@ -8,6 +8,11 @@ from discoop.cache import Cache
 from discoop.errors import DiscoopError, ExitCode
 from discoop.models import CATEGORY, Channel, Server, channel_from_api, is_hidden, server_from_api
 from discoop.resolve import NotFoundError, resolve_many, resolve_one
+from discoop.snowflake import Window
+from discoop.threads import FetchedThreads, Stop, fetch_all_threads, in_window, is_thread_container
+
+# Thread lists change all the time, unlike servers and channels: a cached one is only trusted this long (seconds).
+THREADS_MAX_AGE = 15 * 60.0
 
 
 def describe_server(server: Server) -> str:
@@ -93,6 +98,39 @@ class Directory:
             if channel.id == channel_id:
                 return channel
         return channel_from_api(data, server.id)  # e.g. a thread: not in the server's channel list
+
+    def threads(
+        self,
+        channel: Channel,
+        window: Window,
+        *,
+        refresh: bool = False,
+        max_age: float | None = THREADS_MAX_AGE,
+        on_page: Callable[[int, int], None] | None = None,
+    ) -> FetchedThreads:
+        """The threads (forum posts) of a channel that overlap the window, newest activity first.
+
+        Answered from the cache when it holds a list that covers the window and is younger than `max_age` seconds
+        (None: any age), or that this run fetched; otherwise fetched from Discord (`fetch_all_threads`) and cached,
+        replacing the list before it, even a wider one. Pass `refresh=True` to always ask Discord, as a download
+        should: a thread opened a minute ago is not in a cached list. A cached answer has `requests == 0`; use
+        `cache_age(f"threads:{channel.id}")` for its age. An incomplete fetch (see `FetchedThreads.complete`) is
+        returned but not cached. Channels that cannot have threads (voice, categories, threads themselves) give
+        an empty list without a request. Errors are those of `fetch_threads`.
+        """
+        if not is_thread_container(channel.type):
+            return FetchedThreads([], 0, Stop.END)
+        key = f"threads:{channel.id}"
+        cached = self.cache.cached_threads(channel.id)
+        if not refresh and cached is not None and cached.covers(window):
+            if key in self.fetched or max_age is None or cached.age() < max_age:
+                threads = [t for t in cached.threads if in_window(t, window)]
+                return FetchedThreads(threads, 0, Stop.END if cached.covered_from is None else Stop.WINDOW)
+        result = fetch_all_threads(self.api(), channel.id, window, label=describe_channel(channel), on_page=on_page)
+        if result.complete:
+            self.cache.replace_threads(channel.id, result.threads, covered_from=window.start)
+            self.fetched.add(key)
+        return result
 
     def cache_age(self, what: str) -> float | None:
         """Seconds since `what` was fetched, or None if this run fetched it."""

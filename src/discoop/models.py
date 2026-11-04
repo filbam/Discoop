@@ -1,10 +1,12 @@
-"""Plain data the commands work with: servers and channels as cached locally, and messages."""
+"""Plain data the commands work with: servers, channels and threads as cached locally, and messages."""
 
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
+
+from discoop.snowflake import to_time
 
 CHANNEL_TYPES = {
     0: "text",
@@ -20,6 +22,14 @@ CHANNEL_TYPES = {
     16: "media",
 }
 CATEGORY = 4
+FORUM = 15
+MEDIA = 16
+# Channel types of threads: announcement thread, public thread (also every forum and media post), private thread.
+THREAD_TYPES = {10, 11, 12}
+# Channels whose posts are all threads.
+FORUM_TYPES = {FORUM, MEDIA}
+# Channels that can hold threads: text, announcement, forum and media channels.
+THREAD_CONTAINER_TYPES = {0, 5, FORUM, MEDIA}
 # Types `channels --type` accepts: everything /guilds/{id}/channels returns except categories.
 LISTABLE_TYPES = {name: number for number, name in CHANNEL_TYPES.items() if number in {0, 2, 5, 13, 14, 15, 16}}
 # Channels whose messages `messages` reads: text, voice and stage chat, announcements, threads.
@@ -38,6 +48,14 @@ class Server:
 
 
 @dataclass(frozen=True)
+class ForumTag:
+    """A tag a forum offers for its posts (`available_tags`); posts carry the tag IDs (`applied_tags`)."""
+
+    id: str
+    name: str
+
+
+@dataclass(frozen=True)
 class Channel:
     id: str
     server_id: str
@@ -46,6 +64,10 @@ class Channel:
     parent_id: str | None = None
     position: int = 0
     topic: str | None = None
+    # [OVERENÉ 2026-11-04] present on most channels (385 of 412) and equal to the newest message in 2 of 2 samples.
+    # In a forum it is the ID of the newest post (a thread), not of a message.
+    last_message_id: str | None = None
+    available_tags: tuple[ForumTag, ...] = ()  # forums and media channels only
 
     @property
     def type_name(self) -> str:
@@ -54,6 +76,11 @@ class Channel:
     def sort_key(self) -> tuple[int, int, int]:
         """Discord's sidebar order: text-like channels above voice ones, then position, then ID."""
         return (self.type in _VOICE_LIKE, self.position, int(self.id))
+
+    def tag_names(self, tag_ids: Iterable[str]) -> tuple[str, ...]:
+        """Names of the given tag IDs (a post's `applied_tags`); IDs the channel does not list any more are left out."""
+        names = {tag.id: tag.name for tag in self.available_tags}
+        return tuple(names[tag_id] for tag_id in tag_ids if tag_id in names)
 
 
 def server_from_api(data: dict[str, Any]) -> Server:
@@ -69,7 +96,97 @@ def channel_from_api(data: dict[str, Any], server_id: str) -> Channel:
         parent_id=data.get("parent_id"),
         position=int(data.get("position") or 0),
         topic=data.get("topic"),
+        last_message_id=_text_or_none(data.get("last_message_id")),
+        available_tags=_tags_from_api(data.get("available_tags")),
     )
+
+
+def _text_or_none(value: Any) -> str | None:
+    return str(value) if value else None
+
+
+def _tags_from_api(raw: Any) -> tuple[ForumTag, ...]:
+    """Forum tags `{id, name, ...}`; entries without an ID are dropped, a missing list is no tags."""
+    if not isinstance(raw, list):
+        return ()
+    tags = (tag for tag in raw if isinstance(tag, dict) and tag.get("id"))
+    return tuple(ForumTag(str(tag["id"]), tag.get("name") or "") for tag in tags)
+
+
+@dataclass(frozen=True)
+class Thread:
+    """A thread or a forum post, as listed by `threads/search` (docs/analyzy/discord-analyza.md, section 6).
+
+    A thread is a channel of its own: its messages are read from `/channels/{id}/messages`. In a forum the post
+    and its first message share the ID.
+    """
+
+    id: str
+    parent_id: str  # the text, announcement, forum or media channel that holds it
+    name: str
+    # 11 public thread, forum posts too [OVERENÉ]; 10 announcement thread, 12 private thread [PREDPOKLAD]: not seen yet
+    type: int
+    created: datetime  # `thread_metadata.create_timestamp`, else the time in the ID; timezone-aware (UTC)
+    last_activity: datetime  # time of `last_message_id`, never before `created`; timezone-aware (UTC)
+    archived: bool = False
+    locked: bool = False
+    # Not counting the first message. [PREDPOKLAD] Discord's number is inaccurate above 50 for old threads.
+    message_count: int | None = None
+    owner_id: str | None = None
+    applied_tags: tuple[str, ...] = ()  # forum tag IDs, see `Channel.tag_names`
+    last_message_id: str | None = None
+
+    @property
+    def type_name(self) -> str:
+        return CHANNEL_TYPES.get(self.type, f"type-{self.type}")
+
+    def as_channel(self, server_id: str) -> Channel:
+        """The thread as a channel, to read its messages like those of any other channel."""
+        return Channel(
+            self.id, server_id, self.name, self.type, parent_id=self.parent_id, last_message_id=self.last_message_id
+        )
+
+
+def thread_from_api(data: dict[str, Any], parent_id: str | None = None) -> Thread:
+    """A thread from a channel object of type 10, 11 or 12.
+
+    Only `id` is required (a missing or non-numeric one raises KeyError or ValueError); everything else falls back:
+    `parent_id` to the argument, the times to the snowflakes, flags and counts to False and None.
+    """
+    thread_id = str(data["id"])
+    metadata = data.get("thread_metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    created = _aware_time(metadata.get("create_timestamp")) or to_time(thread_id)  # null in threads from before 2022
+    last_message_id = _text_or_none(data.get("last_message_id"))
+    last_activity = max(created, to_time(last_message_id)) if last_message_id else created
+    message_count = data.get("message_count")
+    tags = data.get("applied_tags")
+    return Thread(
+        id=thread_id,
+        parent_id=str(data.get("parent_id") or parent_id or ""),
+        name=data.get("name") or "",
+        type=data["type"] if isinstance(data.get("type"), int) else 11,
+        created=created,
+        last_activity=last_activity,
+        archived=bool(metadata.get("archived")),
+        locked=bool(metadata.get("locked")),
+        message_count=message_count if isinstance(message_count, int) else None,
+        owner_id=_text_or_none(data.get("owner_id")),
+        applied_tags=tuple(str(tag) for tag in tags) if isinstance(tags, list) else (),
+        last_message_id=last_message_id,
+    )
+
+
+def _aware_time(raw: Any) -> datetime | None:
+    """An ISO 8601 timestamp as a timezone-aware datetime (no zone means UTC); None if it is missing or unreadable."""
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        when = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return when if when.tzinfo else when.replace(tzinfo=UTC)
 
 
 def group_by_category(channels: Iterable[Channel]) -> list[tuple[Channel | None, list[Channel]]]:

@@ -239,3 +239,64 @@ def test_invalid_format_fails_with_code_8(capsys):
     assert code == 8
     assert 'Unknown format "xml".' in err
     assert "Use one of: text, json." in err
+
+
+from discoop.directory import Directory  # noqa: E402
+from discoop.models import ForumTag, channel_from_api  # noqa: E402
+
+FORUM_PAYLOAD = {
+    "id": "204",
+    "type": 15,
+    "name": "help-center",
+    "position": 2,
+    "last_message_id": "1566814241946738698",  # in a forum: the newest post
+    "available_tags": [
+        {"id": "11", "name": "Exam", "moderated": False, "emoji_id": None, "emoji_name": None},
+        {"id": "12", "name": "Project", "moderated": True},
+        {"name": "no id, dropped"},
+        "junk",
+    ],
+}
+
+
+def test_channel_from_api_reads_the_last_message_and_forum_tags():
+    channel = channel_from_api(FORUM_PAYLOAD, FIT)
+    assert channel.last_message_id == "1566814241946738698"
+    assert channel.available_tags == (ForumTag("11", "Exam"), ForumTag("12", "Project"))
+    assert channel.tag_names(["12", "11", "77"]) == ("Project", "Exam")
+
+
+def test_channel_from_api_without_the_new_fields():
+    channel = channel_from_api({"id": "200", "type": 0, "name": "x"}, FIT)
+    assert channel == Channel("200", FIT, "x", 0)
+    assert (channel.last_message_id, channel.available_tags) == (None, ())
+    empty = channel_from_api({"id": "200", "type": 0, "last_message_id": None, "available_tags": None}, FIT)
+    assert (empty.last_message_id, empty.available_tags) == (None, ())
+    assert channel_from_api({"id": "200", "type": 15, "last_message_id": 123}, FIT).last_message_id == "123"
+
+
+def test_directory_keeps_the_new_channel_fields_through_the_cache():
+    payload = [{"id": "100", "type": 4, "name": "general"}, FORUM_PAYLOAD, {"id": "200", "type": 0, "name": "x"}]
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(200, json=payload)
+
+    server = Server(FIT, "VUT FIT")
+    expected = Channel(
+        "204",
+        FIT,
+        "help-center",
+        15,
+        position=2,
+        last_message_id="1566814241946738698",
+        available_tags=(ForumTag("11", "Exam"), ForumTag("12", "Project")),
+    )
+    for _ in range(2):  # the second Directory is a new run that reads the cache
+        with Cache.default() as cache:
+            directory = Directory(cache, lambda: DiscordAPI("tok", transport=httpx.MockTransport(handler)))
+            channels = {c.id: c for c in directory.channels(server)}
+            assert channels["204"] == expected
+            assert channels["200"].last_message_id is None
+        assert len(calls) == 1
