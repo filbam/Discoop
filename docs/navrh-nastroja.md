@@ -38,7 +38,7 @@ Nástroj beží na **Windows, Linuxe aj macOS** (P13). Žiadna časť nesmie zá
 | Uloženie tokenu | keyring (Windows Credential Manager, macOS Keychain, Linux Secret Service) | token nie je v čitateľnom súbore. Na Linuxe bez Secret Service fallback, sekcia 10 |
 | Cesty k dátam | platformdirs | správny adresár na každom OS |
 | Cache a stav | SQLite (stdlib `sqlite3`) | jeden súbor, rýchle vyhľadávanie mien |
-| Inštalácia | `uv tool install .` | príkaz `discoop` dostupný globálne |
+| Inštalácia | `uv tool install git+https://github.com/filbam/Discoop` | príkaz `discoop` dostupný globálne na Windows, Linuxe aj macOS ([ADR 0015](rozhodnutia/0015-verejne-repo-a-instalacia.md)) |
 
 ## 4. Príkazy
 

@@ -6,6 +6,7 @@ verzie podľa [SemVer](https://semver.org/).
 ## [Unreleased]
 
 ### Pridané
+- **Inštalácia z GitHubu (P22, [ADR 0015](docs/rozhodnutia/0015-verejne-repo-a-instalacia.md)):** `uv tool install git+https://github.com/filbam/Discoop` dá príkaz `discoop` bez `uv run`. README má návod pre Windows, Linux a macOS (inštalácia, aktualizácia, odinštalovanie) a sekciu Vývoj. Repo `filbam/Discoop` je verejné.
 - **Názov exportu v TUI (P21):** riadok formulára `Path` je nahradený riadkom `Name` (predvolene prázdny).
   - Prázdne pole: názov z miestneho dátumu a času v tvare `2026-1104-0108` (`YYYY-MMDD-HHMM`) v priečinku exportov (`export-dir` z configu, inak `exports`). Názov sa zafixuje pri `F5`.
   - Holý názov bez `/` a `\` sa uloží do priečinka exportov (prečistený cez `safe_name`), hodnota s lomkou alebo absolútna cesta sa použije ako cesta.

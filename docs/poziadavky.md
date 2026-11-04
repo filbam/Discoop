@@ -35,3 +35,4 @@ porušuje podmienky Discordu.
 | P19 | 2026-11-03 | Zoznamy kanálov servera sú v TUI predvolene zbalené. |
 | P20 | 2026-11-03 | TUI má byť jednoduchšie, viac terminálové a uhladené, s opravenými chybami: všetky ovládacie prvky majú viditeľný text a rozhranie nezadrháva. |
 | P21 | 2026-11-04 | V TUI si chcem nastaviť názov exportu (zip súboru alebo priečinka). Predvolený názov je dátum a čas v tvare `2026-1104-0108` (`YYYY-MMDD-HHMM`) a použije sa aj pri prázdnom poli. |
+| P22 | 2026-11-04 | Nástroj sa spúšťa priamo príkazom `discoop` bez `uv run`. Inštalácia je rýchla na Windows, Linuxe aj macOS a sťahuje sa z GitHubu. |

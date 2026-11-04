@@ -1,58 +1,112 @@
 # Discoop
 
 CLI nástroj na sťahovanie správ a príloh z Discord serverov, ktorých je používateľ členom. Slúži na AI analýzu
-študijných informácií. Súkromný projekt na osobné použitie.
+študijných informácií. Osobný projekt na študijné účely.
+
+**Upozornenie:** scraping porušuje podmienky Discordu. Nástroj používaš na vlastné riziko, hrozí zablokovanie účtu.
 
 **Stav:** rozpracované. Funguje `login` (QR kód v termináli alebo `--token`), `status`, `logout`,
 `servers`, `channels`, `config`, `messages` (výpis správ do konzoly, sťahovanie príloh a export do priečinka
 alebo zipu s manifestom, režimy sťahovania `safe` a `fast`) a interaktívne terminálové rozhranie `discoop ui` (TUI). Vlákna a fóra ešte nie sú.
 
-## Inštalácia a použitie
+## Inštalácia
 
-Potrebné sú Python 3.12+ a [uv](https://docs.astral.sh/uv/).
+Python netreba inštalovať zvlášť: [uv](https://docs.astral.sh/uv/) použije Python 3.12+ a ak chýba, sám si ho stiahne.
+
+**1. Nainštaluj uv** (len raz), potom otvor nový terminál.
+
+Windows:
 
 ```
-uv sync                      # závislosti do .venv
-uv run discoop --help
-uv run discoop login         # QR kód naskenuj v Discord appke: Settings → Scan QR Code
-uv run discoop status
-uv run discoop ui            # interaktívne terminálové rozhranie (TUI)
-uv run discoop servers
-uv run discoop channels -s "VUT FIT"
-uv run discoop config set default-server "VUT FIT"
-uv run discoop config set export-dir exports      # predvolený priečinok pre exporty
-uv run discoop config set mode safe               # režim: safe (predvolený) alebo fast
-uv run pytest                # testy
+winget install --id astral-sh.uv -e
+```
+
+Linux a macOS:
+
+```
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+macOS cez Homebrew (alternatíva):
+
+```
+brew install uv
+```
+
+**2. Nainštaluj discoop** (rovnako na všetkých OS):
+
+```
+uv tool install git+https://github.com/filbam/Discoop
+```
+
+```
+uv tool update-shell
+```
+
+Otvor nový terminál a over inštaláciu:
+
+```
+discoop --version
+```
+
+**Aktualizácia:**
+
+```
+uv tool upgrade discoop
+```
+
+**Odinštalovanie:** najprv `discoop logout` (zmaže uložený token), potom:
+
+```
+uv tool uninstall discoop
+```
+
+Reláciu v Discorde zruš v Settings → Devices.
+
+Na Linuxe bez keyringu (Secret Service) sa token uloží do súboru s právami `0600`.
+
+## Použitie
+
+```
+discoop --help
+discoop login         # QR kód naskenuj v Discord appke: Settings → Scan QR Code
+discoop status
+discoop ui            # interaktívne terminálové rozhranie (TUI)
+discoop servers
+discoop channels -s "VUT FIT"
+discoop config set default-server "VUT FIT"
+discoop config set export-dir exports      # predvolený priečinok pre exporty
+discoop config set mode safe               # režim: safe (predvolený) alebo fast
 ```
 
 Interaktívne terminálové rozhranie (TUI ovládané klávesnicou: jeden strom serverov, kategórií a kanálov, šípky na pohyb,
 Space/Enter na výber, Tab na prepnutie panelu, `F5` spustí export, Help cez `F1`; farby podľa terminálu):
 
 ```
-uv run discoop ui
+discoop ui
 ```
 
 Správy do konzoly (predvolene posledných 24 hodín, od najstaršej):
 
 ```
-uv run discoop messages -s "VUT FIT" -c isc-public              # posledných 24 h (safe režim)
-uv run discoop messages -s "VUT FIT" -c isc-public --fast       # rýchly režim (100 správ/dávka)
-uv run discoop messages -s "VUT FIT" -c isc-public --from 7d
-uv run discoop messages -c 1286436864789843999 --from 2026-10-01 --to 2026-10-31
-uv run discoop messages -s "VUT FIT" -c "isc-*" --last 20       # 20 najnovších z každého kanála
-uv run discoop messages -s "VUT FIT" -c isc-public --format json
-uv run discoop messages -s "VUT FIT" -c isc-public --format md   # Markdown
-uv run discoop --plain messages -s "VUT FIT" -c isc-public      # úsporný čistý text (pre AI agentov a skripty)
+discoop messages -s "VUT FIT" -c isc-public              # posledných 24 h (safe režim)
+discoop messages -s "VUT FIT" -c isc-public --fast       # rýchly režim (100 správ/dávka)
+discoop messages -s "VUT FIT" -c isc-public --from 7d
+discoop messages -c 1286436864789843999 --from 2026-10-01 --to 2026-10-31
+discoop messages -s "VUT FIT" -c "isc-*" --last 20       # 20 najnovších z každého kanála
+discoop messages -s "VUT FIT" -c isc-public --format json
+discoop messages -s "VUT FIT" -c isc-public --format md   # Markdown
+discoop --plain messages -s "VUT FIT" -c isc-public      # úsporný čistý text (pre AI agentov a skripty)
 ```
 
 Export správ a stiahnutie príloh:
 
 ```
-uv run discoop messages -s "VUT FIT" -c isc-public --from 30d --out exports/isc
-uv run discoop messages -c 1286436864789843999 --from all --zip exports/isc.zip
-uv run discoop messages -s "VUT FIT" -c isc-public --out exports/isc --print    # uloží a vypíše správy
-uv run discoop messages -s "VUT FIT" -c isc-public --out exports/isc --no-files # len text a manifest
-uv run discoop messages -s "VUT FIT" -c isc-public --out exports/isc --max-file-size 10 # vynechá súbory > 10 MB
+discoop messages -s "VUT FIT" -c isc-public --from 30d --out exports/isc
+discoop messages -c 1286436864789843999 --from all --zip exports/isc.zip
+discoop messages -s "VUT FIT" -c isc-public --out exports/isc --print    # uloží a vypíše správy
+discoop messages -s "VUT FIT" -c isc-public --out exports/isc --no-files # len text a manifest
+discoop messages -s "VUT FIT" -c isc-public --out exports/isc --max-file-size 10 # vynechá súbory > 10 MB
 ```
 
 - `--safe` (predvolené): imituje ľudské scrollovanie – menšie dávky (25 správ), náhodné pauzy 2–4,5 s medzi požiadavkami, pauzy na čítanie 8–15 s každých 5–8 strán, rozostupy medzi prepnutím kanálov (3–6 s) a medzi sťahovaním súborov z CDN (1–3 s).
@@ -65,9 +119,19 @@ uv run discoop messages -s "VUT FIT" -c isc-public --out exports/isc --max-file-
 - `--max-messages N` (predvolene 5000 na kanál) chráni pred obrovským výstupom.
 - `--out DIR` / `--zip FILE`: vytvorí priečinok alebo zip s `manifest.json`, `messages.md`, `messages.jsonl`, `channels/*.md` a prílohami v `files/<kanál>/`. Opakovaný export do existujúceho cieľa použije už stiahnuté súbory. Bez `--out`/`--zip` sú prílohy len odkazy na Discord CDN, ktoré platia 12 až 24 h.
 
-Globálna inštalácia príkazu `discoop`: `uv tool install .`
-
 Overenie API prototypom popisuje [prototype/README.md](prototype/README.md).
+
+## Vývoj
+
+Vývoj v repe ide cez `uv run` (príkaz `discoop` je potom `uv run discoop`):
+
+```
+git clone https://github.com/filbam/Discoop
+cd Discoop
+uv sync                      # závislosti do .venv
+uv run discoop --help
+uv run pytest                # testy
+```
 
 ## Dokumentácia
 

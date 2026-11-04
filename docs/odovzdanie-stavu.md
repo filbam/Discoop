@@ -14,20 +14,21 @@ Pred začatím akejkoľvek práce si **povinne prečítaj** nasledujúce dokumen
    - **Git pravidlá:** Vetva `main`, autor `filbam <f.bambura@gmail.com>`. Commitovanie po každom overenom kroku (robí hlavný Claude), **zákaz `git push` bez výslovného pokynu používateľa**.
    - **Zaznamenávanie všetkého ([ADR 0001](rozhodnutia/0001-zaznamenavanie-a-verzovanie.md)):** Každá zmena, rozhodnutie alebo požiadavka musí byť zapísaná v dokumentácii v tom istom pracovnom kroku.
 2. **[docs/poziadavky.md](poziadavky.md):**
-   - Zoznam všetkých požiadaviek používateľa (P1–P21). Zdroj pravdy o tom, čo má nástroj dokázať.
+   - Zoznam všetkých požiadaviek používateľa (P1–P22). Zdroj pravdy o tom, čo má nástroj dokázať.
 3. **[docs/navrh-nastroja.md](navrh-nastroja.md):**
    - Architektúra celého nástroja, štruktúra balíka `src/discoop/`, zoznam príkazov, exit kódy, dátové toky a otvorené otázky.
 4. **[docs/dennik.md](dennik.md):**
    - Chronologický denník doterajšieho vývoja, záznamy testov na reálnom účte používateľa a riešené incidenty.
 5. **[docs/rozhodnutia/README.md](rozhodnutia/README.md):**
-   - Register všetkých Architectural Decision Records ([ADR 0001](rozhodnutia/0001-zaznamenavanie-a-verzovanie.md) až [ADR 0014](rozhodnutia/0014-tui-klavesnica-jeden-strom.md)).
+   - Register všetkých Architectural Decision Records ([ADR 0001](rozhodnutia/0001-zaznamenavanie-a-verzovanie.md) až [ADR 0015](rozhodnutia/0015-verejne-repo-a-instalacia.md)).
 
 ---
 
 ## 2. Aktuálny stav projektu (k 2026-11-04)
 
 - **Testovacie pokrytie:** Všetkých **385 automatizovaných testov** prechádza (`uv run pytest`).
-- **Nainštalované prostredie:** Python 3.12+, projekt spravovaný cez `uv`. Spúšťanie cez `uv run discoop ...`.
+- **Nainštalované prostredie:** Python 3.12+, projekt spravovaný cez `uv`. Vývoj v repe ide cez `uv run discoop ...`, používatelia majú nainštalovaný príkaz `discoop` (`uv tool install git+https://github.com/filbam/Discoop`, návod v [README.md](../README.md)).
+- **Repo je verejné** (P22, [ADR 0015](rozhodnutia/0015-verejne-repo-a-instalacia.md)). Do gitu nesmie ísť token, cookies ani mená a texty správ iných ľudí. `[OVERENÉ]`: inštalácia z lokálneho klonu na Windows. `[PREDPOKLAD]`: inštalácia z GitHubu, Linux, macOS.
 
 ### Prehľad implementovaných funkcií
 
@@ -102,9 +103,9 @@ Nástroj umožňuje voľbu tempa cez konfiguráciu (`discoop config set mode saf
 
 ---
 
-## 3. Posledné commity na vetve `main` (nepushnuté na origin)
+## 3. Posledné commity na vetve `main`
 
-Všetky zmeny sú lokálne otestované a zakommitované na vetve `main`. Na vzdialený repozitár (`origin`) **nie sú pushnuté** (podľa pravidla čakať na pokyn používateľa).
+GitHub (`origin`) je na `75f0310`, commity po ňom (9 nepushnutých) sú len lokálne. Push iba na pokyn používateľa. Kým nie je pushnuté, inštalácia z GitHubu dá starú verziu bez nového TUI.
 
 | Commit | Správa | Význam |
 |---|---|---|
@@ -119,6 +120,8 @@ Všetky zmeny sú lokálne otestované a zakommitované na vetve `main`. Na vzdi
 | `470c127` | `Fix TUI preview jobs and typed event bridge` | Oprava preview jobov, typované udalosti namiesto `*args`. |
 | `4e13acb` | `Redesign TUI main screen` | Jeden strom, panel Export, `widgets.py`, téma `ansi-dark`. |
 | `4dc5f8b` | `Restyle TUI dialogs for keyboard use` | Help, Settings, Login, Preview, TimeWindow v rovnakom vzhľade, `tests/test_tui_modals.py`. |
+| `72eeef4` | `Document TUI redesign` | Dokumentácia prerobeného TUI. |
+| `db16aef` | `Add export name row to the TUI` | Riadok `Name` v TUI (P21). |
 
 ---
 
@@ -127,7 +130,7 @@ Všetky zmeny sú lokálne otestované a zakommitované na vetve `main`. Na vzdi
 Podľa plánu v [docs/navrh-nastroja.md](navrh-nastroja.md) (sekcia 14) a záznamu v [docs/dennik.md](dennik.md):
 
 1. **Používateľský test prerobeného TUI na reálnom účte:**
-   - Používateľ otestuje `uv run discoop ui` v skutočnom termináli vrátane načítania serverov/kanálov, exportu v `safe` tempe a prihlásenia cez QR.
+   - Používateľ otestuje `discoop ui` (vo vývoji `uv run discoop ui`) v skutočnom termináli vrátane načítania serverov/kanálov, exportu v `safe` tempe a prihlásenia cez QR.
 2. **Krok 4: Vlákna a fóra (`discoop threads`):**
    - Implementácia príkazu `discoop threads` na zobrazenie aktívnych a archivovaných vlákien kanála.
    - Podpora prepínačov `--threads / --no-threads` v príkaze `discoop messages` a integrácia do TUI výberu.

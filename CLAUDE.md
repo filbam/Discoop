@@ -56,10 +56,10 @@ Hlavný Claude prácu nerobí sám, vysiela agentov a riadi ich ([ADR 0010](docs
 
 ## Git
 
-- Repo: `github.com/filbam/Discoop` (súkromné), vetva `main` ([ADR 0002](docs/rozhodnutia/0002-sukromne-repo-a-identita.md)).
+- Repo: `github.com/filbam/Discoop` (verejné), vetva `main` ([ADR 0002](docs/rozhodnutia/0002-sukromne-repo-a-identita.md), [ADR 0015](docs/rozhodnutia/0015-verejne-repo-a-instalacia.md)).
 - **Autor:** commity píše `filbam <f.bambura@gmail.com>` (lokálny `git config`).
-- **Prihlásenie na GitHub:** ako `filbam` (`credential.https://github.com.username`). Predvolený účet
-  `FilipBambura` súkromné repo nevidí.
+- **Prihlásenie na GitHub:** ako `filbam` (`credential.https://github.com.username`). Push ide cez tento účet,
+  predvolený je `FilipBambura`.
 - **Commit správy:** po anglicky, s Co-Authored-By riadkom.
 - **Commit:** sám po každom hotovom a otestovanom kroku (dohodnuté 2026-11-03). Commituje hlavný Claude
   po kontrole práce agenta ([ADR 0010](docs/rozhodnutia/0010-praca-cez-agentov.md)).

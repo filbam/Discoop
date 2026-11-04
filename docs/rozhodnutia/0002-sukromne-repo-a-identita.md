@@ -1,8 +1,11 @@
 # 0002: Súkromné repo `filbam/Discoop` a git identita
 
-- **Stav:** Prijaté
+- **Stav:** Prijaté, súkromné repo nahradené ADR 0015
 - **Dátum:** 2026-11-03
 - **Rozhodol:** používateľ
+
+> **Poznámka (2026-11-04):** Repo je odteraz verejné ([ADR 0015](0015-verejne-repo-a-instalacia.md)). Git identita
+> `filbam` a prihlásenie na GitHub ako `filbam` ostávajú platné.
 
 ## Kontext
 

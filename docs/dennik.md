@@ -61,11 +61,23 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
   - V šírke 80 stĺpcov sa Footer nezmestí celý.
   - CLI príkaz v riadku má vždy `--delay` z configu.
 
+**Inštalácia a verejné repo (P22, [ADR 0015](rozhodnutia/0015-verejne-repo-a-instalacia.md)):**
+- Používateľ chce príkaz `discoop` bez `uv run`, rýchlu inštaláciu na Windows, Linuxe aj macOS z GitHubu. Repo
+  `filbam/Discoop` je verejné. Zvolené `uv tool install git+https://github.com/filbam/Discoop`, návod pre každý OS je v README.
+- História gitu skontrolovaná: 34 commitov, vzor Discord tokenu sa nenašiel, `Temp/` ani `prototype/out/` nikdy neboli v gite.
+- **Overené `[OVERENÉ]`** (Windows, uv 0.13.7): inštalácia z lokálneho klonu cez `git+file://` v izolovaných priečinkoch
+  trvá necelých 6 s, `discoop --version` a `--help` fungujú, `discoop.tcss` je nainštalované, `uv tool upgrade discoop`
+  prevzal nový commit, anonymný `git ls-remote` na GitHub funguje.
+- **Neoverené `[PREDPOKLAD]`:** samotná inštalácia z GitHubu, Linux, macOS, automatické stiahnutie Pythonu uv-čkom, beh TUI z takejto inštalácie.
+- GitHub je na `75f0310`, lokálne je 9 nepushnutých commitov.
+
 **Ďalej:**
-1. Používateľ otestuje `uv run discoop ui` na reálnom účte vrátane prihlásenia cez QR.
-2. Krok 4: vlákna a fóra (`threads`, `--threads/--no-threads`).
-3. Kroky 5–6: `agent-guide` a help texty, `--since-last` s deduplikáciou.
-4. Rozhodnutie 9 (výpočet prístupu ku kanálom) ostáva odložené (nízka priorita).
+1. Používateľ rozhodne o pushi. GitHub je na `75f0310`, takže inštalácia z GitHubu dá starú verziu bez nového TUI.
+2. Používateľ otestuje `discoop ui` na reálnom účte vrátane prihlásenia cez QR (vo vývoji `uv run discoop ui`, po pushi aj
+   inštaláciu z GitHubu, vrátane Linuxu a macOSu, ak ich má).
+3. Krok 4: vlákna a fóra (`threads`, `--threads/--no-threads`).
+4. Kroky 5–6: `agent-guide` a help texty, `--since-last` s deduplikáciou.
+5. Rozhodnutie 9 (výpočet prístupu ku kanálom) ostáva odložené (nízka priorita).
 
 ---
 

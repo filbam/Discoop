@@ -13,7 +13,7 @@ Rozhodnutia, ktoré ešte nie sú vyriešené, sú v [navrh-nastroja.md, sekcia 
 | # | Rozhodnutie | Stav | Dátum |
 |---|---|---|---|
 | [0001](0001-zaznamenavanie-a-verzovanie.md) | Zaznamenávať všetko a verzovať v gite | Prijaté | 2026-11-03 |
-| [0002](0002-sukromne-repo-a-identita.md) | Súkromné repo `filbam/Discoop`, identita `filbam` | Prijaté | 2026-11-03 |
+| [0002](0002-sukromne-repo-a-identita.md) | Súkromné repo `filbam/Discoop`, identita `filbam` | Prijaté, súkromné repo nahradené ADR 0015 | 2026-11-03 |
 | [0003](0003-pravidla-pre-agentov-v-prehliadaci.md) | Pravidlá pre agentov v prehliadači používateľa | Prijaté | 2026-11-03 |
 | [0004](0004-nazov-discoop.md) | Názov nástroja `discoop` | Prijaté | 2026-11-03 |
 | [0005](0005-qr-login-bez-prehliadaca.md) | QR login v termináli bez prehliadača | Prijaté | 2026-11-03 |
@@ -26,6 +26,7 @@ Rozhodnutia, ktoré ešte nie sú vyriešené, sú v [navrh-nastroja.md, sekcia 
 | [0012](0012-premenovanie-agent-mode-na-plain.md) | Premenovanie „agent mode“ na „plain mode“ (`--plain`) | Prijaté | 2026-11-03 |
 | [0013](0013-tui-a-spolocna-vrstva.md) | Interaktívne terminálové rozhranie (TUI) a spoločná servisná vrstva | Prijaté, rozloženie TUI nahradené ADR 0014 | 2026-11-03 |
 | [0014](0014-tui-klavesnica-jeden-strom.md) | TUI: ovládanie klávesnicou, jeden strom, farby terminálu | Prijaté | 2026-11-03 |
+| [0015](0015-verejne-repo-a-instalacia.md) | Verejné repo a inštalácia cez `uv tool` | Prijaté | 2026-11-04 |
 
 ## Šablóna
 
