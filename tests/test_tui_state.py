@@ -398,6 +398,7 @@ def test_set_custom_window_follows_global_window_changes() -> None:
 
 def test_filter_channels() -> None:
     cat1 = Channel(id="10", server_id="s1", name="Information", type=CATEGORY)
+    # Kept for Unicode handling test: diacritics and emoji in channel name
     c1 = Channel(id="11", server_id="s1", name="přípravné-kurzy🔒", type=0, parent_id="10")
     c2 = Channel(id="12", server_id="s1", name="rules", type=0, parent_id="10")
 

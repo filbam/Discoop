@@ -3,7 +3,7 @@
 Source: `GET /channels/{parent_id}/threads/search?archived=true|false&sort_by=last_message_time&sort_order=desc
 &limit=25&offset=N` (docs/analyses/discord-analysis.md, sections 6 and 15; probe of 2026-11-04).
 
-Verified [OVERENÉ]:
+Verified [VERIFIED]:
 - it works with a user token for archived (`archived=true`) and active (`archived=false`) threads;
   `GET /guilds/{id}/threads/active` is for bots only (403, code 20002) and is not used,
 - the answer has the keys `threads`, `members`, `has_more`, `total_results` and `first_messages`; a thread is a
@@ -18,7 +18,7 @@ Verified [OVERENÉ]:
   anything here: `total_results` is only passed on as a rough progress hint,
 - a text channel the user cannot read answers 403, code 50001 (Missing Access), like `scrape.fetch_messages`.
 
-Not verified [PREDPOKLAD], the code tolerates every case:
+Not verified [ASSUMPTION], the code tolerates every case:
 - that text and announcement channels (not only forums) support `threads/search` for a user account,
 - an HTTP 202 "not indexed yet" answer (known from message search; not seen in 53 requests): the listing stops and
   says so, no retry,
@@ -59,7 +59,7 @@ class Stop(StrEnum):
     WINDOW = "window"  # reached threads whose last activity is before the start of the window
     PAGE_CAP = "page_cap"  # stopped at the page cap with results left
     NO_PROGRESS = "no_progress"  # a page without a single thread seen before: the paging does not advance
-    NOT_INDEXED = "not_indexed"  # HTTP 202: Discord has not indexed the channel's threads yet [PREDPOKLAD]
+    NOT_INDEXED = "not_indexed"  # HTTP 202: Discord has not indexed the channel's threads yet [ASSUMPTION]
     UNEXPECTED = "unexpected"  # not JSON, not an object, or no `threads` list
 
 
@@ -93,7 +93,7 @@ class FetchedThreads:
 def is_thread_container(channel_type: int) -> bool:
     """Whether a channel of this type can have threads: text, announcement, forum and media channels.
 
-    Forums (15) are verified. [PREDPOKLAD] for the others that `threads/search` answers for a user account.
+    Forums (15) are verified. [ASSUMPTION] for the others that `threads/search` answers for a user account.
     """
     return channel_type in THREAD_CONTAINER_TYPES
 

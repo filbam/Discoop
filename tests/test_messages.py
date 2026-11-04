@@ -15,7 +15,7 @@ from discoop.tokenstore import TokenStore
 from fake_messages import BOT, CET, FIT, NOW, USER_A, USER_B, FakeChannel, FakeDiscord, message, series
 
 DEADLINE = 1794005940  # 2026-11-06 23:59 in UTC+01:00
-FILE_URL = "https://cdn.discordapp.com/attachments/200/800000000000000001/zadanie.pdf?ex=1&is=2&hm=3&"
+FILE_URL = "https://cdn.discordapp.com/attachments/200/800000000000000001/assignment.pdf?ex=1&is=2&hm=3&"
 
 
 def at(hour: int, minute: int = 0) -> datetime:
@@ -24,10 +24,10 @@ def at(hour: int, minute: int = 0) -> datetime:
 
 
 def conversation() -> list[dict]:
-    question = message(at(9, 15), "Kedy je deadline na <#202>? <@&777>")
+    question = message(at(9, 15), "When is the deadline for <#202>? <@&777>")
     answer = message(
         at(10),
-        f"<@{USER_A['id']}> do piatku <t:{DEADLINE}:F>, zadanie je v prílohe <:peepolove:827833315666558996>",
+        f"<@{USER_A['id']}> by Friday <t:{DEADLINE}:F>, the assignment is attached <:peepolove:827833315666558996>",
         author=USER_B,
         type=19,
         mentions=[USER_A],
@@ -35,7 +35,7 @@ def conversation() -> list[dict]:
         message_reference={"type": 0, "channel_id": "200", "message_id": question["id"], "guild_id": FIT},
         referenced_message=question,
         attachments=[
-            {"id": "800000000000000001", "filename": "zadanie.pdf", "size": 421888, "url": FILE_URL,
+            {"id": "800000000000000001", "filename": "assignment.pdf", "size": 421888, "url": FILE_URL,
              "content_type": "application/pdf"}
         ],
         reactions=[
@@ -50,14 +50,14 @@ def conversation() -> list[dict]:
         pinned=True,
         flags=32,
         embeds=[
-            {"type": "rich", "title": "Nový termín", "description": "Projekt 1",
-             "fields": [{"name": "Odovzdanie", "value": f"<t:{DEADLINE}>"}]}
+            {"type": "rich", "title": "New deadline", "description": "Project 1",
+             "fields": [{"name": "Submission", "value": f"<t:{DEADLINE}>"}]}
         ],
     )
-    announcement["thread"] = {"id": announcement["id"], "type": 11, "name": "Projekt 1 – otázky", "message_count": 14}
+    announcement["thread"] = {"id": announcement["id"], "type": 11, "name": "Project 1 – questions", "message_count": 14}
     orphan_reply = message(
         at(11, 40),
-        "súhlasím",
+        "I agree",
         author=USER_B,
         type=19,
         message_reference={"type": 0, "channel_id": "200", "message_id": "1"},
@@ -65,7 +65,7 @@ def conversation() -> list[dict]:
     link = message(
         at(11, 50),
         "https://www.fit.vut.cz/study/",
-        embeds=[{"type": "link", "url": "https://www.fit.vut.cz/study/", "title": "Studium"}],
+        embeds=[{"type": "link", "url": "https://www.fit.vut.cz/study/", "title": "Studies"}],
     )
     joined = message(at(11, 55), "", author=USER_B, type=7)
     return [question, answer, announcement, orphan_reply, link, joined]
@@ -76,21 +76,21 @@ EXPECTED_TEXT = f"""\
 range: 2026-11-02 12:00 .. 2026-11-03 12:00 (UTC+01:00) | messages: 5 | files: 1
 
 [2026-11-03 09:15] Student A (@student_a)
-Kedy je deadline na #2bit-terminy? @role:777
-[2026-11-03 10:00] @student_b (edited) reply-to Student A: "Kedy je deadline na #2bit-terminy? @role:777"
-@Student A do piatku 2026-11-06 23:59, zadanie je v prílohe :peepolove:
-  [file] zadanie.pdf 412KB {FILE_URL}
+When is the deadline for #2bit-terminy? @role:777
+[2026-11-03 10:00] @student_b (edited) reply-to Student A: "When is the deadline for #2bit-terminy? @role:777"
+@Student A by Friday 2026-11-06 23:59, the assignment is attached :peepolove:
+  [file] assignment.pdf 412KB {FILE_URL}
   [reactions] ✅3 :peepolove:1
 [2026-11-03 11:30] @fit_bot [bot] (pinned)
-  [embed] "Nový termín"
-    Projekt 1
-    Odovzdanie: 2026-11-06 23:59
-  [thread] "Projekt 1 – otázky" 14 messages
+  [embed] "New deadline"
+    Project 1
+    Submission: 2026-11-06 23:59
+  [thread] "Project 1 – questions" 14 messages
 [2026-11-03 11:40] @student_b reply-to (message not available)
-súhlasím
+I agree
 [2026-11-03 11:50] Student A (@student_a)
 https://www.fit.vut.cz/study/
-  [link] "Studium"
+  [link] "Studies"
 """
 
 
@@ -142,29 +142,29 @@ def test_system_messages_on_request(capsys, discord):
 
 def test_blank_lines_around_texts_are_trimmed(capsys, discord):
     """Regression: a text ending with blank lines gave two blank lines between messages in human mode."""
-    embed = {"type": "rich", "description": "Popis\n", "fields": [{"name": "Pole", "value": "hodnota\n"}]}
+    embed = {"type": "rich", "description": "Description\n", "fields": [{"name": "Field", "value": "value\n"}]}
     discord.channels["200"] = FakeChannel([
-        message(at(10), "\n \nPrvý riadok\n\nDruhý riadok\n\n"),
+        message(at(10), "\n \nFirst line\n\nSecond line\n\n"),
         message(at(10, 1), " \n ", author=USER_B, attachments=[{"id": "1", "filename": "a.png", "size": 10, "url": "u"}]),
-        message(at(10, 2), "Windows\r\nriadky\r\n"),
+        message(at(10, 2), "Windows\r\nlines\r\n"),
         message(at(10, 3), "", author=BOT, embeds=[embed]),
     ])
     _, out, _ = run(capsys, "messages", "-s", FIT, "-c", "200")
     assert out.splitlines()[3:] == [
-        "[2026-11-03 10:00] Student A (@student_a)", "Prvý riadok", "", "Druhý riadok",
+        "[2026-11-03 10:00] Student A (@student_a)", "First line", "", "Second line",
         "[2026-11-03 10:01] @student_b", "  [file] a.png 10B u",
-        "[2026-11-03 10:02] Student A (@student_a)", "Windows", "riadky",
-        "[2026-11-03 10:03] @fit_bot [bot]", "  [embed]", "    Popis", "    Pole: hodnota",
+        "[2026-11-03 10:02] Student A (@student_a)", "Windows", "lines",
+        "[2026-11-03 10:03] @fit_bot [bot]", "  [embed]", "    Description", "    Field: value",
     ]
     assert all(line == line.rstrip() for line in out.splitlines())  # also no "  [embed] " with a trailing space
     with pytest.raises(SystemExit):
         cli.main(["--human", "messages", "-s", FIT, "-c", "200"])
     human = capsys.readouterr().out
     assert "\n\n\n" not in human
-    assert "\nDruhý riadok\n\n[2026-11-03 10:01] @student_b\n" in human  # one blank line between messages
+    assert "\nSecond line\n\n[2026-11-03 10:01] @student_b\n" in human  # one blank line between messages
     _, out, _ = run(capsys, "messages", "-s", FIT, "-c", "200", "--format", "json")
     assert [m["text"] for m in json.loads(out)["messages"]] == [
-        "Prvý riadok\n\nDruhý riadok", "", "Windows\nriadky", ""
+        "First line\n\nSecond line", "", "Windows\nlines", ""
     ]
 
 
@@ -203,21 +203,21 @@ def test_json(capsys, discord):
     assert answer["time"] == "2026-11-03T10:00:00+01:00"
     assert answer["edited"] == "2026-11-03T10:05:00+01:00"
     assert answer["author"] == {"id": USER_B["id"], "name": "student_b", "username": "student_b", "bot": False}
-    assert answer["text"].startswith("@Student A do piatku 2026-11-06 23:59")
+    assert answer["text"].startswith("@Student A by Friday 2026-11-06 23:59")
     assert answer["reply_to"] == {
-        "id": first["id"], "author": "Student A", "text": "Kedy je deadline na #2bit-terminy? @role:777"
+        "id": first["id"], "author": "Student A", "text": "When is the deadline for #2bit-terminy? @role:777"
     }
     assert answer["attachments"] == [
-        {"id": "800000000000000001", "filename": "zadanie.pdf", "type": "application/pdf", "size": 421888,
+        {"id": "800000000000000001", "filename": "assignment.pdf", "type": "application/pdf", "size": 421888,
          "url": FILE_URL, "path": None}  # path: only when an export saved the file
     ]
     assert answer["reactions"] == [{"emoji": "✅", "count": 3, "super": 0}, {"emoji": ":peepolove:", "count": 1, "super": 0}]
     assert announcement["has_thread"] is True and announcement["pinned"] is True
-    assert announcement["links"][0]["description"] == "Projekt 1\nOdovzdanie: 2026-11-06 23:59"
+    assert announcement["links"][0]["description"] == "Project 1\nSubmission: 2026-11-06 23:59"
     assert orphan["reply_to"] == {"id": "1", "author": None, "text": None}
     # Unlike `text`, JSON keeps the URL of an embed that the message text already has.
     assert data["messages"][-1]["links"] == [
-        {"kind": "link", "url": "https://www.fit.vut.cz/study/", "title": "Studium", "description": None}
+        {"kind": "link", "url": "https://www.fit.vut.cz/study/", "title": "Studies", "description": None}
     ]
 
 
@@ -407,14 +407,14 @@ def test_forwarded_message_and_stickers():
         at(10),
         "",
         message_reference={"type": 1, "channel_id": "300", "message_id": "1"},
-        message_snapshots=[{"message": {"content": "Pôvodný oznam", "attachments": [], "embeds": []}}],
+        message_snapshots=[{"message": {"content": "Original announcement", "attachments": [], "embeds": []}}],
         sticker_items=[{"id": "1", "name": "wave", "format_type": 1}],
     )
     normalized = Normalizer({}, known_users([forwarded]), CET).message(forwarded)
-    assert normalized.forwarded and normalized.text == "Pôvodný oznam" and normalized.stickers == ("wave",)
+    assert normalized.forwarded and normalized.text == "Original announcement" and normalized.stickers == ("wave",)
     result = ChannelMessages(Server(FIT, "VUT FIT"), Channel("200", FIT, "2bit-general", 0), (normalized,))
     rendered = text.plain([result], Query(Window(None, NOW)), CET)
-    assert "[2026-11-03 10:00] Student A (@student_a) (forwarded)\nPôvodný oznam\n  [sticker] wave" in rendered
+    assert "[2026-11-03 10:00] Student A (@student_a) (forwarded)\nOriginal announcement\n  [sticker] wave" in rendered
     assert jsonout.document([result], Query(Window(None, NOW)), CET)["messages"][0]["forwarded"] is True
 
 
@@ -436,9 +436,9 @@ def test_sizes_in_text():
 
 
 def test_bot_command_answers_are_not_system_messages():
-    m = Normalizer({}, {}, CET).message(message(at(10), "výsledok príkazu", author=BOT, type=20))
+    m = Normalizer({}, {}, CET).message(message(at(10), "command output", author=BOT, type=20))
     result = ChannelMessages(Server(FIT, "VUT FIT"), Channel("200", FIT, "x", 0), (m,))
-    assert "[2026-11-03 10:00] @fit_bot [bot]\nvýsledok príkazu" in text.plain([result], Query(Window(None, NOW)), CET)
+    assert "[2026-11-03 10:00] @fit_bot [bot]\ncommand output" in text.plain([result], Query(Window(None, NOW)), CET)
 
 
 QUERY = Query(Window(None, NOW))
@@ -456,14 +456,14 @@ def test_embeds_do_not_repeat_urls_from_the_text():
     gallery = "https://example.com/post/1"
     result = normalized(
         message(at(10), gif, embeds=[{"type": "image", "url": gif}]),
-        message(at(10, 1), f"Záznam ({video}).", embeds=[{"type": "video", "url": video, "title": "Prednáška 1"}]),
-        message(at(10, 2), "pozri", embeds=[{"type": "rich", "url": gallery, "title": "Post"}, {"type": "rich", "url": gallery}]),
+        message(at(10, 1), f"Recording ({video}).", embeds=[{"type": "video", "url": video, "title": "Lecture 1"}]),
+        message(at(10, 2), "look", embeds=[{"type": "rich", "url": gallery, "title": "Post"}, {"type": "rich", "url": gallery}]),
         message(at(10, 3), "", embeds=[{"type": "gifv", "url": "https://tenor.com/view/cat-1", "title": "Cat"}]),
     )
     assert text.plain([result], QUERY, CET).splitlines()[3:] == [
         "[2026-11-03 10:00] Student A (@student_a)", gif,  # the bare GIF: no [image] line
-        "[2026-11-03 10:01] Student A (@student_a)", f"Záznam ({video}).", '  [video] "Prednáška 1"',
-        "[2026-11-03 10:02] Student A (@student_a)", "pozri", f'  [embed] {gallery} "Post"',  # 2nd embed: same URL
+        "[2026-11-03 10:01] Student A (@student_a)", f"Recording ({video}).", '  [video] "Lecture 1"',
+        "[2026-11-03 10:02] Student A (@student_a)", "look", f'  [embed] {gallery} "Post"',  # 2nd embed: same URL
         "[2026-11-03 10:03] Student A (@student_a)", '  [gif] https://tenor.com/view/cat-1 "Cat"',  # URL not in text
     ]
     links = [m["links"] for m in jsonout.document([result], QUERY, CET)["messages"]]

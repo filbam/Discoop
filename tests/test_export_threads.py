@@ -121,21 +121,21 @@ def test_a_folder_export_keeps_the_threads_with_their_channel(tmp_path, lab):
             "channels/2bit-general.md",
             "channels/2bit-forum.md",
             "channels/2bit-terminy.md",
-            "files/2bit-general/800000000000000001_zadanie.pdf",
-            f"files/2bit-general/{SHARED}_graf (1).png",
-            f"files/2bit-general/{FILE_NOTES}_poznamky.txt",  # a thread's files: in the folder of its channel
-            f"files/2bit-general/{FILE_CSV}_vysledky.csv",
-            f"files/2bit-forum/{FILE_ZIP}_priloha.zip",
+            "files/2bit-general/800000000000000001_assignment.pdf",
+            f"files/2bit-general/{SHARED}_chart (1).png",
+            f"files/2bit-general/{FILE_NOTES}_notes.txt",  # a thread's files: in the folder of its channel
+            f"files/2bit-general/{FILE_CSV}_results.csv",
+            f"files/2bit-forum/{FILE_ZIP}_attachment.zip",
             "files/2bit-terminy/800000000000000002__CON.txt",
         ]
     )  # no folder, no channels/*.md and no files of their own for the threads
-    assert final[f"files/2bit-general/{FILE_NOTES}_poznamky.txt"] == content(FILE_NOTES)
+    assert final[f"files/2bit-general/{FILE_NOTES}_notes.txt"] == content(FILE_NOTES)
 
     channel_md = final["channels/2bit-general.md"].decode()
     assert channel_md.startswith("# VUT FIT / #2bit-general\n")
-    assert channel_md.index("## thread \"poznamky\"") < channel_md.index("## thread \"graf\"")
-    assert f"(../files/2bit-general/{FILE_NOTES}_poznamky.txt) 232B" in channel_md  # `../` as for the channel's own
-    assert f"(<../files/2bit-general/{SHARED}_graf (1).png>) 232B" in channel_md
+    assert channel_md.index("## thread \"notes\"") < channel_md.index("## thread \"chart\"")
+    assert f"(../files/2bit-general/{FILE_NOTES}_notes.txt) 232B" in channel_md  # `../` as for the channel's own
+    assert f"(<../files/2bit-general/{SHARED}_chart (1).png>) 232B" in channel_md
     assert "https://" not in channel_md
     forum_md = final["channels/2bit-forum.md"].decode()
     assert forum_md.count("## thread") == 2 and "(no messages)" not in forum_md and "2bit-general" not in forum_md
@@ -152,7 +152,7 @@ def test_a_folder_export_keeps_the_threads_with_their_channel(tmp_path, lab):
     assert len(rows) == 13 and [r["channel"]["id"] for r in rows].count("200") == 7  # flat, under the parent
     assert rows[2]["thread"]["id"] == "7001" and rows[2]["attachments"] == []
     thread_file = next(a for r in rows for a in r["attachments"] if a["id"] == FILE_NOTES)
-    assert thread_file["path"] == f"files/2bit-general/{FILE_NOTES}_poznamky.txt"
+    assert thread_file["path"] == f"files/2bit-general/{FILE_NOTES}_notes.txt"
 
     assert exported.results[0].threads[0].messages[-1].attachments[0].path == thread_file["path"]  # the paths are set
     assert len(exported.jobs) == 6 and exported.count(DOWNLOADED) == 6
@@ -185,7 +185,7 @@ def test_the_manifest_counts_the_threads_of_a_channel(tmp_path, lab):
     assert [a["id"] for a in data["attachments"]][:4] == ["800000000000000001", SHARED, FILE_NOTES, FILE_CSV]
     # no names of threads in the manifest, no entries of their own
     text = json.dumps(data, ensure_ascii=False)
-    assert "poznamky" not in text.replace("poznamky.txt", "") and "Ako na projekt" not in text and "Termin" not in text
+    assert "notes" not in text.replace("notes.txt", "") and "How to do the project" not in text and "Deadline" not in text
     assert data["targets"] == ["200", "210", "202"] and len(data["channels"]) == 3
 
 
@@ -204,7 +204,7 @@ def test_a_zip_is_the_same_as_a_folder(tmp_path, lab):
     packed = zip_tree(tmp_path / "fit.zip")
     assert packed == tree(tmp_path / "folder")
     with zipfile.ZipFile(tmp_path / "fit.zip") as archive:
-        assert archive.getinfo(f"files/2bit-general/{FILE_NOTES}_poznamky.txt").compress_type == zipfile.ZIP_STORED
+        assert archive.getinfo(f"files/2bit-general/{FILE_NOTES}_notes.txt").compress_type == zipfile.ZIP_STORED
         assert archive.getinfo("channels/2bit-forum.md").compress_type == zipfile.ZIP_DEFLATED
 
 
@@ -229,7 +229,7 @@ def test_files_that_are_not_saved_show_their_url_also_in_a_thread(tmp_path, lab)
     assert failed[0]["reason"].startswith("HTTP 404")
     channel_md = (tmp_path / "fit" / "channels" / "2bit-general.md").read_text(encoding="utf-8")
     assert f"/attachments/200/{FILE_NOTES}/file.bin" in channel_md  # the CDN URL instead of a path
-    assert not any(name.endswith("_poznamky.txt") for name in tree(tmp_path / "fit"))
+    assert not any(name.endswith("_notes.txt") for name in tree(tmp_path / "fit"))
 
 
 def test_no_files_skips_those_of_the_threads_as_well(tmp_path, lab):
@@ -382,7 +382,7 @@ def test_a_channel_cut_short_in_the_files_of_its_threads_is_not_finished(tmp_pat
     assert [c["channel"]["id"] for c in data["channels"]] == ["202"] and data["interrupted"] is True
     assert "threads" not in data["counts"] and (staging / "files" / "2bit-general").is_dir()  # saved, but not recorded
     assert "7001" not in (staging / "messages.jsonl").read_text(encoding="utf-8")  # no half a channel in the output
-    assert "poznamky" not in (staging / "messages.md").read_text(encoding="utf-8")
+    assert "notes" not in (staging / "messages.md").read_text(encoding="utf-8")
 
     resume = ex.find_unfinished(target, ex.request_fingerprint(channels, QUERY, OPTIONS, CET))
     assert resume is not None and list(resume.done) == ["202"]

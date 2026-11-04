@@ -35,9 +35,9 @@ FORUM = Channel("210", FIT, "2bit-forum", 15, available_tags=(SOLVED, QUESTION))
 # Attachment IDs and file names per channel. SHARED is posted in two channels (e.g. forwarded) and saved once.
 SHARED = "800000000000000003"
 FILES = {
-    "200": [("800000000000000001", "zadanie.pdf"), (SHARED, "graf (1).png")],
+    "200": [("800000000000000001", "assignment.pdf"), (SHARED, "chart (1).png")],
     "202": [("800000000000000002", "CON.txt")],
-    "203": [(SHARED, "graf (1).png"), ("800000000000000004", "../../evil:name?.sh")],
+    "203": [(SHARED, "chart (1).png"), ("800000000000000004", "../../evil:name?.sh")],
 }
 
 
@@ -121,14 +121,14 @@ class Lab:
         """Three channels: GENERAL with two threads, a forum with two posts and no messages of its own, TERMINY with
         none. SHARED is posted in GENERAL and in one of its threads."""
         general = self.result(GENERAL, FILES["200"], texts=("text of 2bit-general",))
-        notes = self.thread(GENERAL, "7001", "poznamky", [("800000000000000011", "poznamky.txt")], texts=("a", "b"))
+        notes = self.thread(GENERAL, "7001", "notes", [("800000000000000011", "notes.txt")], texts=("a", "b"))
         shared = self.thread(
-            GENERAL, "7002", "graf", [(SHARED, "graf (1).png"), ("800000000000000012", "vysledky.csv")], archived=True
+            GENERAL, "7002", "chart", [(SHARED, "chart (1).png"), ("800000000000000012", "results.csv")], archived=True
         )
         forum = ChannelMessages(SERVER, FORUM, ())
         posts = (
-            self.thread(FORUM, "8001", "Ako na projekt?", [("800000000000000013", "priloha.zip")], tags=("910",)),
-            self.thread(FORUM, "8002", "Termin", texts=("odpoved", "dakujem"), tags=("911", "999"), locked=True),
+            self.thread(FORUM, "8001", "How to do the project?", [("800000000000000013", "attachment.zip")], tags=("910",)),
+            self.thread(FORUM, "8002", "Deadline", texts=("reply", "thank you"), tags=("911", "999"), locked=True),
         )
         terminy = self.result(TERMINY, FILES["202"], texts=("text of 2bit-terminy",))
         return [

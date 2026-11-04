@@ -145,7 +145,7 @@ def test_channel_by_channel_equals_a_single_pass(tmp_path, lab, as_zip):
     assert b"\r" not in streamed["messages.md"] + streamed["messages.jsonl"]
     assert exported.complete and not exported.partial and exported.path == target
     # The shared file is saved once, in the folder of the channel that had it first.
-    assert sum(1 for name in streamed if name.endswith("graf (1).png")) == 1
+    assert sum(1 for name in streamed if name.endswith("chart (1).png")) == 1
     assert lab.downloads["/attachments/200/800000000000000003/file.bin"] == 2  # once per export run, not per channel
     if as_zip:
         with zipfile.ZipFile(target) as archive:
@@ -538,7 +538,7 @@ def refreshed(lab: Lab):
     """The same request a day later: new text in the first channel, a new file, another file replaced."""
     results = lab.results()
     first = lab.result(
-        GENERAL, [("800000000000000001", "zadanie.pdf"), ("800000000000000009", "novy.bin")], texts=("fresh text",)
+        GENERAL, [("800000000000000001", "assignment.pdf"), ("800000000000000009", "new.bin")], texts=("fresh text",)
     )
     return [first, *results[1:]]
 
@@ -580,7 +580,7 @@ def test_a_finished_folder_export_survives_an_interrupted_refresh(tmp_path, lab,
     final = tree(target)
     assert b"fresh text" in final["messages.md"] and manifest_of(target)["complete"] is True
     assert not ex.staging_path(target).exists() and not debris(tmp_path)
-    assert (target / "files/2bit-general/800000000000000009_novy.bin").read_bytes() == content("800000000000000009")
+    assert (target / "files/2bit-general/800000000000000009_new.bin").read_bytes() == content("800000000000000009")
     # files of the finished export were taken over (`present`), not fetched again
     assert len(lab.cdn.requests) - requests == 0
     assert {a["id"]: a["status"] for a in manifest_of(target)["attachments"]}["800000000000000002"] == PRESENT
@@ -610,7 +610,7 @@ def test_a_finished_zip_survives_an_interrupted_refresh(tmp_path, lab):
     with zipfile.ZipFile(target) as archive:
         assert json.loads(archive.read("manifest.json"))["complete"] is True
         assert b"fresh text" in archive.read("messages.md")
-        assert archive.read("files/2bit-general/800000000000000009_novy.bin") == content("800000000000000009")
+        assert archive.read("files/2bit-general/800000000000000009_new.bin") == content("800000000000000009")
     assert sorted(p.name for p in tmp_path.iterdir()) == ["fit.zip"]
 
 
@@ -631,12 +631,12 @@ def test_a_request_of_another_shape_does_not_hurt_a_finished_export(tmp_path, la
 def test_publishing_adds_to_a_folder_and_drops_stale_channel_files(tmp_path, lab):
     target = tmp_path / "fit"
     lab.export_all(target, False, lab.results())
-    pdf = target / "files" / "2bit-general" / "800000000000000001_zadanie.pdf"
+    pdf = target / "files" / "2bit-general" / "800000000000000001_assignment.pdf"
     pdf.write_bytes(b"cut short")  # a file that is not whole is downloaded again ...
     pdf.with_name(pdf.name + ".part").write_bytes(b"an old unfinished download")  # ... and its leftover goes
-    lab.export_all(target, False, [lab.result(GENERAL, [("800000000000000001", "zadanie.pdf")])])  # one channel only
+    lab.export_all(target, False, [lab.result(GENERAL, [("800000000000000001", "assignment.pdf")])])  # one channel only
     final = tree(target)
-    assert final["files/2bit-general/800000000000000001_zadanie.pdf"] == content("800000000000000001")
+    assert final["files/2bit-general/800000000000000001_assignment.pdf"] == content("800000000000000001")
     assert "channels/2bit-terminy.md" not in final  # the channel of the older run goes ...
     assert "files/2bit-terminy/800000000000000002__CON.txt" in final  # ... its saved file stays
     assert not debris(tmp_path) and not ex.staging_path(target).exists()
@@ -810,7 +810,7 @@ def test_bytes_to_download_leaves_out_files_of_an_earlier_export(tmp_path, lab, 
     monkeypatch.setattr(ex, "_zip_files", lambda path: (opened.append(path), real(path))[1])
 
     again = lab.result(GENERAL, FILES["200"])  # the same two files
-    another = lab.result(INFO, [(SHARED_ID, "graf (1).png"), ("800000000000000004", "other.bin")])
+    another = lab.result(INFO, [(SHARED_ID, "chart (1).png"), ("800000000000000004", "other.bin")])
     writer = lab.writer(target, as_zip)
     with writer:
         writer.open([GENERAL, INFO])

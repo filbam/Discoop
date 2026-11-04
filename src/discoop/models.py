@@ -64,7 +64,7 @@ class Channel:
     parent_id: str | None = None
     position: int = 0
     topic: str | None = None
-    # [OVERENÉ 2026-11-04] present on most channels (385 of 412) and equal to the newest message in 2 of 2 samples.
+    # [VERIFIED 2026-11-04] present on most channels (385 of 412) and equal to the newest message in 2 of 2 samples.
     # In a forum it is the ID of the newest post (a thread), not of a message.
     last_message_id: str | None = None
     available_tags: tuple[ForumTag, ...] = ()  # forums and media channels only
@@ -124,13 +124,13 @@ class Thread:
     id: str
     parent_id: str  # the text, announcement, forum or media channel that holds it
     name: str
-    # 11 public thread, forum posts too [OVERENÉ]; 10 announcement thread, 12 private thread [PREDPOKLAD]: not seen yet
+    # 11 public thread, forum posts too [VERIFIED]; 10 announcement thread, 12 private thread [ASSUMPTION]: not seen yet
     type: int
     created: datetime  # `thread_metadata.create_timestamp`, else the time in the ID; timezone-aware (UTC)
     last_activity: datetime  # time of `last_message_id`, never before `created`; timezone-aware (UTC)
     archived: bool = False
     locked: bool = False
-    # Not counting the first message. [PREDPOKLAD] Discord's number is inaccurate above 50 for old threads.
+    # Not counting the first message. [ASSUMPTION] Discord's number is inaccurate above 50 for old threads.
     message_count: int | None = None
     owner_id: str | None = None
     applied_tags: tuple[str, ...] = ()  # forum tag IDs, see `Channel.tag_names`

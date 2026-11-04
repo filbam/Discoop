@@ -4,21 +4,21 @@ and as Markdown (`md`, used by exports).
     === VUT FIT / #isc-public ===
     range: 2026-11-02 12:00 .. 2026-11-03 12:00 (UTC+01:00) | messages: 2 | files: 1
 
-    [2026-11-02 14:03] Student A (@student_a) reply-to Student B: "kedy je deadline…"
-    Do piatku 23:59, zadanie je v prílohe. https://www.fit.vut.cz/study/
-      [file] zadanie.pdf 412KB https://cdn.discordapp.com/attachments/...
-      [link] "Studium"
+    [2026-11-02 14:03] Student A (@student_a) reply-to Student B: "when is the deadline…"
+    Until Friday 23:59, the assignment is attached. https://www.fit.vut.cz/study/
+      [file] assignment.pdf 412KB https://cdn.discordapp.com/attachments/...
+      [link] "Studies"
       [reactions] ✅3 🔥5 (2 super)
 
-An embed does not repeat a URL the message already shows: `[link] "Studium"` above is the preview of the URL
+An embed does not repeat a URL the message already shows: `[link] "Studies"` above is the preview of the URL
 in the text, and an image posted as a bare URL (an embed without a title) gets no embed line at all.
 The `json` format keeps every embed URL.
 
-A file saved by an export shows its path instead of the URL: `[file] zadanie.pdf 412KB files/isc-public/<id>_zadanie.pdf`.
+A file saved by an export shows its path instead of the URL: `[file] assignment.pdf 412KB files/isc-public/<id>_assignment.pdf`.
 
 Markdown has the same lines with a `# server / #channel` heading, a blank line between messages and `- ` instead of
 the two-space indent, so the details form a list. A saved file is a link, an image is shown inline:
-`- [file] ![graf.png](files/isc-public/<id>_graf.png) 120KB`. Message texts stay as they are: Discord uses Markdown.
+`- [file] ![chart.png](files/isc-public/<id>_chart.png) 120KB`. Message texts stay as they are: Discord uses Markdown.
 
 Threads (forum posts, threads of text channels) follow the messages of their channel, one section each, in the given
 order. The channel header gets `threads: N (M messages)` between `messages:` and `files:`, and `files:` then counts
@@ -27,8 +27,8 @@ the files of the threads too; `messages:` stays the number of messages posted in
     === VUT FIT / #help-center ===
     range: 2026-11-02 12:00 .. 2026-11-03 12:00 (UTC+01:00) | messages: 0 | threads: 1 (2 messages) | files: 1
 
-    --- thread "Projekt 1" ---
-    created: 2026-11-02 14:05 | last activity: 2026-11-03 09:12 | messages: 2 | files: 1 | tags: Otazka | archived: yes
+    --- thread "Project 1" ---
+    created: 2026-11-02 14:05 | last activity: 2026-11-03 09:12 | messages: 2 | files: 1 | tags: Question | archived: yes
 
     [2026-11-02 14:05] Student A (@student_a)
     ...

@@ -21,7 +21,7 @@ CHANNELS = [
     {"id": "200", "type": 0, "name": "2bit-general", "parent_id": "100", "position": 3},
     {"id": "201", "type": 2, "name": "hospoda", "parent_id": "100", "position": 0},
     {"id": "202", "type": 0, "name": "2bit-terminy", "parent_id": "100", "position": 1},
-    {"id": "203", "type": 0, "name": "aeu-private🔒", "parent_id": "101", "position": 0},
+    {"id": "203", "type": 0, "name": "aeu-private🔒", "parent_id": "101", "position": 0},  # Preserves emoji to verify Unicode channel handling
     {"id": "204", "type": 15, "name": "help-center", "position": 2},
     {"id": "205", "type": 0, "name": "___hidden___", "flags": 131072, "position": 4},
 ]

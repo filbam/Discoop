@@ -93,14 +93,14 @@ def test_channel_with_forum_fields_roundtrips():
         2,
         "Ask here",
         last_message_id="1566814241946738698",
-        available_tags=(ForumTag("11", "Zkouška"), ForumTag("12", 'quote " and \\ slash')),
+        available_tags=(ForumTag("11", "Exam"), ForumTag("12", 'quote " and \\ slash')),
     )
     plain = Channel("5", "1", "general", 0)
     with Cache.default() as cache:
         cache.replace_channels("1", [forum, plain])
         assert sorted(cache.channels("1"), key=lambda c: int(c.id)) == [plain, forum]
         assert cache.channel("204") == forum
-        assert cache.channel("204").available_tags[0].name == "Zkouška"
+        assert cache.channel("204").available_tags[0].name == "Exam"
         assert cache.channel("5").last_message_id is None and cache.channel("5").available_tags == ()
 
 

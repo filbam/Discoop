@@ -30,8 +30,8 @@ from fake_messages import (
 # the day the tests are run (with +20 hours it did, 2026-11-04 07:00 UTC, and the tests started to fail).
 SOON = NOW + timedelta(days=3650)
 PDF, PNG, SCRIPT, NOTE = "800000000000000001", "800000000000000002", "800000000000000003", "800000000000000004"
-PDF_PATH = f"files/2bit-general/{PDF}_zadanie.pdf"
-PNG_PATH = f"files/2bit-general/{PNG}_graf (1).png"
+PDF_PATH = f"files/2bit-general/{PDF}_assignment.pdf"
+PNG_PATH = f"files/2bit-general/{PNG}_chart (1).png"
 SCRIPT_PATH = f"files/2bit-general/{SCRIPT}__.._evil_name_.sh"  # the name was "../../evil:name?.sh"
 NOTE_PATH = f"files/2bit-terminy/{NOTE}__CON.txt"  # CON is a reserved name on Windows
 ALL_FILES = [
@@ -68,19 +68,19 @@ def general() -> list[dict]:
     return [
         message(
             at(10),
-            "Zadanie a graf",
+            "Assignment and chart",
             attachments=[
-                file(PDF, "zadanie.pdf", "application/pdf"),
-                file(PNG, "graf (1).png", "image/png", url_name="graf_1.png"),
+                file(PDF, "assignment.pdf", "application/pdf"),
+                file(PNG, "chart (1).png", "image/png", url_name="chart_1.png"),
             ],
         ),
-        message(at(10, 30), "pozor", author=USER_B, attachments=[file(SCRIPT, "../../evil:name?.sh", "text/x-sh", url_name="evil_name.sh")]),
-        message(at(11), "bez prílohy"),
+        message(at(10, 30), "warning", author=USER_B, attachments=[file(SCRIPT, "../../evil:name?.sh", "text/x-sh", url_name="evil_name.sh")]),
+        message(at(11), "without attachment"),
     ]
 
 
 def terminy() -> list[dict]:
-    return [message(at(9), "termíny", channel_id="202", attachments=[file(NOTE, "CON.txt", "text/plain", channel="202")])]
+    return [message(at(9), "deadlines", channel_id="202", attachments=[file(NOTE, "CON.txt", "text/plain", channel="202")])]
 
 
 @pytest.fixture
@@ -136,7 +136,7 @@ def test_out_folder(capsys, env):
         f"export: {root}",
         "channels: 2",
         "messages: 4",
-        "tokens: ~186 (estimate, about 4 characters per token)",
+        "tokens: ~193 (estimate, about 4 characters per token)",
         "files: 4",
         "downloaded: 4",
         "already_present: 0",
@@ -151,8 +151,8 @@ def test_out_folder(capsys, env):
 
     md = saved["messages.md"].decode()
     assert md.startswith("# VUT FIT / #2bit-general\nrange: 2026-11-02 12:00 .. 2026-11-03 12:00 (UTC+01:00)")
-    assert "\n- [file] [zadanie.pdf](files/2bit-general/800000000000000001_zadanie.pdf) 232B\n" in md
-    assert f"\n- [file] ![graf (1).png](<{PNG_PATH}>) 232B\n" in md  # an image, shown inline
+    assert "\n- [file] [assignment.pdf](files/2bit-general/800000000000000001_assignment.pdf) 232B\n" in md
+    assert f"\n- [file] ![chart (1).png](<{PNG_PATH}>) 232B\n" in md  # an image, shown inline
     assert f"[../../evil:name?.sh]({SCRIPT_PATH}) 232B" in md
     assert "\n\n# VUT FIT / #2bit-terminy\n" in md
     assert md.endswith("\n") and "https://" not in md
@@ -160,7 +160,7 @@ def test_out_folder(capsys, env):
     assert f"](../{PDF_PATH}) 232B" in channel_md and "2bit-terminy" not in channel_md
 
     jsonl = [json.loads(line) for line in saved["messages.jsonl"].decode().splitlines()]
-    assert [m["text"] for m in jsonl] == ["Zadanie a graf", "pozor", "bez prílohy", "termíny"]
+    assert [m["text"] for m in jsonl] == ["Assignment and chart", "warning", "without attachment", "deadlines"]
     assert [a["path"] for a in jsonl[0]["attachments"]] == [PDF_PATH, PNG_PATH]
     assert jsonl[0]["attachments"][0]["url"].startswith("https://cdn.discordapp.com/attachments/200/")
 
@@ -179,14 +179,14 @@ def test_out_folder(capsys, env):
         "files": 1, "truncated": False, "markdown": "channels/2bit-terminy.md", "folder": "files/2bit-terminy",
     }
     assert manifest["attachments"][0] == {
-        "id": PDF, "message_id": jsonl[0]["id"], "channel_id": "200", "filename": "zadanie.pdf", "size": 232,
+        "id": PDF, "message_id": jsonl[0]["id"], "channel_id": "200", "filename": "assignment.pdf", "size": 232,
         "status": "downloaded", "path": PDF_PATH, "reason": None,
     }
 
 
 def test_token_only_goes_to_the_api(capsys, env):
     env.discord.channels["202"] = FakeChannel(
-        [message(at(9), "starý odkaz", attachments=[file(NOTE, "CON.txt", "text/plain", expires=NOW - timedelta(hours=1))])]
+        [message(at(9), "old link", attachments=[file(NOTE, "CON.txt", "text/plain", expires=NOW - timedelta(hours=1))])]
     )
     env.serve("202")
     code, _, _ = export(capsys, "--out", "exports/fit")
@@ -201,7 +201,7 @@ def test_token_only_goes_to_the_api(capsys, env):
 
 def test_expired_urls_are_refreshed_in_batches_before_downloading(capsys, env):
     expired = [
-        message(at(10) + timedelta(seconds=n), f"súbor {n}", seq=n, attachments=[
+        message(at(10) + timedelta(seconds=n), f"file {n}", seq=n, attachments=[
             file(f"81000000000000{n:04d}", f"f{n}.txt", "text/plain", expires=NOW - timedelta(minutes=5))
         ])
         for n in range(60)
@@ -294,7 +294,7 @@ def test_rerun_into_the_same_folder(capsys, env):
     code, out, _ = export(capsys, "--out", "exports/fit")
     assert code == 0 and "downloaded: 2" in out and "already_present: 2" in out
     assert [r.url.path for r in env.cdn.requests[downloaded:]] == [
-        f"/attachments/200/{PDF}/zadanie.pdf", f"/attachments/200/{PNG}/graf_1.png"
+        f"/attachments/200/{PDF}/assignment.pdf", f"/attachments/200/{PNG}/chart_1.png"
     ]
     assert sorted(files_in(root)) == sorted(ALL_FILES)
     assert files_in(root)[PDF_PATH] == content(PDF)
@@ -342,7 +342,7 @@ def test_no_files(capsys, env):
     assert (code, err) == (0, "")
     assert "downloaded: 0" in out and "skipped: 4" in out
     assert env.cdn.requests == [] and not (root / "files").exists()
-    assert "- [file] zadanie.pdf 232B https://cdn.discordapp.com/attachments/200/" in (root / "messages.md").read_text(
+    assert "- [file] assignment.pdf 232B https://cdn.discordapp.com/attachments/200/" in (root / "messages.md").read_text(
         encoding="utf-8"
     )
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
@@ -352,24 +352,24 @@ def test_no_files(capsys, env):
 
 def test_max_file_size(capsys, env):
     big = b"v" * (2 * 1024 * 1024 + 1)
-    env.discord.channels["202"] = FakeChannel([message(at(9), "video", attachments=[file(NOTE, "prednaska.mp4", "video/mp4", data=big)])])
+    env.discord.channels["202"] = FakeChannel([message(at(9), "video", attachments=[file(NOTE, "lecture.mp4", "video/mp4", data=big)])])
     env.serve("202", data={NOTE: big})
     code, out, err = export(capsys, "--out", "exports/fit", "--max-file-size", "2")
     assert code == 0 and "skipped: 1" in out
     assert err == (
         "WARNING: 1 files larger than --max-file-size were not downloaded (use --max-file-size 0 for all):"
-        " prednaska.mp4 (2.0MB).\n"
+        " lecture.mp4 (2.0MB).\n"
     )
     code, out, err = export(capsys, "--out", "exports/fit", "--max-file-size", "0")
     assert (code, err) == (0, "") and "downloaded: 1" in out and "already_present: 3" in out
-    assert (env.tmp / "exports/fit/files/2bit-terminy" / f"{NOTE}_prednaska.mp4").read_bytes() == big
+    assert (env.tmp / "exports/fit/files/2bit-terminy" / f"{NOTE}_lecture.mp4").read_bytes() == big
 
 
 def test_print_puts_messages_on_stdout_and_the_summary_on_stderr(capsys, env):
     code, out, err = export(capsys, "-v", "--out", "exports/fit", "--print")
     assert code == 0
     assert out.startswith("=== VUT FIT / #2bit-general ===\n")
-    assert f"\n  [file] zadanie.pdf 232B {PDF_PATH}\n" in out
+    assert f"\n  [file] assignment.pdf 232B {PDF_PATH}\n" in out
     assert f"Exported to {env.tmp / 'exports' / 'fit'}: 2 channels, 4 messages, 4 files (4 downloaded," in err
     assert "Downloading 3/3: files/2bit-general/" in err  # --verbose progress
     assert "Downloading 1/1: files/2bit-terminy/" in err
@@ -437,8 +437,8 @@ def test_export_targets_are_checked_before_any_request(capsys, env, args, text):
 def test_md_and_jsonl_in_the_console(capsys, env):
     code, out, _ = export(capsys, "--format", "md")
     assert code == 0 and out.startswith("# VUT FIT / #2bit-general\n")
-    assert "\n- [file] zadanie.pdf 232B https://cdn.discordapp.com/attachments/200/" in out
-    assert "\n\n[2026-11-03 10:30] @student_b\npozor\n" in out  # a blank line between messages
+    assert "\n- [file] assignment.pdf 232B https://cdn.discordapp.com/attachments/200/" in out
+    assert "\n\n[2026-11-03 10:30] @student_b\nwarning\n" in out  # a blank line between messages
     code, out, _ = export(capsys, "--format", "jsonl")
     lines = [json.loads(line) for line in out.splitlines()]
     assert code == 0 and len(lines) == 4

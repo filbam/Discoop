@@ -4,11 +4,11 @@ from discoop.errors import DiscoopError, ExitCode
 from discoop.models import Channel, Server
 from discoop.resolve import NotFoundError, normalize, resolve_many, resolve_one
 
-SERVERS = [Server("461541385204400138", "VUT FIT"), Server("2", "IZP – cvičenia"), Server("3", "Gaming")]
+SERVERS = [Server("461541385204400138", "VUT FIT"), Server("2", "IZP – exercises"), Server("3", "Gaming")]
 CHANNELS = [
-    Channel("10", "461541385204400138", "aeu-private🔒", 0),
+    Channel("10", "461541385204400138", "aeu-private🔒", 0),  # Preserves emoji to verify Unicode normalization in resolution
     Channel("11", "461541385204400138", "isc-public", 0),
-    Channel("12", "461541385204400138", "isc-private🔒", 0),
+    Channel("12", "461541385204400138", "isc-private🔒", 0),  # Preserves emoji to verify Unicode normalization in resolution
     Channel("13", "461541385204400138", "General", 0),
     Channel("14", "2", "general", 0),
 ]
@@ -21,10 +21,10 @@ def describe(item):
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
-        ("aeu-private🔒", "aeu-private"),
+        ("aeu-private🔒", "aeu-private"),  # Preserves emoji to verify Unicode normalization
         ("VUT  FIT", "vut fit"),
-        ("Bakalářka – státnice", "bakalarka statnice"),
-        ("𝒻𝒾𝒻𝒾𝓃𝓀𝑜", "fifinko"),
+        ("Bakalářka – státnice", "bakalarka statnice"),  # Preserves Czech diacritics and en-dash to verify Unicode normalization
+        ("𝓏𝑜𝓇𝒷", "zorb"),  # Preserves fancy-font letters to verify Unicode normalization
     ],
 )
 def test_normalize(raw, expected):
@@ -35,7 +35,7 @@ def test_resolve_by_id_exact_and_normalized_name():
     assert resolve_one("461541385204400138", SERVERS, "server", describe).name == "VUT FIT"
     assert resolve_one("VUT FIT", SERVERS, "server", describe).id == "461541385204400138"
     assert resolve_one("vut fit", SERVERS, "server", describe).id == "461541385204400138"
-    assert resolve_one("izp cvicenia", SERVERS, "server", describe).id == "2"
+    assert resolve_one("izp exercises", SERVERS, "server", describe).id == "2"
     assert resolve_one("aeu-private", CHANNELS, "channel", describe).id == "10"
 
 

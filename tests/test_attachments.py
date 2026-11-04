@@ -34,8 +34,8 @@ SOON = NOW + timedelta(hours=20)
 @pytest.mark.parametrize(
     ("name", "expected"),
     [
-        ("zadanie.pdf", "zadanie.pdf"),
-        ("graf (1).png", "graf (1).png"),
+        ("assignment.pdf", "assignment.pdf"),
+        ("chart (1).png", "chart (1).png"),
         ('a<b>c:d"e/f\\g|h?i*j.txt', "a_b_c_d_e_f_g_h_i_j.txt"),
         ("tab\there\nnew\x7f.txt", "tab_here_new_.txt"),
         ("../../etc/passwd", "_.._etc_passwd"),  # no separator survives, so the name cannot leave its folder
@@ -54,8 +54,8 @@ SOON = NOW + timedelta(hours=20)
         ("CONIN$", "_CONIN$"),
         ("CONSOLE.txt", "CONSOLE.txt"),
         ("com10", "com10"),
-        ("é.txt", "é.txt"),  # NFC, as Windows and Linux store it
-        ("Zápočet 🔒.pdf", "Zápočet 🔒.pdf"),
+        ("é.txt", "é.txt"),  # Preserves Unicode combining character / NFC sanitization, as Windows and Linux store it
+        ("Zápočet 🔒.pdf", "Zápočet 🔒.pdf"),  # Preserves Unicode diacritics and emoji to verify file-name sanitization
     ],
 )
 def test_safe_name(name, expected):
@@ -73,7 +73,7 @@ def test_long_names_are_shortened_keeping_the_extension():
 
 
 def test_file_names_start_with_the_attachment_id():
-    assert file_name("800000000000000001", "zadanie.pdf") == "800000000000000001_zadanie.pdf"
+    assert file_name("800000000000000001", "assignment.pdf") == "800000000000000001_assignment.pdf"
     assert file_name("800000000000000001", "CON.txt") == "800000000000000001__CON.txt"
     assert file_name("800000000000000001", "...") == "800000000000000001_file"
 

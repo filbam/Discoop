@@ -71,25 +71,25 @@ def test_a_channel_without_threads_renders_as_it_always_did():
 
 
 def test_plain_text_with_one_thread():
-    started = StartedThread("7001", "Projekt 1", 2)
-    first = replace(msg("200", 0, "kto ma projekt?"), thread=started)
-    thread = nested(GENERAL, "7001", "Projekt 1", ("ja", "ja tiez"), archived=True)
+    started = StartedThread("7001", "Project 1", 2)
+    first = replace(msg("200", 0, "who has project?"), thread=started)
+    thread = nested(GENERAL, "7001", "Project 1", ("me", "me too"), archived=True)
     result = replace(channel(threads=(thread,)), messages=(first,))
     assert text.plain([result], QUERY, CET) == (
         "=== VUT FIT / #2bit-general ===\n"
         f"{HEADER} | messages: 1 | threads: 1 (2 messages) | files: 0\n"
         "\n"
         "[2026-11-03 11:30] Student A (@student_a)\n"
-        "kto ma projekt?\n"
-        '  [thread] "Projekt 1" 2 messages\n'
+        "who has project?\n"
+        '  [thread] "Project 1" 2 messages\n'
         "\n"
-        '--- thread "Projekt 1" ---\n'
+        '--- thread "Project 1" ---\n'
         "created: 2026-11-03 09:00 | last activity: 2026-11-03 11:00 | messages: 2 | files: 0 | archived: yes\n"
         "\n"
         "[2026-11-03 11:30] Student A (@student_a)\n"
-        "ja\n"
+        "me\n"
         "[2026-11-03 11:31] Student A (@student_a)\n"
-        "ja tiez"
+        "me too"
     )
 
 
@@ -99,11 +99,11 @@ def test_several_threads_keep_their_order_and_show_what_is_known(lab):
     headings = [line for line in out.split("\n") if line.startswith(("=== ", "--- thread"))]
     assert headings == [
         "=== VUT FIT / #2bit-general ===",
-        '--- thread "poznamky" ---',
-        '--- thread "graf" ---',
+        '--- thread "notes" ---',
+        '--- thread "chart" ---',
         "=== VUT FIT / #2bit-forum ===",
-        '--- thread "Ako na projekt?" ---',
-        '--- thread "Termin" ---',
+        '--- thread "How to do the project?" ---',
+        '--- thread "Deadline" ---',
         "=== VUT FIT / #2bit-terminy ===",
     ]
     assert f"{HEADER} | messages: 2 | threads: 2 (5 messages) | files: 5" in out
@@ -127,7 +127,7 @@ def test_a_forum_without_messages_of_its_own_has_only_its_threads(lab):
         "=== VUT FIT / #2bit-forum ===",
         f"{HEADER} | messages: 0 | threads: 2 (4 messages) | files: 1",
         "",
-        '--- thread "Ako na projekt?" ---',
+        '--- thread "How to do the project?" ---',
     ]
     assert "(no messages)" not in lines
     # nothing at all in it: that is still what it says
@@ -146,18 +146,18 @@ def test_a_thread_without_messages_or_metadata_and_a_truncated_one():
 
 def test_markdown_has_a_second_level_heading_and_relative_links(lab):
     url = "https://cdn.discordapp.com/x"
-    file = Attachment("800000000000000011", "graf.png", "image/png", 10, url, "files/g/a.png")
-    thread = nested(GENERAL, "7001", "poznamky")
+    file = Attachment("800000000000000011", "chart.png", "image/png", 10, url, "files/g/a.png")
+    thread = nested(GENERAL, "7001", "notes")
     thread = replace(thread, messages=(replace(thread.messages[0], attachments=(file,)),))
     out = text.markdown([channel("hi", threads=(thread,))], QUERY, CET, link_prefix="../")
-    assert '\n\n## thread "poznamky"\ncreated: ' in out
-    assert "- [file] ![graf.png](../files/g/a.png) 10B" in out
+    assert '\n\n## thread "notes"\ncreated: ' in out
+    assert "- [file] ![chart.png](../files/g/a.png) 10B" in out
     assert out.index("# VUT FIT") < out.index("## thread") and "--- thread" not in out
 
 
 def test_styled_output_has_the_thread_sections(lab):
     rendered = text.styled(lab.threaded_results(), QUERY, CET).plain
-    assert '--- thread "Termin" ---' in rendered and "threads: 2 (5 messages)" in rendered
+    assert '--- thread "Deadline" ---' in rendered and "threads: 2 (5 messages)" in rendered
 
 
 def test_threads_of_several_channels_are_separated_by_one_blank_line(lab):
@@ -180,8 +180,8 @@ def test_jsonl_is_flat_with_the_parent_channel_and_the_thread(lab):
     own, in_thread = rows[0], rows[2]
     assert own["thread"] is None and own["channel"] == {"id": "200", "name": "2bit-general"}
     assert in_thread["channel"] == {"id": "200", "name": "2bit-general"}  # the parent, not the thread
-    assert in_thread["thread"] == {"id": "7001", "name": "poznamky", "parent_id": "200", "tags": []}
-    assert rows[7]["thread"] == {"id": "8001", "name": "Ako na projekt?", "parent_id": "210", "tags": ["Solved"]}
+    assert in_thread["thread"] == {"id": "7001", "name": "notes", "parent_id": "200", "tags": []}
+    assert rows[7]["thread"] == {"id": "8001", "name": "How to do the project?", "parent_id": "210", "tags": ["Solved"]}
     assert rows[9]["thread"]["tags"] == ["Question"]  # the unknown tag is dropped here as well
     assert rows[9]["channel"]["id"] == "210" and rows[11]["thread"] is None
     assert all(set(row) == set(rows[0]) for row in rows)  # the same keys everywhere
@@ -189,8 +189,8 @@ def test_jsonl_is_flat_with_the_parent_channel_and_the_thread(lab):
 
 
 def test_a_message_that_started_a_thread_is_not_in_a_thread():
-    started = replace(msg("200", 0, "q"), thread=StartedThread("7001", "Projekt 1", 2))
-    result = replace(channel(threads=(nested(GENERAL, "7001", "Projekt 1"),)), messages=(started,))
+    started = replace(msg("200", 0, "q"), thread=StartedThread("7001", "Project 1", 2))
+    result = replace(channel(threads=(nested(GENERAL, "7001", "Project 1"),)), messages=(started,))
     first, second = (json.loads(line) for line in jsonout.lines([result], CET))
     assert first["has_thread"] is True and first["thread"] is None
     assert second["has_thread"] is False and second["thread"]["id"] == "7001"

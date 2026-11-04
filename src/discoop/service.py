@@ -327,7 +327,7 @@ def _is_own_unchanged(
 ) -> bool:
     """True if `--since-last` skips the messages of the channel itself but still lists its threads: a text or
     announcement channel with threads on and nothing newer in it. A forum has no messages of its own and its
-    `last_message_id` points at its newest post, so it never qualifies. [PREDPOKLAD] `last_message_id` of a text channel
+    `last_message_id` points at its newest post, so it never qualifies. [ASSUMPTION] `last_message_id` of a text channel
     is reliable (docs/decisions/0020-since-last.md)."""
     if target.type in FORUM_TYPES or not threads_enabled or not is_thread_container(target.type):
         return False

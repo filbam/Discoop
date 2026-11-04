@@ -52,9 +52,9 @@ def resilient_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleName
         attachments=[
             {
                 "id": "800000000000000001",
-                "filename": "zadanie.pdf",
+                "filename": "assignment.pdf",
                 "size": 100,
-                "url": signed_url("200", "800000000000000001", "zadanie.pdf", expires=NOW + timedelta(hours=24)),
+                "url": signed_url("200", "800000000000000001", "assignment.pdf", expires=NOW + timedelta(hours=24)),
                 "content_type": "application/pdf",
             }
         ],
@@ -65,9 +65,9 @@ def resilient_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleName
         attachments=[
             {
                 "id": "800000000000000002",
-                "filename": "terminy.txt",
+                "filename": "deadlines.txt",
                 "size": 200,
-                "url": signed_url("202", "800000000000000002", "terminy.txt", expires=NOW + timedelta(hours=24)),
+                "url": signed_url("202", "800000000000000002", "deadlines.txt", expires=NOW + timedelta(hours=24)),
                 "content_type": "text/plain",
             }
         ],

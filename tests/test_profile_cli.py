@@ -25,8 +25,8 @@ def offline_discord(monkeypatch):
     TokenStore.default().save("tok")
     monkeypatch.setattr(cli, "utc_now", lambda: NOW)
     monkeypatch.setattr(cli, "LOCAL_ZONE", CET)
-    msg1 = message(at(10), "Prva sprava")
-    msg2 = message(at(11), "Druga sprava v 202")
+    msg1 = message(at(10), "First message")
+    msg2 = message(at(11), "Second message in 202")
     fake = FakeDiscord({"200": FakeChannel([msg1]), "202": FakeChannel([msg2])})
 
     def handle(request: httpx.Request) -> httpx.Response:
