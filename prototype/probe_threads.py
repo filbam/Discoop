@@ -735,17 +735,17 @@ def run(
                     latest_id = int(msgs[0]["id"])
                     channel_lmid_val = int(c_lmid)
                     if channel_lmid_val == latest_id:
-                        cmp_res = "zhoduje sa"
+                        cmp_res = "matches"
                     elif channel_lmid_val < latest_id:
-                        cmp_res = "je staršie"
+                        cmp_res = "is older"
                     else:
-                        cmp_res = "je novšie"
+                        cmp_res = "is newer"
                 except (ValueError, TypeError):
-                    cmp_res = "chýba"
+                    cmp_res = "missing"
             else:
-                cmp_res = "chýba"
+                cmp_res = "missing"
         else:
-            cmp_res = "chýba"
+            cmp_res = "missing"
 
         comparisons.append({
             "channel_index": idx + 1,
