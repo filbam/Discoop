@@ -64,3 +64,40 @@ def test_patterns_match_normalized_names():
     assert [c.id for c in resolve_many("isc-public", CHANNELS, "channel", describe)] == ["11"]
     with pytest.raises(NotFoundError):
         resolve_many("xyz-*", CHANNELS, "channel", describe)
+
+
+def test_typo_suggests_did_you_mean():
+    with pytest.raises(NotFoundError) as e:
+        resolve_one("vut fot", SERVERS, "server", describe)
+    assert e.value.hint == "Did you mean: VUT FIT?"
+
+
+def test_typo_suggests_multiple_candidates_without_duplicates():
+    with pytest.raises(NotFoundError) as e:
+        resolve_one("generla", CHANNELS, "channel", describe)
+    assert e.value.hint == "Did you mean: General, general?"
+
+
+def test_completely_different_word_has_no_suggestion():
+    with pytest.raises(NotFoundError) as e:
+        resolve_one("completelyunrelated", SERVERS, "server", describe)
+    assert e.value.hint is None
+
+
+def test_digit_query_has_no_suggestion():
+    with pytest.raises(NotFoundError) as e:
+        resolve_one("999", SERVERS, "server", describe)
+    assert e.value.hint is None
+
+
+def test_resolve_many_glob_suggestions():
+    # Glob pattern with no close matches has hint is None
+    with pytest.raises(NotFoundError) as e:
+        resolve_many("completelyunrelated*", CHANNELS, "channel", describe)
+    assert e.value.hint is None
+
+    # Glob pattern with typo suggests close match
+    with pytest.raises(NotFoundError) as e:
+        resolve_many("isc-publc*", CHANNELS, "channel", describe)
+    assert e.value.hint == "Did you mean: isc-public?"
+

@@ -5,6 +5,7 @@ Rules (docs/navrh-nastroja.md, section 5): exact ID, then exact name, then norma
 patterns where several results are fine. Several equally good matches are an error, never a guess.
 """
 
+import difflib
 import fnmatch
 import unicodedata
 from collections.abc import Callable, Sequence
@@ -46,6 +47,38 @@ def is_pattern(query: str) -> bool:
     return any(ch in query for ch in _GLOB_CHARS)
 
 
+def _suggest_hint(query: str, items: Sequence[T]) -> str | None:
+    if query.isdigit():
+        return None
+    target = normalize(query)
+    if not target:
+        return None
+
+    norm_to_names: dict[str, list[str]] = {}
+    for item in items:
+        norm = normalize(item.name)
+        if not norm:
+            continue
+        names = norm_to_names.setdefault(norm, [])
+        if item.name not in names:
+            names.append(item.name)
+
+    matches = difflib.get_close_matches(target, list(norm_to_names.keys()), n=len(norm_to_names), cutoff=0.6)
+    suggestions: list[str] = []
+    for match in matches:
+        for orig in norm_to_names[match]:
+            if orig not in suggestions:
+                suggestions.append(orig)
+                if len(suggestions) == 3:
+                    break
+        if len(suggestions) == 3:
+            break
+
+    if not suggestions:
+        return None
+    return f"Did you mean: {', '.join(suggestions)}?"
+
+
 def resolve_one(query: str, items: Sequence[T], kind: str, describe: Callable[[T], str]) -> T:
     query = query.strip()
     if query.isdigit():
@@ -63,7 +96,7 @@ def resolve_one(query: str, items: Sequence[T], kind: str, describe: Callable[[T
             return exact[0]
     if exact:
         raise ambiguous(kind, query, exact, describe)
-    raise NotFoundError(kind, query)
+    raise NotFoundError(kind, query, _suggest_hint(query, items))
 
 
 def resolve_many(query: str, items: Sequence[T], kind: str, describe: Callable[[T], str]) -> list[T]:
@@ -73,7 +106,7 @@ def resolve_many(query: str, items: Sequence[T], kind: str, describe: Callable[[
     pattern = normalize(query, keep=_GLOB_CHARS)
     matches = [item for item in items if fnmatch.fnmatchcase(normalize(item.name), pattern)]
     if not matches:
-        raise NotFoundError(kind, query)
+        raise NotFoundError(kind, query, _suggest_hint(query, items))
     return matches
 
 
