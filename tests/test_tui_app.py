@@ -233,7 +233,8 @@ async def test_server_and_channel_selection_updates_command_bar() -> None:
     - Verify servers appear in the tree.
     - Select channel "101" (isc-public) with the keyboard;
       verify #command-preview shows `discoop messages -s 100 -c 101 --from 7d --safe --out ...`.
-    - Verify category (type=4) and forum (type=15) cannot be selected (app.selection.toggle returns False).
+    - Verify a category (type=4) cannot be selected (app.selection.toggle returns False) but a forum (type=15)
+      can: its posts are downloaded as threads.
     """
     server_fit = Server("100", "VUT FIT", 390)
     server_ai = Server("200", "AI Club", 25)
@@ -254,9 +255,11 @@ async def test_server_and_channel_selection_updates_command_bar() -> None:
         tree = app.query_one("#channel-tree", ChannelTree)
         assert visible_rows(tree) == ["AI Club", "VUT FIT"]
 
-        # Verify category (type=4) and forum (type=15) cannot be selected
+        # A category (type=4) cannot be selected, a forum (type=15) can (and is deselected again by a second toggle)
         assert app.selection.toggle(server_fit, category_ch) is False
         assert not app.selection.is_selected(category_ch.id)
+        assert app.selection.toggle(server_fit, forum_ch) is True
+        assert app.selection.is_selected(forum_ch.id)
         assert app.selection.toggle(server_fit, forum_ch) is False
         assert not app.selection.is_selected(forum_ch.id)
 
@@ -512,7 +515,7 @@ async def test_tree_arrows_open_close_and_walk() -> None:
         await pilot.press("right")  # opens, stays
         await pilot.pause()
         assert beta.is_expanded and tree.cursor_node is beta
-        assert visible_rows(tree)[2:5] == ["[ ] #welcome", "[ ] info", "forums"]
+        assert visible_rows(tree)[2:5] == ["[ ] #welcome", "[ ] info", "[ ] forums"]
 
         await pilot.press("right")  # already open: first child
         await pilot.pause()
@@ -615,15 +618,21 @@ async def test_space_on_a_server_only_hints() -> None:
 
 async def test_category_box_shows_partial_selection_and_none_without_channels() -> None:
     seed_cache()
+    archive = Channel("2300", "2000", "archive", 4, None, 3)
+    hall = Channel("2301", "2000", "hall", 14, "2300", 0)  # a directory channel: nothing in it can be selected
+    with Cache.default() as cache:
+        cache.replace_channels("2000", [*CHANNELS_B, archive, hall])
     app = DiscoopApp(api_factory=RecordingDiscord().factory)
     async with app.run_test(size=(140, 40)) as pilot:
         await started(app, pilot)
         tree = app.query_one("#channel-tree", ChannelTree)
         info = app._tree_nodes[f"channel:{INFO.id}"]
         forums = app._tree_nodes[f"channel:{FORUMS.id}"]
+        archive_node = app._tree_nodes[f"channel:{archive.id}"]
 
         assert label_of(info) == "[ ] info"
-        assert label_of(forums) == "forums", "no box: nothing in it can be selected"
+        assert label_of(forums) == "[ ] forums", "a forum can be selected, so its category has a box"
+        assert label_of(archive_node) == "archive", "no box: nothing in it can be selected"
 
         app.selection.toggle(SERVER_B, README)
         app._selection_changed([README.id])
@@ -636,7 +645,7 @@ async def test_category_box_shows_partial_selection_and_none_without_channels() 
         await pilot.press("space")  # part of it selected: selects all
         await pilot.pause()
         assert app.selection.is_selected(README.id) and app.selection.is_selected(NEWS.id)
-        assert not app.selection.is_selected(LOBBY.id)
+        assert app.selection.is_selected(LOBBY.id), "the forum of the category is selected with it"
         assert label_of(info) == "[x] info"
 
         await pilot.press("space")  # all selected: clears
@@ -644,13 +653,24 @@ async def test_category_box_shows_partial_selection_and_none_without_channels() 
         assert not app.selection.selected
         assert label_of(info) == "[ ] info"
 
+        tree.move_cursor(archive_node)
+        await pilot.press("space")  # nothing in it can be selected
+        await pilot.pause()
+        assert not app.selection.selected
+
         tree.move_cursor(forums)
+        await pilot.press("space")  # its only channel is a forum, which can be selected
+        await pilot.pause()
+        assert list(app.selection.selected) == [HELP_FORUM.id]
+        assert label_of(forums) == "[x] forums"
         await pilot.press("space")
         await pilot.pause()
         assert not app.selection.selected
 
         forum_row = app._tree_nodes[f"channel:{LOBBY.id}"]
-        assert label_of(forum_row).strip() == "#lobby-forum (forum)"
+        assert label_of(forum_row) == "[ ] #lobby-forum"
+        hall_row = app._tree_nodes[f"channel:{hall.id}"]
+        assert label_of(hall_row).strip() == "#hall (directory)", "a channel of a type that cannot be selected stays dim"
 
 
 async def test_moving_the_cursor_never_calls_discord() -> None:
@@ -845,7 +865,13 @@ async def test_select_shown_takes_only_what_the_filter_shows() -> None:
         await wait_until(pilot, lambda: app.query_one("#tree-filter", Input).value == "")
         await pilot.press("a")
         await pilot.pause()
-        assert set(app.selection.selected) == {WELCOME.id, README.id, NEWS.id}, "no forums, no categories"
+        assert set(app.selection.selected) == {
+            WELCOME.id,
+            README.id,
+            NEWS.id,
+            LOBBY.id,
+            HELP_FORUM.id,
+        }, "forums yes, categories no"
 
 
 async def test_select_shown_needs_a_loaded_server() -> None:
@@ -866,11 +892,12 @@ async def test_selected_list_keys() -> None:
         await started(app, pilot)
         tree = app.query_one("#channel-tree", ChannelTree)
         selected = app.query_one("#selected-list", OptionList)
-        await pilot.press("down", "a")  # Beta: all of it
+        await pilot.press("down", "a")  # Beta: all of it, the two forums too
         await pilot.pause()
-        assert selected.option_count == 3
+        assert selected.option_count == 5
         assert str(selected.get_option(WELCOME.id).prompt) == "Beta Server/#welcome  7d"
-        assert app.query_one("#selected-title", Label).content == "Selected (3)"
+        assert str(selected.get_option(HELP_FORUM.id).prompt) == "Beta Server/#help  7d"
+        assert app.query_one("#selected-title", Label).content == "Selected (5)"
 
         await pilot.press("tab")
         await pilot.pause()
@@ -878,11 +905,17 @@ async def test_selected_list_keys() -> None:
 
         await pilot.press("down", "x")  # the second one
         await pilot.pause()
-        assert set(app.selection.selected) == {WELCOME.id, NEWS.id}
+        assert set(app.selection.selected) == {WELCOME.id, NEWS.id, LOBBY.id, HELP_FORUM.id}
         assert label_of(app._tree_nodes[f"channel:{README.id}"]).startswith("[ ]")
         assert label_of(app._tree_nodes[f"channel:{INFO.id}"]).startswith("[~]")
 
         await pilot.press("delete")
+        await pilot.pause()
+        assert set(app.selection.selected) == {WELCOME.id, LOBBY.id, HELP_FORUM.id}
+
+        await pilot.press("x")  # a forum goes like any other channel
+        await pilot.pause()
+        await pilot.press("x")
         await pilot.pause()
         assert set(app.selection.selected) == {WELCOME.id}
 

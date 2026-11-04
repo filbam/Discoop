@@ -12,7 +12,7 @@ from pathlib import Path
 
 from discoop import paths
 from discoop.attachments import safe_name
-from discoop.models import CATEGORY, MESSAGE_TYPES, Channel, Server
+from discoop.models import CATEGORY, FORUM_TYPES, MESSAGE_TYPES, Channel, Server
 from discoop.resolve import normalize
 from discoop.service import MessagesRequest
 
@@ -96,8 +96,8 @@ class SelectionState:
 
     @staticmethod
     def is_selectable(channel: Channel) -> bool:
-        """True if the channel type can contain messages."""
-        return channel.type in MESSAGE_TYPES
+        """True if `messages` can read the channel: one with messages, or a forum or media channel (its posts)."""
+        return channel.type in MESSAGE_TYPES or channel.type in FORUM_TYPES
 
     def is_selected(self, channel_id: str) -> bool:
         """True if the channel is currently selected for export."""
@@ -166,6 +166,13 @@ class PlannedJob:
     window: WindowSpec
     targets: tuple[tuple[Server, Channel], ...]
     request: MessagesRequest
+
+
+def forums_without_threads(selection: SelectionState, settings: ExportSettings) -> list[Channel]:
+    """The selected forum and media channels an export would refuse: they only have threads, and Threads is "no"."""
+    if settings.threads:
+        return []
+    return [channel for _, channel in selection.selected.values() if channel.type in FORUM_TYPES]
 
 
 def export_stamp(now: datetime | None = None) -> str:

@@ -70,9 +70,10 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
   - `service.run_messages` mala zhruba 420 riadkov. Rozdelená na malé funkcie (trieda `_Run` s krokmi, napr. `open_export`, `fetch_channels`, `fetch_channel`, `finish`), správanie sa nezmenilo.
   - TUI: štartovací súbeh pri ukladaní stavu (uloženie pred načítaním uloženého stavu mohlo prepísať `tui-state.json` predvolenými hodnotami). Teraz sa ukladá až po načítaní (`_state_loaded`). Zlyhanie disku TUI nezhodí (varovanie v logu). `last_exported` sa pri náhľade nezapisuje. Ručne upravený profil so zlými typmi hodnôt sa toleruje.
   - `format_activity` vracal pre niektoré veky text `0y ago`. Teraz dáva pod 30 dní dni, pod 365 dní mesiace (najviac `11mo`), od roka roky.
+- **Fóra a media kanály v TUI (2026-11-04, dodatočne):** `SelectionState.is_selectable` berie aj `FORUM_TYPES`, takže sa dajú vybrať klávesom, cez kategóriu, `a`, filter, profil aj uložený stav. Pri Threads = no a vybranom fóre formulár ukáže varovanie a `F5` štart odmietne ešte pred volaním Discordu. Help opravený (hlasové a stage kanály sa vybrať dajú, kategória nie). Log pri kanáli s vláknami uvádza aj ich počet. Overené len testami s falošným Discordom (`tests/test_tui_forums.py`), na reálnom účte nie.
 - **Dokončené časti, ktoré Antigravity vedome vynechal:** `--max-tokens` aj so zipom, `--since-last` pre textové kanály s vláknami (vlastné správy sa preskočia, vlákna sa čítajú) a prípony riadkov kanálov v strome TUI (dátum exportu a čas aktivity). Ich opis je vo fázach vyššie.
 - **Overené `[OVERENÉ]`:**
-  - `uv run pytest`: všetkých **851 automatizovaných testov** prechádza (stav po kontrole hlavným Claudom). Všetky bežia offline proti falošnému Discordu (`httpx.MockTransport`).
+  - `uv run pytest`: všetkých **870 automatizovaných testov** prechádza (stav po kontrole hlavným Claudom). Všetky bežia offline proti falošnému Discordu (`httpx.MockTransport`).
   - Všetky nové scenáre overené offline testami (odolný export, staging `.partial`, pád a obnova, prepínač `--threads/--no-threads`, fórum end-to-end, `threads` CLI, `--since-last`, prežitie `clear_cache`, kontrola disku pred CDN, `split_markdown`, limity tokenov, profily, TUI modály a obnova stavu, `agent-guide`).
 - **Neoverené `[PREDPOKLAD]`:**
   - Chovanie `threads/search` na všetkých rôznych typoch kanálov Discordu mimo fórum `#help-center` a vzorový textový kanál overený v probe analýze ([probe-vlakien-2026-11-04.md](analyzy/probe-vlakien-2026-11-04.md)).
@@ -95,7 +96,6 @@ Chronologický záznam práce: čo sa urobilo, čo sa rozhodlo, incidenty a ďal
    - Repo nemá súbor `LICENSE`.
    - `profiles.load()` pri poškodenom súbore stále vydá Python `UserWarning`.
    - `_save_tui_state` nie je oneskorený (debounce): zapisuje `tui-state.json` pri každej zmene výberu alebo formulára.
-   - Fóra a media kanály sa v TUI vybrať nedajú (výber berie len typy kanálov so správami), exportujú sa len z CLI.
 3. Používateľ rozhodne o pushi commitov na GitHub (push iba na jeho pokyn).
 4. Rozhodnutie 9 (výpočet prístupu ku kanálom) ostáva odložené s nízkou prioritou.
 

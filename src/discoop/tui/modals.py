@@ -109,8 +109,10 @@ GUIDE_SECTIONS = (
     ),
     (
         "Selection",
-        "[x] is selected, [~] is a category with some channels selected, [ ] is not selected. Forums and voice "
-        "channels cannot be selected. The Export panel lists the selected channels of all servers.",
+        "[x] is selected, [~] is a category with some channels selected, [ ] is not selected. A category cannot be "
+        "selected itself: selecting it selects its channels. Forums and media channels can be selected: their posts "
+        "are downloaded as threads, so the Threads row must be yes. The Export panel lists the selected channels of "
+        "all servers.",
     ),
     (
         "Form",

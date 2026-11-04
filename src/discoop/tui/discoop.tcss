@@ -132,6 +132,12 @@ Screen.-narrow.show-tab-3 #log-pane {
     margin-top: 1;
 }
 
+#threads-warning {
+    display: none;
+    width: 100%;
+    color: $warning;
+}
+
 /* ==================== Log Panel ==================== */
 
 #run-bar {

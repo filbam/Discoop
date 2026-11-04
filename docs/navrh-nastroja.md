@@ -190,7 +190,7 @@ discoop messages -c "isc-*" --since-last --agent
   - Nový kód ukončenia `9` (`ExitCode.PARTIAL`) pri preskočení nedostupného kanála (403/404), zlyhanej prílohe alebo chybe vlákna. Súbory vynechané cez `--no-files` alebo `--max-file-size` kód 9 nevyvolávajú.
 - **Plná podpora vlákien a fór ([ADR 0019](rozhodnutia/0019-vlakna.md)):**
   - Predvolene zapnuté (`request.threads = True`), vypnutie cez `--no-threads`.
-  - Fóra (typ 15) a mediálne kanály (typ 16) sú plnohodnotnými cieľmi `messages` (sťahujú svoje vlákna). Fórum s `--no-threads` je odmietnuté kódom 8. V TUI sa fóra zatiaľ vybrať nedajú.
+  - Fóra (typ 15) a mediálne kanály (typ 16) sú plnohodnotnými cieľmi `messages` (sťahujú svoje vlákna). Fórum s `--no-threads` je odmietnuté kódom 8. V TUI sa vyberajú ako ostatné kanály, pri Threads = no sa štart odmietne už vo formulári (bez volania Discordu).
   - Sťahovanie aktívnych aj archivovaných vlákien cez `threads/search` s `limit=25`, stránkovaním podľa offsetu a detekciou konca prázdnou/neúplnou stranou (podľa [docs/analyzy/probe-vlakien-2026-11-04.md](analyzy/probe-vlakien-2026-11-04.md)).
   - Limity `--max-messages` a `--last N` platia nezávisle na kanál a na každé vlákno.
 - **Prírastkové sťahovanie `--since-last` ([ADR 0020](rozhodnutia/0020-since-last.md)):**
@@ -355,7 +355,9 @@ Interaktívne terminálové rozhranie (TUI) postavené na knižnici Textual (P16
 **Dialógy a Help:**
 - Help (`F1` / `?`): ovládanie podľa ADR 0014 a živý výpis `discoop --help` vrátane podpríkazov z Typer aplikácie. Settings (`F2`), Login (`F3`, QR alebo token), Preview a časové okno majú rovnaký vzhľad ako hlavná obrazovka. Token sa ukladá až po overení.
 
-**Známe obmedzenia:** fórum a media kanál sa v TUI vybrať nedajú (výber berie len typy kanálov so správami, `MESSAGE_TYPES`), exportujú sa len z CLI; TUI nemá `--since-last` ani `--max-tokens`; Esc počas bežiacej HTTP požiadavky zaberie až po jej skončení (timeout 20 s); pauzy pri opakovaní sťahovania príloh sa nedajú prerušiť hneď; v šírke 80 stĺpcov sa Footer nezmestí celý; CLI príkaz má vždy `--delay` z configu. Beh v skutočnom termináli a na reálnom účte zatiaľ neoverený.
+**Fóra a media kanály v TUI (2026-11-04):** vyberajú sa ako ostatné kanály (výber berie `MESSAGE_TYPES` aj `FORUM_TYPES`; kategória sa nevyberá, jej výber vyberie jej kanály). Ich príspevky sú vlákna, preto pri Threads = no a vybranom fóre formulár ukáže varovanie a `F5` štart odmietne hláškou ešte pred prvým volaním Discordu (služba by to odmietla s kódom 8). Overené len testami s falošným Discordom (`tests/test_tui_forums.py`).
+
+**Známe obmedzenia:** TUI nemá `--since-last` ani `--max-tokens`; Esc počas bežiacej HTTP požiadavky zaberie až po jej skončení (timeout 20 s); pauzy pri opakovaní sťahovania príloh sa nedajú prerušiť hneď; v šírke 80 stĺpcov sa Footer nezmestí celý; CLI príkaz má vždy `--delay` z configu. Beh v skutočnom termináli a na reálnom účte zatiaľ neoverený.
 
 ### 4.9 `doctor`
 
@@ -511,7 +513,7 @@ Cesty k prílohám v `.md` a `.jsonl` sú relatívne (`files/...`). V `channels/
 Podrobné overenie správania Discord API na používateľskom účte popisuje [docs/analyzy/probe-vlakien-2026-11-04.md](analyzy/probe-vlakien-2026-11-04.md).
 
 - **Vlákna sa sťahujú predvolene** v príkaze `discoop messages` (`request.threads = True`). Vypnúť sa dajú cez `--no-threads`.
-- **Fóra (typ 15) a mediálne kanály (typ 16)** nemajú vlastné správy – ich obsahom sú výhradne vlákna. Sú plnohodnotnými cieľmi `messages` (v TUI sa zatiaľ vybrať nedajú). Fórum zadané s `--no-threads` je odmietnuté s kódom 8 (`BAD_ARGS`).
+- **Fóra (typ 15) a mediálne kanály (typ 16)** nemajú vlastné správy – ich obsahom sú výhradne vlákna. Sú plnohodnotnými cieľmi `messages` (v TUI sa vyberajú ako ostatné kanály, pri Threads = no sa štart odmietne už vo formulári). Fórum zadané s `--no-threads` je odmietnuté s kódom 8 (`BAD_ARGS`).
 - **Postup načítania vlákien:**
   1. Získanie zoznamu vlákien prebieha cez `GET /channels/{id}/threads/search` s `limit=25`, `sort_by=last_message_time` a `sort_order=desc` samostatne pre aktívne (`archived=false`) aj archivované (`archived=true`) vlákna. Botovský endpoint `/guilds/{id}/threads/active` používateľský účet nemôže použiť (HTTP 403, kód 20002, `[OVERENÉ]`).
   2. Stránkovanie prebieha cez `offset` s krokom 25. Koniec stránkovania určuje výlučne prázdna alebo neúplná strana (< 25 položiek); polia `has_more` a `total_results` sú nespoľahlivé (`[OVERENÉ]`).

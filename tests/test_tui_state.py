@@ -96,22 +96,34 @@ def test_selection_state_toggle_and_selectability() -> None:
     server = Server(id="s1", name="Server 1")
     text_ch = Channel(id="c1", server_id="s1", name="general", type=0)
     category_ch = Channel(id="c2", server_id="s1", name="Chat", type=4)  # CATEGORY
-    forum_ch = Channel(id="c3", server_id="s1", name="feedback", type=15)  # forum (not in MESSAGE_TYPES)
+    forum_ch = Channel(id="c3", server_id="s1", name="feedback", type=15)  # forum (FORUM_TYPES: its posts are threads)
     voice_ch = Channel(id="c4", server_id="s1", name="Lobby", type=2)  # voice (in MESSAGE_TYPES)
+    media_ch = Channel(id="c5", server_id="s1", name="gallery", type=16)  # media (FORUM_TYPES)
+    directory_ch = Channel(id="c6", server_id="s1", name="hall", type=14)  # directory: nothing to download
 
     state = SelectionState()
 
-    # Category and forum are not selectable
+    # A category and a directory channel are not selectable, forums and media channels are
     assert not state.is_selectable(category_ch)
-    assert not state.is_selectable(forum_ch)
+    assert not state.is_selectable(directory_ch)
+    assert state.is_selectable(forum_ch)
+    assert state.is_selectable(media_ch)
     assert state.is_selectable(text_ch)
     assert state.is_selectable(voice_ch)
 
     # Toggling unselectable channel returns False and does not select it
     assert not state.toggle(server, category_ch)
     assert not state.is_selected("c2")
+    assert not state.toggle(server, directory_ch)
+    assert not state.is_selected("c6")
+
+    # A forum and a media channel are toggled like any other channel
+    assert state.toggle(server, forum_ch)
+    assert state.toggle(server, media_ch)
+    assert state.is_selected("c3") and state.is_selected("c5")
     assert not state.toggle(server, forum_ch)
-    assert not state.is_selected("c3")
+    assert not state.toggle(server, media_ch)
+    assert not state.selected
 
     # Toggling selectable channel selects it
     assert state.toggle(server, text_ch)

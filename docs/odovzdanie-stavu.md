@@ -28,7 +28,7 @@ Pred začatím akejkoľvek práce si **povinne prečítaj** nasledujúce dokumen
 
 ## 2. Aktuálny stav projektu (k 2026-11-04)
 
-- **Testovacie pokrytie:** Všetkých **851 automatizovaných testov** prechádza (`uv run pytest`). Všetky bežia offline proti falošnému Discordu (`httpx.MockTransport`). Nič z kola 2 (odolný export, vlákna, `--since-last`, `--max-tokens`, vylepšenia TUI) nebolo overené na reálnom účte.
+- **Testovacie pokrytie:** Všetkých **870 automatizovaných testov** prechádza (`uv run pytest`). Všetky bežia offline proti falošnému Discordu (`httpx.MockTransport`). Nič z kola 2 (odolný export, vlákna, `--since-last`, `--max-tokens`, vylepšenia TUI) nebolo overené na reálnom účte.
 - **Pôvod kola 2:** implementáciu (P26–P30) urobil Antigravity podľa `docs/zadania/antigravity-kolo-2.md`, potom ju skontroloval hlavný Claude a nálezy nechal opraviť. Čo sa našlo a opravilo, je v [dennik.md](dennik.md), sekcia 2026-11-04.
 - **Nainštalované prostredie:** Python 3.12+, projekt spravovaný cez `uv`. Vývoj v repe ide cez `uv run discoop ...`, používatelia majú nainštalovaný príkaz `discoop` (`uv tool install git+https://github.com/filbam/Discoop`, návod v [README.md](../README.md)).
 - **Repo je verejné** (P22, [ADR 0015](rozhodnutia/0015-verejne-repo-a-instalacia.md)). Do gitu nesmie ísť token, cookies ani mená a texty správ iných ľudí. `[OVERENÉ]`: inštalácia z lokálneho klonu na Windows. `[PREDPOKLAD]`: inštalácia z GitHubu, Linux, macOS.
@@ -116,7 +116,8 @@ Nástroj umožňuje voľbu tempa cez konfiguráciu (`discoop config set mode saf
     - Prípony riadkov kanálov v strome: každý kanál má stlmenú príponu zarovnanú doprava s časom od poslednej aktivity (`now`, `5m`, `3h`, `2d`, `4mo`, `1y`, z `Channel.last_message_id`) a pri kanáli exportovanom z tohto účtu s dátumom posledného exportu (`exp 11-03`, miestny dátum, s rokom, ak je z iného roka). V úzkom riadku vypadne najprv dátum exportu, potom aktivita, názov kanála sa nikdy nekráti. Obnovujú sa po exporte, po obnovení stavu a každých 60 s (`format_activity` a `format_last_exported` v `tuistate.py`, vykreslenie v `ChannelTree`).
     - Zobrazenie percent a odhadu času (ETA) v progress bare podľa `progress.py`.
     - Fixovanie názvu exportu v poli `Name` po prerušení, takže stlačenie `F5` v ďalšej minúte pokračuje v existujúcom `.partial`.
-  - **Známe obmedzenia:** fórum a media kanál sa v TUI vybrať nedajú (výber berie len `MESSAGE_TYPES`), exportujú sa len z CLI. TUI nemá `--since-last` ani `--max-tokens`. Esc počas bežiacej HTTP požiadavky zaberie až po jej skončení (timeout 20 s), pauzy pri opakovaní sťahovania príloh v `attachments.py` sa nedajú prerušiť hneď, v šírke 80 stĺpcov sa Footer nezmestí celý, CLI príkaz má vždy `--delay` z configu, v Help a Preview nefunguje výber textu myšou.
+  - **Fóra a media kanály v TUI (2026-11-04):** vyberajú sa ako ostatné kanály (výber berie `MESSAGE_TYPES` aj `FORUM_TYPES`; kategória sa nevyberá, jej výber vyberie jej kanály). Ich príspevky sú vlákna, preto pri Threads = no a vybranom fóre formulár ukáže varovanie a `F5` štart odmietne hláškou ešte pred prvým volaním Discordu (služba by to odmietla s kódom 8). Overené len testami s falošným Discordom (`tests/test_tui_forums.py`).
+  - **Známe obmedzenia:** TUI nemá `--since-last` ani `--max-tokens`. Esc počas bežiacej HTTP požiadavky zaberie až po jej skončení (timeout 20 s), pauzy pri opakovaní sťahovania príloh v `attachments.py` sa nedajú prerušiť hneď, v šírke 80 stĺpcov sa Footer nezmestí celý, CLI príkaz má vždy `--delay` z configu, v Help a Preview nefunguje výber textu myšou.
   - **Neoverené:** beh v skutočnom termináli (Windows Terminal), reálny účet, skenovanie QR telefónom. Overené sú Pilot testy s falošnými dátami a screenshoty.
 
 #### H. Voliteľné diagnostické logovanie (`logs.py`, [ADR 0018](rozhodnutia/0018-logovanie.md), P24)
@@ -157,7 +158,7 @@ Nástroj umožňuje voľbu tempa cez konfiguráciu (`discoop config set mode saf
 - **Analýza a probe:** overené na používateľskom účte v [docs/analyzy/probe-vlakien-2026-11-04.md](analyzy/probe-vlakien-2026-11-04.md).
 - **Sťahovanie vlákien v `messages`:**
   - Vlákna sú predvolene zapnuté (`request.threads = True`), možnosť ich vypnúť cez `--no-threads`.
-  - Fóra (typ 15) a mediálne kanály (typ 16) sú plnohodnotnými cieľmi `messages` (sťahujú svoje vlákna). Fórum s `--no-threads` je odmietnuté s kódom 8. V TUI sa fóra zatiaľ vybrať nedajú.
+  - Fóra (typ 15) a mediálne kanály (typ 16) sú plnohodnotnými cieľmi `messages` (sťahujú svoje vlákna). Fórum s `--no-threads` je odmietnuté s kódom 8. V TUI sa vyberajú ako ostatné kanály, pri Threads = no sa štart odmietne už vo formulári.
   - Sťahovanie aktívnych aj archivovaných vlákien cez `GET /channels/{id}/threads/search` s `limit=25`, stránkovaním podľa offsetu a detekciou konca prázdnou alebo neúplnou stranou (< 25).
   - Vnorenie sekcií vlákien v `channels/<kanál>.md`, plochý formát v `messages.jsonl` s atribútom `thread`, prílohy vlákien smerujú do `files/<rodič>/`.
   - Limity `--max-messages` a `--last N` platia nezávisle na kanál a na každé vlákno.
@@ -227,7 +228,7 @@ GitHub (`origin/main`) je na `94bd862`, novšie commity sú len lokálne (`git l
 
 ## 4. Čo nasleduje ďalej
 
-Všetkých 6 krokov pôvodného implementačného plánu je implementovaných a otestovaných proti falošnému Discordu (851 testov prechádza). Na reálnom účte zatiaľ nič z kola 2 nebolo vyskúšané.
+Všetkých 6 krokov pôvodného implementačného plánu je implementovaných a otestovaných proti falošnému Discordu (870 testov prechádza). Na reálnom účte zatiaľ nič z kola 2 nebolo vyskúšané.
 
 1. **Používateľské testy na reálnom účte:**
    - **Vlákna a fóra:** overenie správania príkazu `discoop threads` a sťahovania fór (`help-center`) a vlákien v textových kanáloch na serveri VUT FIT (overenie predpokladov z [docs/analyzy/probe-vlakien-2026-11-04.md](analyzy/probe-vlakien-2026-11-04.md)).
@@ -245,4 +246,3 @@ Všetkých 6 krokov pôvodného implementačného plánu je implementovaných a 
    - Repo nemá súbor `LICENSE`.
    - `profiles.load()` pri poškodenom súbore stále vydá Python `UserWarning` (v TUI by sa vypísal do terminálu). `split`, `syncstate` a `tui/tuistate` už hlásia len cez log a udalosť `warning`.
    - `_save_tui_state` nie je oneskorený (debounce): zapisuje `tui-state.json` pri každej zmene výberu alebo formulára.
-   - Fóra a media kanály sa v TUI vybrať nedajú, len z CLI.

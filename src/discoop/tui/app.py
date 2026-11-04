@@ -82,6 +82,7 @@ from discoop.tui.state import (
     default_folder,
     default_name,
     filter_channels,
+    forums_without_threads,
     plan_jobs,
     window_preset,
 )
@@ -103,6 +104,7 @@ TARGETS = ("folder", "zip", "preview")
 NAME_REFRESH = 30  # seconds: the automatic name and the CLI command follow the clock
 SUFFIX_REFRESH = 60  # seconds: the "2d" next to a channel follows the clock
 START_LABEL = "[ Start (F5) ]"
+THREADS_WARNING = "A forum or media channel is selected: set Threads to yes or deselect it."
 STOP_LABEL = "[ Stop (Esc) ]"
 NO_COMMAND = "(select channels to preview CLI command)"
 FILTER_DELAY = 0.08  # seconds of no typing before the tree follows the filter
@@ -240,6 +242,7 @@ class DiscoopApp(App[None]):
                     yield InputRow("Delay", "input-delay", input_type="number", id="row-delay")
                     yield ChoiceRow("Attachments", ("yes", "no"), id="row-files")
                     yield ChoiceRow("Threads", ("yes", "no"), id="row-threads")
+                    yield Label(THREADS_WARNING, id="threads-warning", markup=False)
                     yield InputRow(
                         "Max MB",
                         "input-max-file-size",
@@ -332,6 +335,11 @@ class DiscoopApp(App[None]):
         self.query_one("#row-folder").display = not preview
         self.query_one("#row-name").display = not preview
         self.query_one("#row-format").display = preview
+        self._sync_threads_warning()
+
+    def _sync_threads_warning(self) -> None:
+        """Show the warning under the Threads row while a forum or media channel is selected and Threads is no."""
+        self.query_one("#threads-warning").display = bool(forums_without_threads(self.selection, self.settings))
 
     def _sync_mode_indicator(self) -> None:
         indicator = self.query_one("#mode-indicator", Label)
@@ -800,6 +808,7 @@ class DiscoopApp(App[None]):
     def _selection_changed(self, channel_ids: Iterable[str]) -> None:
         self._relabel(channel_ids)
         self._update_selected_ui()
+        self._sync_threads_warning()
         self._update_command_preview()
         self._save_tui_state()
 
@@ -1177,6 +1186,15 @@ class DiscoopApp(App[None]):
         if not jobs:
             self.notify("No channels selected.", severity="warning")
             return
+        forums = forums_without_threads(self.selection, self.settings)
+        if forums:  # the service would refuse this too; saying so here costs no Discord call
+            names = ", ".join(f"#{display_name(channel.name)}" for channel in forums[:3])
+            if len(forums) > 3:
+                names += f" and {len(forums) - 3} more"
+            self.notify(
+                f"A forum only has threads: set Threads to yes or deselect {names}.", severity="warning", markup=False
+            )
+            return
         cancel = self._begin_net("Starting export...")
         if cancel is None:
             return
@@ -1268,7 +1286,10 @@ class DiscoopApp(App[None]):
         elif name == "channel_done":
             self._channel_finished()
             result = payload["result"]
-            self._log_line(f"#{display_name(result.channel.name)}: {plural(len(result.messages), 'message')}", "green")
+            line = f"#{display_name(result.channel.name)}: {plural(len(result.messages), 'message')}"
+            if result.threads:  # a forum has no messages of its own: its posts are the threads
+                line += f", {plural(len(result.threads), 'thread')} ({plural(result.thread_message_count, 'message')})"
+            self._log_line(line, "green")
         elif name == "skipped":
             self._channel_finished()
             self._log_line(f"Skipped: {payload['reason']}", "yellow")
