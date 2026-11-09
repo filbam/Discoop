@@ -10,6 +10,7 @@ Chronological record of work: what was done, what was decided, incidents, and ne
 - Added `.claude/skills/discoop/SKILL.md`, an English skill that explains to an AI agent how to use the tool (rules, workflow, exports, resume, incremental updates, exit codes, recipes). Written at the user's request.
 - Verified against the code: `discoop messages --help`, `discoop --help`, `discoop channels --help` and the exit code table from `discoop agent-guide` / `src/discoop/errors.py` (all match).
 - Written directly by the main Claude (a single documentation file, no code change); no Discord calls were made and tests were not rerun.
+- Follow-up (2026-11-09): description now triggers on read/download/export/analyse Discord data; added "Step 0" (always run `discoop agent-guide` first, fall back to `--help` if it fails, tool information overrides the skill).
 - **Next:** the skill duplicates parts of `discoop agent-guide`, so update both when options or exit codes change.
 
 ## 2026-11-04

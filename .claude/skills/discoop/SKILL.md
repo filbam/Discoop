@@ -1,6 +1,6 @@
 ---
 name: discoop
-description: How an AI agent uses the Discoop CLI to list Discord servers, channels and threads and to export messages and attachments (folder or zip, incremental, split by tokens) for analysis of study materials. Use when the user asks to download, export, read, update or analyse Discord messages, channels, threads, forum posts or attachments, mentions discoop, or wants an export of a server such as VUT FIT.
+description: Use when the user wants you to read, download, export or analyse data from Discord (messages, channels, threads, forum posts, attachments, a server such as VUT FIT), or mentions discoop. Explains how to use the Discoop CLI for this; start by running `discoop agent-guide`, whose output overrides this skill.
 ---
 
 # Using Discoop
@@ -10,14 +10,27 @@ and writes them in a form that is easy for an AI to analyse. It uses the user's 
 Discord's Terms of Service; the user knows this and accepts the risk, so treat the account as something to protect
 (slow, human-like pacing; no needless requests).
 
-This skill is a practical summary. The authoritative, always up-to-date reference is generated from the code:
+This skill is only a practical summary. The tool documents itself, and that documentation is the source of truth.
+
+## Step 0: read the tool's own guide first (always)
+
+Before running any other Discoop command, **always run the AI agent guide first**:
 
 ```
 discoop agent-guide        # inside the repo during development: uv run discoop agent-guide
-discoop <command> --help
 ```
 
-If this skill and `agent-guide` disagree, trust `agent-guide`.
+It is generated from the code and describes the workflow, recommended flags, rules for agents, the command list and
+the exit codes of the installed version.
+
+- **If `agent-guide` does not work** (command not found, unknown command, error), the parameter may have been renamed
+  or removed. Do not guess: run `discoop --help` (the "NOTE FOR AI AGENTS" block names the current agent reference),
+  then `discoop <command> --help` for the commands you need, and find out whether the guide now lives under a
+  different name. Use what you find.
+- **If `discoop` itself is not found**, tell the user it is not installed (see the README) instead of improvising.
+- **Precedence:** if the tool's output (`agent-guide`, `--help`) says something different from this skill, **the
+  tool's information wins**. Follow the tool and, when relevant, tell the user that the skill is out of date.
+- Re-check `agent-guide` in a new session or after the tool was upgraded; do not rely on a memory of an earlier run.
 
 ## Hard rules
 
@@ -179,7 +192,7 @@ discoop --plain -v messages ...              # show progress notes in plain mode
 | 9 | PARTIAL | Finished, but something was skipped or failed. Inspect `manifest.json`, report it. |
 | 130 | CANCELLED | Interrupted (Ctrl+C). Re-run the same command to resume. |
 
-Verify the numbers with `discoop agent-guide`, which builds this table from the code.
+Verify the numbers with `discoop agent-guide`, which builds this table from the code (and wins if it differs).
 
 ## Typical task recipes
 
