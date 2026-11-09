@@ -4,6 +4,14 @@ Chronological record of work: what was done, what was decided, incidents, and ne
 
 ---
 
+## 2026-11-09
+
+**Agent skill for using Discoop:**
+- Added `.claude/skills/discoop/SKILL.md`, an English skill that explains to an AI agent how to use the tool (rules, workflow, exports, resume, incremental updates, exit codes, recipes). Written at the user's request.
+- Verified against the code: `discoop messages --help`, `discoop --help`, `discoop channels --help` and the exit code table from `discoop agent-guide` / `src/discoop/errors.py` (all match).
+- Written directly by the main Claude (a single documentation file, no code change); no Discord calls were made and tests were not rerun.
+- **Next:** the skill duplicates parts of `discoop agent-guide`, so update both when options or exit codes change.
+
 ## 2026-11-04
 
 **Antigravity round 2 — resilient export, threads and forums, `--since-last`, disk space check, profiles, token splitting, `agent-guide` and TUI improvements (P26–P30, [ADR 0017](decisions/0017-reliable-export-and-partial-success.md), [ADR 0019](decisions/0019-threads.md), [ADR 0020](decisions/0020-since-last.md)):**
