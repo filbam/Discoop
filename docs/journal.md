@@ -20,6 +20,7 @@ Chronological record of work: what was done, what was decided, incidents, and ne
 - **Verified and test count:**
   - `uv run pytest`: **1186 passed, 1 skipped** (the skip is the symlink test on Windows requiring symlink privileges; offline tests using `FakeCdpBrowser`, `FakeSpawn`, `httpx.MockTransport`, and `MemoryKeyring`).
   - Review follow-up fixes: `--browser-path ""` / whitespace-only CLI option is handled as `str | None` so it counts as not given instead of resolving `Path("")` to `.`; `LoginModal.action_generate_qr` clears any prior browser status/countdown before showing `-qr`; and `docs/handover.md` no longer says TUI browser login is unstarted.
+  - Flaky test fix (round 5): during the owner's review of round 4 (1185 passed, 1 failed), `tests/test_tui_app.py::test_a_long_folder_placeholder_keeps_its_end` failed across a minute boundary because `default_name()` changed mid-test; fixed by fixing the clock (`discoop.tui.state.export_stamp`) in `test_a_long_folder_placeholder_keeps_its_end` and `test_folder_and_name_rows_show_the_defaults_and_the_typed_values` (tests only, no `src/` change).
   - `[VERIFIED]` locally (2026-11-10): `discoop.browser_login` engine tested against local headless Chrome 157.0.8103.38 and Edge 157.0.4341.42 on Windows 10 using local pages (`127.0.0.1`), never contacting Discord.
   - `[ASSUMPTION]` / Unverified: no real Discord account login has been tried yet.
 - **Incidents:**

@@ -1432,7 +1432,16 @@ async def test_saving_settings_updates_the_form() -> None:
         assert app.query_one("#input-delay", Input).value == "0.5"
 
 
-async def test_folder_and_name_rows_show_the_defaults_and_the_typed_values(tmp_path: Path) -> None:
+@pytest.fixture
+def fixed_export_stamp(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fix the export timestamp because a minute may change while the test runs."""
+    monkeypatch.setattr("discoop.tui.state.export_stamp", lambda now=None: "2026-1110-1200")
+
+
+async def test_folder_and_name_rows_show_the_defaults_and_the_typed_values(
+    tmp_path: Path, fixed_export_stamp: None
+) -> None:
+    # `fixed_export_stamp` keeps the clock steady so a minute boundary cannot change `default_name()`.
     default = tmp_path / "documents" / "discoop"
     app = DiscoopApp(api_factory=_make_dummy_api_factory())
     async with app.run_test(size=(140, 40)) as pilot:
@@ -1489,7 +1498,8 @@ async def test_the_folder_placeholder_follows_the_config(tmp_path: Path) -> None
         assert folder.full_placeholder == str(tmp_path / "documents" / "discoop")
 
 
-async def test_a_long_folder_placeholder_keeps_its_end(tmp_path: Path) -> None:
+async def test_a_long_folder_placeholder_keeps_its_end(tmp_path: Path, fixed_export_stamp: None) -> None:
+    # `fixed_export_stamp` keeps the clock steady so a minute boundary cannot change `default_name()`.
     long = tmp_path / ("OneDrive - " + "University " * 8) / "Documents" / "discoop"
     Config.default().set("export-dir", str(long))
     app = DiscoopApp(api_factory=_make_dummy_api_factory())
