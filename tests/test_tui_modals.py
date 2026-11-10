@@ -345,6 +345,28 @@ async def test_settings_escape_changes_nothing() -> None:
         assert app.settings.mode == "safe"
 
 
+async def test_settings_keep_a_browser_path_they_do_not_show(tmp_path: Path) -> None:
+    """`browser-path` (for `login --browser`) is a known setting that the dialog has no row for yet: saving the other
+    rows must neither break the dialog nor lose the value."""
+    program = tmp_path / "chrome.exe"
+    program.write_text("not really a browser", encoding="utf-8")
+    Config.default().set("browser-path", str(program))
+    app = make_app()
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        await pilot.press("f2", "left")  # open the dialog, change the mode
+        await pilot.pause()
+        modal = app.screen
+        assert isinstance(modal, SettingsModal)
+        modal.query_one("#input-cfg-delay", Input).focus()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert not isinstance(app.screen, SettingsModal)
+    config = Config.default()
+    assert config.get("mode") == "fast"
+    assert config.get("browser-path") == str(program)
+
+
 async def test_settings_reject_a_bad_delay() -> None:
     app = make_app()
     async with app.run_test(size=(140, 40)) as pilot:

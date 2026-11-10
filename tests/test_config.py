@@ -1,6 +1,6 @@
 import pytest
 
-from discoop.config import Config, parse_delay, parse_mode, parse_value
+from discoop.config import DESCRIPTIONS, Config, parse_delay, parse_mode, parse_value
 from discoop.errors import DiscoopError, ExitCode
 
 
@@ -57,6 +57,50 @@ def test_parse_mode():
         with pytest.raises(DiscoopError) as e:
             parse_mode(bad)
         assert e.value.code == ExitCode.BAD_ARGS
+
+
+def test_browser_path_is_a_known_setting_without_a_default():
+    assert "browser-path" in DESCRIPTIONS
+    assert "`login --browser`" in DESCRIPTIONS["browser-path"] and "auto-detected" in DESCRIPTIONS["browser-path"]
+    assert Config.default().get("browser-path") is None  # not set: the browser is found automatically
+
+
+def test_browser_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    program = tmp_path / "bin" / "chrome.exe"
+    program.parent.mkdir()
+    program.write_text("not really a browser", encoding="utf-8")
+    assert parse_value("browser-path", "bin/chrome.exe") == str(program)  # stored absolute
+    assert parse_value("browser-path", f"  {program}  ") == str(program)
+    assert parse_value("browser-path", str(tmp_path / "bin" / ".." / "bin" / "chrome.exe")) == str(program)
+
+    Config.default().set("browser-path", parse_value("browser-path", "bin/chrome.exe"))
+    assert Config.default().get("browser-path") == str(program)  # survives a reload of config.toml
+    assert Config.default().unset("browser-path") is True
+    assert Config.default().get("browser-path") is None
+
+
+def test_browser_path_expands_the_home_folder(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Windows reads this one
+    program = tmp_path / "browser"
+    program.write_text("x", encoding="utf-8")
+    assert parse_value("browser-path", "~/browser") == str(program)
+
+
+def test_browser_path_must_be_an_existing_file(tmp_path):
+    (tmp_path / "folder").mkdir()
+    cases = {
+        "": "unset browser-path",
+        "   ": "unset browser-path",
+        str(tmp_path / "folder"): "macOS",  # a folder: on macOS people give the .app bundle
+        str(tmp_path / "missing.exe"): "full path",
+    }
+    for bad, hint in cases.items():
+        with pytest.raises(DiscoopError) as e:
+            parse_value("browser-path", bad)
+        assert e.value.code == ExitCode.BAD_ARGS
+        assert hint in e.value.hint
 
 
 def test_export_dir(tmp_path, monkeypatch):

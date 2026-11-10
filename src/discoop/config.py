@@ -12,6 +12,7 @@ MODES = ("safe", "fast")
 DEFAULT_MODE = "safe"
 
 DESCRIPTIONS = {
+    "browser-path": "browser program for `login --browser` (default: Chrome, Edge, Chromium or Brave is auto-detected)",
     "default-server": "server ID used when --server is not given",
     "delay": "seconds between Discord API requests",
     "export-dir": "folder for relative --out/--zip paths (default: current folder; TUI: Documents/discoop)",
@@ -95,9 +96,34 @@ def parse_export_dir(raw: str) -> str:
     return str(path)
 
 
+def parse_browser_path(raw: str) -> str:
+    """An absolute path to an existing browser program (the file `login --browser` starts)."""
+    if not raw.strip():
+        raise DiscoopError(
+            ExitCode.BAD_ARGS, "browser-path cannot be empty.", "Use `discoop config unset browser-path`."
+        )
+    path = Path(raw.strip()).expanduser().resolve()
+    if path.is_dir():
+        raise DiscoopError(
+            ExitCode.BAD_ARGS,
+            f"{path} is a folder, not a browser program.",
+            "Give the program itself. On macOS that is the file inside the app, e.g. "
+            "`.../Google Chrome.app/Contents/MacOS/Google Chrome`.",
+        )
+    if not path.is_file():
+        raise DiscoopError(
+            ExitCode.BAD_ARGS,
+            f"{path} does not exist.",
+            "Give the full path of the browser program (chrome.exe, msedge.exe, brave.exe, chromium, ...).",
+        )
+    return str(path)
+
+
 def parse_value(key: str, raw: str) -> Any:
     """Check and convert a value for `config set` (default-server is resolved by the CLI instead)."""
     check_key(key)
+    if key == "browser-path":
+        return parse_browser_path(raw)
     if key == "export-dir":
         return parse_export_dir(raw)
     if key == "mode":
