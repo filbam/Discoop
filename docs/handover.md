@@ -14,23 +14,25 @@ Before starting any work, the following documents **must be read**:
    - **Git rules:** Branch `main`, author `filbam <f.bambura@gmail.com>`. Committing after every verified step (done by the main Claude), **`git push` forbidden without explicit instruction from the user**.
    - **Record everything ([ADR 0001](decisions/0001-record-everything-and-version-it.md)):** Every change, decision, or requirement must be recorded in documentation within the same work step.
 2. **[docs/requirements.md](requirements.md):**
-   - List of all user requirements (P1–P30). Source of truth for what the tool should do.
+   - List of all user requirements (P1–P33). Source of truth for what the tool should do.
 3. **[docs/design.md](design.md):**
    - Architecture of the entire tool, package structure of `src/discoop/`, command list, exit codes, data flows, and open questions.
 4. **[docs/journal.md](journal.md):**
    - Chronological journal of development so far, test records on the user's real account, and resolved incidents.
 5. **[docs/decisions/README.md](decisions/README.md):**
-   - Registry of all Architectural Decision Records ([ADR 0001](decisions/0001-record-everything-and-version-it.md) to [ADR 0020](decisions/0020-since-last.md)).
+   - Registry of all Architectural Decision Records ([ADR 0001](decisions/0001-record-everything-and-version-it.md) to [ADR 0022](decisions/0022-browser-login.md)).
 6. **[docs/analyses/thread-probe-2026-11-04.md](analyses/thread-probe-2026-11-04.md):**
    - Results of probe measurements for threads, forums, and `last_message_id` on a real Discord account with strict distinction between `[VERIFIED]` and `[ASSUMPTION]`.
 7. **[docs/analyses/real-account-check-2026-11-04.md](analyses/real-account-check-2026-11-04.md):**
    - Results of testing the `discoop` tool on a real account (2026-11-04, `safe` mode, small windows): what was verified, known limitation with attachments, open observations, and list of what remains unverified.
+8. **[docs/analyses/browser-login.md](analyses/browser-login.md):**
+   - CDP browser login analysis, local headless Chrome/Edge verification, and results of the first real-account check on Windows 10 (2026-11-10).
 
 ---
 
-## 2. Current project status (as of 2026-11-04)
+## 2. Current project status (as of 2026-11-10)
 
-- **Test coverage:** All **870 automated tests** pass (`uv run pytest`). All run offline against fake Discord (`httpx.MockTransport`). Round 2 features were partially verified on a real account on 2026-11-04 (resilient export with script interruption, threads and forums, `--since-last`, `--max-tokens` with zip, logs, `--progress-json`, `doctor`, running `discoop ui` with QR login; details in [analysis](analyses/real-account-check-2026-11-04.md)). What remains unverified is in section 4.
+- **Test coverage:** All **1186 automated tests** pass (`uv run pytest`; 1 skipped on Windows without symlink privileges). All run offline against fake Discord (`httpx.MockTransport`) and fake CDP (`FakeCdpBrowser`, `FakeSpawn`). Round 2 features were partially verified on a real account on 2026-11-04 (details in [analysis](analyses/real-account-check-2026-11-04.md)), and CLI browser login (`discoop login --browser` with Chrome and Edge, `--timeout 30` exit code `2`) plus starting `discoop ui` were verified on a real account on Windows 10 on 2026-11-10 (details in [browser-login.md](analyses/browser-login.md), section 7). What remains unverified is in section 4.
 - **Origin of round 2:** the implementation (P26–P30) was done by Antigravity according to `docs/briefs/antigravity-round-2.md`, then reviewed by the main Claude and findings were fixed. What was found and fixed is in [journal.md](journal.md), section 2026-11-04.
 - **Installed environment:** Python 3.12+, project managed via `uv`. Development in the repo runs via `uv run discoop ...`, the user has the `discoop` command installed (`uv tool install git+https://github.com/filbam/Discoop`, instructions in [README.md](../README.md)).
 - **The repo is public** (P22, [ADR 0015](decisions/0015-public-repo-and-installation.md)). No token, cookies, or other people's names and message texts may go into git. `[VERIFIED]`: installation from local clone on Windows. `[ASSUMPTION]`: installation from GitHub, Linux, macOS.
@@ -42,7 +44,7 @@ Before starting any work, the following documents **must be read**:
   - Primary path: **QR login without a browser** in the terminal ([ADR 0005](decisions/0005-qr-login-without-a-browser.md), P14) via Discord remote auth gateway (WebSocket, RSA-OAEP-SHA256 key exchange, QR rendering via `segno`).
   - Support for test handshake without login (`--handshake-only`).
   - When Discord asks for a captcha during QR login, `CaptchaRequired` (exit code 1) recommends `login --browser` first and `login --token` as a last resort (`BROWSER_HINT`, P32).
-  - **`login --browser`** (added 2026-11-10, [ADR 0022](decisions/0022-browser-login.md), P31 to P33, [analysis](analyses/browser-login.md)): opens the user's own Chrome, Edge, Chromium or Brave in a separate window with a temporary profile; the user logs in there (password, QR on the page, captcha, 2FA); Discoop reads the token over the DevTools Protocol (package `browser_login/`), closes the window, verifies the token and stores it like the other ways. Options `--browser-path`, `--timeout` (30 to 1800, default 300), `--format json`, `--progress-json`; config key `browser-path`. Exit code 2: window closed, time ran out or token not accepted; exit code 1: no usable browser or desktop session. **Built and tested against fakes only (a fake DevTools server, a fake Discord, and Pilot TUI tests); never tried on a real account.** The TUI login dialog (`b`) reuses `login.CaptchaRequired`, `login.find_login_browser` and the engine's `wait_for_browser_token` with its own listener.
+  - **`login --browser`** (added 2026-11-10, [ADR 0022](decisions/0022-browser-login.md), P31 to P33, [analysis](analyses/browser-login.md)): opens the user's own Chrome, Edge, Chromium or Brave in a separate window with a temporary profile; the user logs in there (password, QR on the page, captcha, 2FA); Discoop reads the token over the DevTools Protocol (package `browser_login/`), closes the window, verifies the token and stores it like the other ways. Options `--browser-path`, `--timeout` (30 to 1800, default 300), `--format json`, `--progress-json`; config key `browser-path`. Exit code 2: window closed, time ran out or token not accepted; exit code 1: no usable browser or desktop session. **Partly verified on a real account on Windows 10 (2026-11-10, [analysis](analyses/browser-login.md) section 7):** Chrome `--debug` (`source=storage`, `profile_removed=true` in 0.41–0.50 s, `WinVaultKeyring`), Edge `--browser-path`, `--timeout 30` returning exit code `2`, clean folder/process removal, and starting `discoop ui` succeeded; remaining unchecked items are in section 4. The TUI login dialog (`b`) reuses `login.CaptchaRequired`, `login.find_login_browser` and the engine's `wait_for_browser_token` with its own listener.
   - Fallback login via `--token` from hidden interactive input or stdin ([ADR 0008](decisions/0008-fallback-login-token.md)). In plain mode, `login` without `--browser` and `login --token` are rejected with code `2` ([ADR 0009](decisions/0009-login-in-agent-mode.md)); `login --browser` is the one exception ([ADR 0022](decisions/0022-browser-login.md)), and the AI instructions (`discoop agent-guide`, the skill) make an agent tell the user and wait for their consent before running it.
 - **`discoop status`:** Prints login status, user account information, and local cache age.
 - **`discoop logout`:** Securely removes the token from the OS system keyring (Windows Credential Manager, macOS Keychain, Linux Secret Service).
@@ -232,13 +234,14 @@ GitHub (`origin/main`) is at `94bd862`, newer commits are only local (`git log -
 
 ## 4. What follows next
 
-All 6 steps of the original implementation plan are implemented and tested against fake Discord (870 tests pass). Part of round 2 was also verified on a real account on 2026-11-04 (details in [analysis](analyses/real-account-check-2026-11-04.md)).
+All 6 steps of the original implementation plan plus browser login (round 4) are implemented and tested offline (1186 tests pass, 1 skipped on Windows without symlink privileges). Part of round 2 was verified on a real account on 2026-11-04 (details in [analysis](analyses/real-account-check-2026-11-04.md)), and CLI browser login plus starting `discoop ui` were partly verified on Windows 10 on 2026-11-10 (details in [browser-login.md](analyses/browser-login.md), section 7).
 
 1. **Tests by the user on a real account that are still missing:**
+   - **Browser login (`login --browser` and TUI `b`):** QR code on the web page, a real captcha, closing the window with X before logging in, Ctrl+C (exit code 130), `Esc` in the TUI during browser login, the Windows Security passkey dialog, Edge first-run/sign-in screens, `source=header`, the new entry under Discord Settings > Devices, `discoop status` the next day, hard kill (>24 h stale profile cleanup), and Linux and macOS (including snap/flatpak browsers).
    - **Resilient export and resume:** actual Ctrl+C from console while waiting for network and while downloading a file. Script interruption (code 130, `.partial`, resume) was verified on a real account.
    - **Threads and forums:** export of a forum with hundreds of posts from start to finish, private threads (type 12) and HTTP 202 (did not appear), export with many attachments (1 attachment seen).
    - **Incremental download `--since-last`:** a thread that receives a new reply between two runs. Skipping unchanged channels and continuing from previous run was verified.
-   - **TUI in a real terminal:** Ctrl+C in TUI, forum selection and Threads toggle, saving (`P`) and loading (`p`) profiles, opening export folder (`o`), channel row suffixes in tree, and persistence of `tui-state.json`. The user only confirmed running `discoop ui` and QR login.
+   - **TUI in a real terminal:** Ctrl+C in TUI, `Esc` / `b` / captcha in the login dialog, forum selection and Threads toggle, saving (`P`) and loading (`p`) profiles, opening export folder (`o`), channel row suffixes in tree, and persistence of `tui-state.json`. The user confirmed running `discoop ui` and QR login on 2026-11-04, and starting `discoop ui` again on 2026-11-10.
 2. **Git:**
    - The user decides on pushing commits to GitHub (GitHub is currently on an older commit).
 3. **Decision 9 (Channel access calculation):**

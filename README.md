@@ -111,7 +111,7 @@ discoop login --token                         # last resort: paste a token (hidd
   code `2`). Only `discoop login --browser` is allowed, because the human logs in in the window. The agent has to tell you
   that a browser window will open, wait for your consent, and then run `discoop --plain login --browser` (it may take up to
   5 minutes). See `discoop agent-guide`.
-- **Not verified yet:** the browser login (CLI `discoop login --browser` and TUI `F3` -> `b`) is tested against a fake browser and a fake Discord only. It has not been tried with a real Discord account, and Linux and macOS are untested.
+- **Verified and still open:** CLI browser login (`discoop login --browser` with Chrome and Edge, `--timeout 30` exit code `2`, clean profile and process removal) and starting `discoop ui` were checked on a real account on Windows 10 (2026-11-10, [docs/analyses/browser-login.md](docs/analyses/browser-login.md)). Still unverified: QR code on the web page, a real captcha, closing the window with X, Ctrl+C, `Esc` in the TUI, the Windows passkey dialog, `source=header`, `discoop status` the next day, hard kill, Linux, and macOS.
 
 Interactive terminal user interface (keyboard-controlled TUI: single tree of servers, categories, and channels, arrow keys for navigation,
 Space/Enter to select, Tab to switch panels, `F3` to log in via QR, browser `b`, or token, `F5` starts export, `P` saves selection as a profile and `p` loads it, `o` opens the folder of the last export, Help via `F1`; colours according to terminal):

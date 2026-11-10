@@ -241,11 +241,12 @@ Stop. Do not run `discoop login` or `discoop login --token`. Tell the user that 
 browser window in which they log in themselves, wait for their explicit consent, then run
 `discoop --plain login --browser` (see "Logging in"). Do not try to work around it.
 
-## Known limits (unverified on a real account as of 2026-11-04)
+## Known limits (unverified on a real account as of 2026-11-10)
 
 Real Ctrl+C from a console, forum selection in the TUI, exporting a very large forum, and Linux/macOS have not been
 verified on a real account. An attachment described differently by the API and the CDN may be re-downloaded on a
 repeated export into the same folder (harmless). The `message_count` in the thread list does not include the forum
-post starter message. The browser login (`login --browser`, added 2026-11-10) has only been tested against fakes so
-far; if it fails in a way the exit codes above do not explain, tell the user and ask them to run `discoop login`
-themselves.
+post starter message. CLI browser login (`login --browser` with Chrome, Edge, and `--timeout 30`) and starting
+`discoop ui` were checked on Windows 10 on 2026-11-10, while a real captcha, closing the window with X, `Esc` in the
+TUI, the Windows passkey dialog, and the `header` token source remain unverified; if it fails in a way the exit codes
+above do not explain, tell the user and ask them to run `discoop login` themselves.
