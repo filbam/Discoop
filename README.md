@@ -5,7 +5,7 @@ of study information. Personal project for study purposes.
 
 **Warning:** scraping violates Discord's Terms of Service. You use the tool at your own risk; account suspension is possible.
 
-**Status:** work in progress. Working features include `login` (QR code in terminal or `--token`), `status`, `logout`,
+**Status:** work in progress. Working features include `login` (QR code in terminal, `--browser` window, or `--token`), `status`, `logout`,
 `servers`, `channels`, `threads`, `config`, `messages` (printing messages to console, downloading attachments and resilient export to folder
 or zip with manifest and automatic resume, download modes `safe` and `fast`, incremental download `--since-last`, token splitting `--max-tokens`), interactive terminal user interface `discoop ui` (TUI), diagnostics `doctor`, diagnostic logging, profile management, and reference `discoop agent-guide`. Threads and forums are fully supported.
 
@@ -70,6 +70,8 @@ On Linux without keyring (Secret Service), the token is stored in a file with `0
 ```
 discoop --help
 discoop login         # scan QR code in Discord app: Settings → Scan QR Code
+discoop login --browser   # log in in a browser window instead (if QR login fails because of a captcha)
+discoop login --token     # last resort: paste a token
 discoop status
 discoop ui            # interactive terminal user interface (TUI)
 discoop servers
@@ -80,7 +82,37 @@ discoop profiles      # list of saved configuration profiles
 discoop config set default-server "VUT FIT"
 discoop config set export-dir ~/discord-exports   # export folder (TUI: default, CLI: for relative paths)
 discoop config set mode safe               # mode: safe (default) or fast
+discoop config set browser-path <file>     # browser program for `login --browser` (default: found automatically)
 ```
+
+**Logging in:** `discoop login` shows a QR code in the terminal; scan it in the Discord app (Settings → Scan QR Code).
+Sometimes Discord asks for a captcha during this, and a terminal cannot solve one. Then log in through a browser window:
+
+```
+discoop login --browser                       # a browser window opens: log in there yourself
+discoop login --browser --timeout 600         # wait up to 10 minutes (default 300 seconds, allowed 30 to 1800)
+discoop login --browser --browser-path "C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
+discoop login --token                         # last resort: paste a token (hidden prompt or stdin)
+```
+
+- Discoop opens your installed Chrome, Edge, Chromium or Brave (in this order; not Firefox) in a **separate window with a
+  temporary profile** on Discord's login page. You log in there yourself: password, the QR code shown on the web page,
+  2FA, captcha. Discoop never sees your password. It reads the login token from that window over the Chrome DevTools
+  Protocol, closes the window, deletes the temporary profile, verifies the token and stores it exactly like after a QR
+  login. Your own browser and its profile are not used. No new dependency.
+- `--browser-path <file>` or `discoop config set browser-path <file>` chooses another browser program. The option wins.
+- On Windows a Windows Security (passkey) dialog may appear when the login page opens. You can cancel it and log in with
+  the password or the QR code on the page.
+- Closing the window or running out of time is exit code `2`. No usable browser (or, on Linux, no desktop session) is exit
+  code `1`. Ctrl+C cancels and cleans up.
+- `--format json` prints the result as one JSON object. `--progress-json` writes progress events (JSON lines) to stderr:
+  `browser_launch`, `browser_open`, `token_captured`, `logged_in`.
+- **AI agents never log in on their own.** In plain mode `discoop login` and `discoop login --token` are refused (exit
+  code `2`). Only `discoop login --browser` is allowed, because the human logs in in the window. The agent has to tell you
+  that a browser window will open, wait for your consent, and then run `discoop --plain login --browser` (it may take up to
+  5 minutes). See `discoop agent-guide`.
+- **Not verified yet:** the browser login is tested against a fake browser and a fake Discord only. It has not been tried
+  with a real Discord account, and Linux and macOS are untested. The terminal user interface (`discoop ui`) does not have it yet.
 
 Interactive terminal user interface (keyboard-controlled TUI: single tree of servers, categories, and channels, arrow keys for navigation,
 Space/Enter to select, Tab to switch panels, `F5` starts export, `P` saves selection as a profile and `p` loads it, `o` opens the folder of the last export, Help via `F1`; colours according to terminal):
@@ -157,8 +189,8 @@ discoop --log discoop.log messages ... # write diagnostic log to file
 
 - `--debug` and `--log FILE`: optional logging (disabled by default). Can also be activated via environment variables `DISCOOP_DEBUG=1` and `DISCOOP_LOG=path`. The log **never contains** authentication tokens, CDN URL signatures, message texts, or usernames (numeric IDs only).
 - `discoop doctor`: checks 6 items: login (`login`), Discord API availability (`network`), export folder writability (`export_dir`), available disk space (`disk_space`, FAIL below 100 MB), cache age (`cache`), and tool version (`version`). Plain mode outputs tab-separated lines; human mode outputs a table.
-- `--format json`: machine-readable JSON output for `servers`, `channels`, `status`, and `config list`.
-- `--progress-json`: structured JSONL messages about download progress on `stderr` with percentages and estimated time of arrival (ETA).
+- `--format json`: machine-readable JSON output for `servers`, `channels`, `status`, `config list`, and `login --browser`.
+- `--progress-json`: structured JSONL messages about download progress on `stderr` with percentages and estimated time of arrival (ETA); `login --browser` has its own four events.
 
 ## Development
 

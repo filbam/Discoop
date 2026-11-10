@@ -37,11 +37,13 @@ Before starting any work, the following documents **must be read**:
 
 ### Overview of implemented features
 
-#### A. Authentication and identity (`login.py`, `remote_auth/`, `tokenstore.py`)
+#### A. Authentication and identity (`login.py`, `remote_auth/`, `browser_login/`, `tokenstore.py`)
 - **`discoop login`:**
   - Primary path: **QR login without a browser** in the terminal ([ADR 0005](decisions/0005-qr-login-without-a-browser.md), P14) via Discord remote auth gateway (WebSocket, RSA-OAEP-SHA256 key exchange, QR rendering via `segno`).
   - Support for test handshake without login (`--handshake-only`).
-  - Fallback login via `--token` from hidden interactive input or stdin ([ADR 0008](decisions/0008-fallback-login-token.md)). In plain mode, interactive login is rejected with code `2` ([ADR 0009](decisions/0009-login-in-agent-mode.md)).
+  - When Discord asks for a captcha during QR login, `CaptchaRequired` (exit code 1) recommends `login --browser` first and `login --token` as a last resort (`BROWSER_HINT`, P32).
+  - **`login --browser`** (added 2026-11-10, [ADR 0022](decisions/0022-browser-login.md), P31 to P33, [analysis](analyses/browser-login.md)): opens the user's own Chrome, Edge, Chromium or Brave in a separate window with a temporary profile; the user logs in there (password, QR on the page, captcha, 2FA); Discoop reads the token over the DevTools Protocol (package `browser_login/`), closes the window, verifies the token and stores it like the other ways. Options `--browser-path`, `--timeout` (30 to 1800, default 300), `--format json`, `--progress-json`; config key `browser-path`. Exit code 2: window closed, time ran out or token not accepted; exit code 1: no usable browser or desktop session. **Built and tested against fakes only (a fake DevTools server and a fake Discord); never tried on a real account, and the TUI part (row `b` in the login dialog) is still to do.** The TUI can reuse `login.CaptchaRequired`, `login.BROWSER_HINT`, `login.find_login_browser` and the engine's `wait_for_browser_token` with its own listener.
+  - Fallback login via `--token` from hidden interactive input or stdin ([ADR 0008](decisions/0008-fallback-login-token.md)). In plain mode, `login` without `--browser` and `login --token` are rejected with code `2` ([ADR 0009](decisions/0009-login-in-agent-mode.md)); `login --browser` is the one exception ([ADR 0022](decisions/0022-browser-login.md)), and the AI instructions (`discoop agent-guide`, the skill) make an agent tell the user and wait for their consent before running it.
 - **`discoop status`:** Prints login status, user account information, and local cache age.
 - **`discoop logout`:** Securely removes the token from the OS system keyring (Windows Credential Manager, macOS Keychain, Linux Secret Service).
 
@@ -50,7 +52,7 @@ Before starting any work, the following documents **must be read**:
   - Listing servers and channels, storing them in local SQLite database `cache.db` (located according to OS standards via `platformdirs`).
   - Searching and filtering channels by ID, exact name, or glob patterns (`resolve.py`). Searching is resilient to diacritics and letter case, and strips emoji.
 - **`discoop config`:**
-  - Managing configuration values: `default-server`, `delay`, `export-dir`, `mode` (`safe` / `fast`).
+  - Managing configuration values: `browser-path`, `default-server`, `delay`, `export-dir`, `mode` (`safe` / `fast`).
 
 #### C. Downloading messages (`cli.py`, `service.py`, `scrape.py`, `snowflake.py`)
 - **`discoop messages`:**

@@ -33,7 +33,7 @@ The tool runs on **Windows, Linux, and macOS** (P13). No part may depend on a si
 | CLI | Typer | commands, parameters, and help from type hints |
 | Human UI | Rich | tables, trees, progress bars, colours |
 | HTTP | httpx | timeouts, retries, streamed file downloads |
-| Login | QR via remote auth gateway: `websockets` + `cryptography` + `segno` (QR in terminal) | browserless, on all OSes ([ADR 0005](decisions/0005-qr-login-without-a-browser.md)) |
+| Login | QR via remote auth gateway: `websockets` + `cryptography` + `segno` (QR in terminal). Fallback: the user's own Chromium-family browser, driven over the Chrome DevTools Protocol with the same `websockets` (no new dependency) | QR login is browserless on all OSes ([ADR 0005](decisions/0005-qr-login-without-a-browser.md)); a browser window solves the captcha that QR login cannot ([ADR 0022](decisions/0022-browser-login.md)) |
 | Token storage | keyring (Windows Credential Manager, macOS Keychain, Linux Secret Service) | token is not stored in a plain-text file. On Linux without Secret Service fallback, section 10 |
 | Data paths | platformdirs | correct directory on every OS |
 | Cache and state | SQLite (stdlib `sqlite3`) | single file, fast name lookup |
@@ -42,7 +42,7 @@ The tool runs on **Windows, Linux, and macOS** (P13). No part may depend on a si
 ## 4. Commands
 
 ```
-discoop login                 login by scanning terminal QR code with a phone, saves token
+discoop login                 login by scanning terminal QR code with a phone (or --browser, --token), saves token
 discoop logout                deletes the stored token
 discoop status                login status, account, cache age
 discoop servers               list of servers
@@ -68,8 +68,18 @@ This is clearer for agents. The value can be an ID or a name (see section 5).
 
 ### 4.1 `login`, `logout`, `status`
 
-The primary path is **browserless QR login** (P14, [ADR 0005](decisions/0005-qr-login-without-a-browser.md)).
-The protocol is described in [analyses/discord-login.md](analyses/discord-login.md).
+```
+discoop login                      QR code in the terminal (default)
+discoop login --browser [--browser-path PATH] [--timeout SECONDS] [--format text|json] [--progress-json]
+discoop login --token              paste a token (hidden prompt or stdin)
+```
+
+There are three ways to log in. The primary path is **browserless QR login** (P14, [ADR 0005](decisions/0005-qr-login-without-a-browser.md)).
+When Discord asks for a captcha during it, which a terminal cannot solve, the error recommends **`login --browser`**
+(P31, P32, [ADR 0022](decisions/0022-browser-login.md)). **`login --token`** ([ADR 0008](decisions/0008-fallback-login-token.md))
+is the last resort. Email and password typed into the terminal are not offered (captcha, handling of the password).
+
+**QR login (default).** The protocol is described in [analyses/discord-login.md](analyses/discord-login.md).
 
 1. `login` connects to `wss://remote-auth-gateway.discord.gg/?v=2` (with `Origin: https://discord.com`),
    generates an RSA-2048 key, and completes the handshake (`hello` → `init` → `nonce_proof` → `pending_remote_init`).
@@ -86,8 +96,20 @@ Other properties:
 - **Invalid token** (logged out device, password change): every command exits with code `2` with a message that
    `discoop login` needs to be run.
 - **Security:** Neither the QR nor the token is ever logged.
-- **Fallback path** and `login` behaviour in agent mode are open decisions (section 15, items 7 and 8).
+- **Captcha:** if Discord answers the ticket exchange with a captcha, the error (exit code 1, `CaptchaRequired` in `login.py`) says "Discord asked for a captcha, which cannot be solved in a terminal." and the hint recommends `discoop login --browser` first and `discoop login --token` as a last resort (P32). The same pair is the hint of the other QR failures (`TOKEN_HINT`).
+- **Fallback paths and `login` in plain mode** are decided: `--token` in [ADR 0008](decisions/0008-fallback-login-token.md), `--browser` in [ADR 0022](decisions/0022-browser-login.md), the plain-mode refusal in [ADR 0009](decisions/0009-login-in-agent-mode.md) as amended by ADR 0022 (see below and section 15, items 7 and 8).
 - **Machine-readable output:** `discoop status [--format text|json]` allows obtaining the login status as a structured JSON object on stdout.
+
+**Browser login: `discoop login --browser`** (P31, P32, P33, [ADR 0022](decisions/0022-browser-login.md); the facts and the engine are described in [analyses/browser-login.md](analyses/browser-login.md)):
+- **Flow:** Discoop starts the user's installed Chrome, Edge, Chromium or Brave (tried in this order; Firefox has no DevTools Protocol) as a separate instance with a fresh temporary profile, on `https://discord.com/login`. The user logs in in that window themselves: password, the QR code on the web page, 2FA, captcha. Discoop reads the token over the Chrome DevTools Protocol (the localStorage key `token`, or the `Authorization` header of the page's requests to `https://discord.com/api/`; the first hit wins), closes the window, deletes the profile, verifies the token with `GET /users/@me`, stores it exactly like after a QR login, clears the cache and prints `Logged in as <name>.`
+- **Which browser:** `--browser-path PATH`, else the config key `browser-path` (section 4.6), else auto-detection. On Linux a desktop session is needed (`DISPLAY` or `WAYLAND_DISPLAY`).
+- **Notices** (`Output.note`: dim on stderr for humans, in plain mode only with `--verbose`): before the window opens, what will open and that a Windows passkey dialog may appear, which can be cancelled; then how long Discoop waits and that Ctrl+C cancels; then "Login detected, closing the browser window...". After the login `Token stored in <where>.` as for the other ways.
+- **Waiting and exit codes:** `--timeout SECONDS` (30 to 1800, default 300). The user closing the window or the time running out is exit code 2; a missing browser, a browser that cannot start, no desktop session or a protocol failure is exit code 1; a token that Discord does not accept is exit code 2 (nothing is stored); Ctrl+C is 130, and the window is closed and the profile deleted before the command ends.
+- **Options:** `--browser-path`, `--timeout`, `--format json` and `--progress-json` without `--browser` are exit code 8, and so are `--browser` together with `--token`, `--trace` or `--handshake-only`, and `--timeout` outside 30 to 1800.
+- **Plain mode ([ADR 0009](decisions/0009-login-in-agent-mode.md) amended by ADR 0022):** `login --browser` is allowed: the human logs in in the window and the AI agent never sees the password or the token. `login` without `--browser` and `login --token` stay refused with exit code 2: "Login needs the human user: QR login shows a code to scan with their phone, and a token must not pass through an AI." with the hint to tell the user that a browser window will open, to run `discoop login --browser` after they agree, or to ask them to run `discoop login` in their own terminal.
+- **Machine-readable output:** `--format json` prints only one JSON object on stdout: `{"logged_in": "yes", "user": "<display name>", "user_id": "<id>", "token_storage": "<where>", "browser": "<id>"}` (the keys of `status --format json` without `data_dir`, plus the lower-case browser id, for example `"chrome"`). `--progress-json` writes one JSON object per line on stderr, IDs and numbers only and never a name: `{"event": "browser_launch", "browser": "chrome"}`, `{"event": "browser_open", "timeout_seconds": 300}`, `{"event": "token_captured"}`, `{"event": "logged_in", "user_id": "<id>"}`. Errors stay text (`ERROR <NAME>:` and `HINT:` on stderr).
+- **Rule for AI agents (P33):** `discoop agent-guide`, the skill and the hint of exit code 2 tell an agent not to run `discoop login` or `login --token` itself, to say that a browser window will open, to wait for the user's explicit consent, to give its shell a timeout longer than the 5 minutes the command may take (or to run it in the background), never to type into or click in the window and never to read the token, cookies or profile. After the command, exit code 2 means the window was closed or the time ran out (ask whether to try again) and exit code 1 means no usable browser (ask the user to run `discoop login` or `discoop login --token`).
+- **Status (2026-11-10):** the engine and the command are built and tested against a fake DevTools server and a fake Discord; they have not been tried on a real account (checklist: analysis, section 6). The TUI part (the row "Log in with browser", key `b`, in the login dialog) is not built yet.
 
 ### 4.2 `servers`
 
@@ -261,6 +283,7 @@ discoop config set default-server "VUT FIT"
 discoop config set delay 1.0
 discoop config set export-dir "exports"
 discoop config set mode safe
+discoop config set browser-path "C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
 discoop config get delay
 discoop config unset delay
 discoop config list [--format text|json]
@@ -268,13 +291,14 @@ discoop config list [--format text|json]
 Stored in `config.toml` in the configuration directory (section 10).
 
 **Implemented on 2026-11-03:**
-- **Keys:** `default-server`, `delay` (default 1.0 s), `export-dir`, and `mode` (values `safe` or `fast`, default `safe`).
+- **Keys:** `browser-path`, `default-server`, `delay` (default 1.0 s), `export-dir`, and `mode` (values `safe` or `fast`, default `safe`).
 - **`mode`** (added for safe scraping): determines default download mode (`safe` or `fast`).
 - **`default-server`** on `set` is looked up as a server (name or ID) and its **ID** is stored, so
   renaming the server does not break the setting.
 - **`export-dir`** (added in step 3): directory for relative `--out`/`--zip` paths. Stored as an absolute path.
   In the TUI, it is the default export folder, falling back to `Documents/discoop` ([ADR 0016](decisions/0016-default-export-folder-in-tui.md)).
   CLI without it keeps defaulting to the current directory.
+- **`browser-path`** (added 2026-11-10, P31): the browser program that `login --browser` starts. Stored as an absolute path and checked on `set`: it must be an existing file (a folder is rejected; on macOS that means the program inside the `.app` bundle). Without it the browser is found automatically (Chrome, Edge, Chromium, Brave). `--browser-path` on the command wins over it. No default: `config list` shows it empty.
 - **Machine-readable output:** `discoop config list --format json` returns configuration as a JSON object on stdout.
 - **Unknown key** or invalid value exits with code `8`.
 
@@ -286,6 +310,7 @@ discoop agent-guide
 
 Prints a compact reference for AI on ~1 screen in plain text without ANSI escape sequences:
 - recommended workflow (`status` → `servers` → `channels` → `messages`),
+- the rules for AI agents, including the section **LOGGING IN** (P33, [ADR 0022](decisions/0022-browser-login.md)): never run `discoop login` or `login --token` and never handle a token or a password; tell the user that a browser window will open in which they log in themselves, wait for their explicit consent, then run `discoop --plain login --browser` (it can take up to 5 minutes: give the shell a longer timeout or run it in the background); never type into the window; what exit codes 0, 1 and 2 mean afterwards. The skill `.claude/skills/discoop/SKILL.md` carries the same rule, and a test keeps the two in step,
 - complete exit codes table generated directly from the `ExitCode` enum,
 - dynamic list of all registered commands and subcommands from the Typer application with their one-line descriptions.
 A link to `discoop agent-guide` is given directly in the `NOTE FOR AI AGENTS` section in `discoop --help`.
@@ -330,7 +355,7 @@ Interactive terminal user interface (TUI) built on the Textual library (P16, P17
 - Run summary lists channels, messages, skipped, truncated, and attachments status. After interruption or partial result, it fixes export name in `Name` field so pressing `F5` automatically resumes the work-in-progress export.
 
 **Dialogs and Help:**
-- Help (`F1` / `?`): controls per ADR 0014 and live output of `discoop --help` including subcommands from Typer app. Settings (`F2`), Login (`F3`, QR or token), Preview, and time window have the same appearance as main screen. Token is saved only after verification.
+- Help (`F1` / `?`): controls per ADR 0014 and live output of `discoop --help` including subcommands from Typer app. Settings (`F2`), Login (`F3`, QR or token), Preview, and time window have the same appearance as main screen. Token is saved only after verification. A row "Log in with browser" (key `b`) in the login dialog, and the captcha advice there, are decided in [ADR 0022](decisions/0022-browser-login.md) (P31, P32) but not built yet; today the dialog has QR and token only.
 
 **Forums and media channels in TUI (2026-11-04):** selected like other channels (selection accepts `MESSAGE_TYPES` and `FORUM_TYPES`; category cannot be selected, selecting it selects its channels). Their posts are threads, so with Threads = no and a forum selected, the form shows a warning and `F5` start is rejected with a message before the first Discord call (service would reject it with code 8). Verified by fake Discord tests (`tests/test_tui_forums.py`), not yet on a real account.
 
@@ -393,7 +418,8 @@ candidates (name, ID, server). The tool never guesses.
 | Colours, tables, trees | yes (Rich) | no (plain text without colours and graphics) |
 | Progress | progress bars | none; with `--verbose` simple lines on stderr |
 | Errors | coloured panel with hint | `ERROR <CODE>: <message>` + `HINT: <what to do>` on stderr |
-| Interactive prompts | only for `login` | never |
+| Interactive prompts | only for `login` (hidden token prompt) | never |
+| `login` | QR code, `--browser` (a window opens for the human) or `--token` | only `login --browser`, with the human logging in in the window; the QR code and `--token` are refused with exit code 2 ([ADR 0009](decisions/0009-login-in-agent-mode.md) amended by [ADR 0022](decisions/0022-browser-login.md)) |
 
 **Data always goes to stdout, everything else to stderr.** A script or an agent can therefore safely redirect output.
 
@@ -590,7 +616,7 @@ Directories are determined by `platformdirs` per OS:
 | Linux | `~/.local/share/discoop/` | `~/.config/discoop/` |
 
 Contents:
-- `config.toml`: settings (`default-server`, `delay`, `export-dir`, `mode`).
+- `config.toml`: settings (`browser-path`, `default-server`, `delay`, `export-dir`, `mode`).
 - `profiles.json` (configuration directory): named settings profiles (`server`, `channels`, `from`, `to`, `last`, `mode`), shared between CLI and TUI.
 - `tui-state.json` (configuration directory): TUI state by account ID (selection, time windows, mode, `Folder`/`Name`, threads, dates of last channel exports).
 - `sync-state.json` (data directory): `--since-last` state by account ID, storing `last_message_id` and `updated` timestamp for each channel and thread ([ADR 0020](decisions/0020-since-last.md)). Separated from `cache.db` to survive clearing it.
@@ -619,7 +645,9 @@ USAGE
   discoop [--plain] <command> [options]
 
 GETTING STARTED
-  discoop login                                   log in once in a browser window (2FA supported)
+  discoop login                                   log in by scanning a QR code with the Discord app
+  discoop login --browser                         log in in a browser window (if QR login fails)
+  discoop login --token                           last resort: paste a token
   discoop servers                                 list your servers
   discoop channels -s "VUT FIT"                   list channels of a server
   discoop messages -s "VUT FIT" -c isc-public --from 7d
@@ -645,8 +673,8 @@ NOTE FOR AI AGENTS
 | Code | Meaning | Hint in `HINT` |
 |---|---|---|
 | 0 | OK (even if nothing was found; `truncated` is in the output) | |
-| 1 | unexpected error | |
-| 2 | login required / token invalid | ask the user to run `discoop login` |
+| 1 | unexpected error. For `login --browser`: no usable browser, a browser that cannot start, no desktop session, a protocol failure | `--browser-path`, `config set browser-path`, or `discoop login --token` |
+| 2 | login required / token invalid. For `login --browser`: the window was closed, the time ran out, or Discord did not accept the token | run `discoop login` or `discoop login --browser`. AI agents: tell the user, wait for their consent, then run `discoop login --browser` |
 | 3 | ambiguous name | candidate listing, use ID or `-s` |
 | 4 | server/channel not found | `discoop channels --refresh` |
 | 5 | no access to channel (403) | |
@@ -663,7 +691,10 @@ Discoop/
   src/discoop/
     cli.py            Typer app, commands, global options, mode selection
     service.py        service layer: unified business logic for CLI and TUI
-    auth.py           QR login (remote auth gateway), keyring, fallback login
+    login.py          `discoop login`: QR screen, `qr_login`, `browser_login` (with `find_login_browser`, `BrowserScreen`, `BrowserProgressJson`), `token_login`, `CaptchaRequired`, verifying and storing the token
+    remote_auth/      QR login protocol: protocol.py (gateway client), crypto.py (RSA-OAEP keys, user payload), trace.py (anonymised trace)
+    browser_login/    login in the user's own browser over the DevTools Protocol ([ADR 0022](decisions/0022-browser-login.md)): locate.py (find Chrome, Edge, Chromium, Brave), launch.py (separate instance, temporary profile, cleanup), cdp.py (DevTools client on `websockets`), flow.py (watches localStorage and the Authorization header; closed window, timeout)
+    tokenstore.py     the token in the OS keyring, or a 0600 file where no keyring works
     api.py            HTTP client: pacing, retries, 429, errors → exit codes
     snowflake.py      time ↔ snowflake, parsing --from/--to
     cache.py          SQLite: servers, channels, threads, users, sync_state
@@ -718,6 +749,11 @@ Discoop/
   - `threads.py`, `models.py` (`Thread`, `ChannelMessages.threads`), `cache.py` (schema 2), and `render/*`: threads and forums ([ADR 0019](decisions/0019-threads.md)),
   - `service.py`: `run_messages` refactored into smaller functions (`_Run` class with steps `open_export`, `fetch_channels`, `fetch_channel`, `finish`, and others; behaviour unchanged), `--since-last`, and `_check_disk_space`,
   - `syncstate.py` ([ADR 0020](decisions/0020-since-last.md)), `split.py` (`split_markdown`), `agent_guide.py`, and `tui/tuistate.py`.
+- **Added on 2026-11-10 (browser login, [ADR 0022](decisions/0022-browser-login.md)):**
+  - `browser_login/`: the engine, tested against a fake DevTools server ([analysis](analyses/browser-login.md)),
+  - `login.py` and `cli.py`: `discoop login --browser` with `--browser-path`, `--timeout`, `--format json` and `--progress-json` (section 4.1), the captcha advice (`CaptchaRequired`, `BROWSER_HINT`) and the new hints of exit code 2,
+  - `config.py`: the key `browser-path` (section 4.6),
+  - `agent_guide.py` and the skill: the rule for AI agents (P33). The TUI part is still to do.
 
 ## 14. Implementation roadmap
 
@@ -755,8 +791,8 @@ Steps 4 through 6 and resilient export (ADR 0017) are verified by fake Discord t
 | 4 | Threads by default | enabled: **accepted** ([ADR 0011](decisions/0011-default-behaviour-of-messages.md)) |
 | 5 | Default time window | 24 h, entire history only via `--from all`: **accepted** ([ADR 0011](decisions/0011-default-behaviour-of-messages.md)) |
 | 6 | Default format in agent mode | `text` (JSON via `--format json`): **accepted** ([ADR 0011](decisions/0011-default-behaviour-of-messages.md)) |
-| 7 | Fallback login | **accepted** ([ADR 0008](decisions/0008-fallback-login-token.md)): `discoop login --token`, token from hidden prompt or stdin, not from argument, so it is not saved in shell history. Browser login not in v1 (heavy dependency on every OS). Email and password no (captcha, password handling) |
-| 8 | `login` in agent mode | **accepted** ([ADR 0009](decisions/0009-login-in-agent-mode.md)): reject with code `2` and prompt "ask the user to run `discoop login`". Login requires a human with a phone and QR is sensitive |
+| 7 | Fallback login | **accepted** ([ADR 0008](decisions/0008-fallback-login-token.md)): `discoop login --token`, token from hidden prompt or stdin, not from argument, so it is not saved in shell history. Email and password no (captcha, password handling).<br>Browser login: **decided 2026-11-10** ([ADR 0022](decisions/0022-browser-login.md), P31 to P33): `discoop login --browser` opens the user's own Chrome, Edge, Chromium or Brave in a separate window and reads the token over the DevTools Protocol, with no new dependency. It is built in the CLI (section 4.1) and not yet in the TUI. ADR 0008 and ADR 0005 had left it out for a heavy dependency on every OS |
+| 8 | `login` in agent mode | **accepted** ([ADR 0009](decisions/0009-login-in-agent-mode.md)): reject with code `2` and prompt "ask the user to run `discoop login`". Login requires a human with a phone and QR is sensitive.<br>**Amended 2026-11-10** ([ADR 0022](decisions/0022-browser-login.md)): `login --browser` is allowed in plain mode, because the human logs in in the window and the agent never sees a password or the token; `login` without `--browser` and `login --token` stay refused with code `2`, now with the advice to tell the user, wait for their consent and run `discoop login --browser`, or to ask the user to run `discoop login` |
 | 9 | Inaccessible channels in `channels` | **Deferred** (2026-11-03, low priority): the user does not consider this important, and Discord plans according to changelog 2026-08-12 that REST will stop returning inaccessible channels to users as well. Supporting material: [analyses/channel-access.md](analyses/channel-access.md).<br>Original proposal: calculate access (`VIEW_CHANNEL`, and `READ_MESSAGE_HISTORY` when reading):<br>• basic server permissions from `permissions` in `/users/@me/guilds`, server owner has all permissions,<br>• `permission_overwrites` overrides for @everyone, user roles, and the user themselves.<br>User roles must be fetched (`GET /users/@me/guilds/{id}/member`, verify). Inaccessible channels hidden by default, `--include-hidden` shows them |
 
 **Ideas for later (v2):** local archive of all messages in SQLite with full-text search, `discoop sync` for a list of watched channels, clustering consecutive messages from the same author (fewer tokens), `--author` filter, `--has file`.
