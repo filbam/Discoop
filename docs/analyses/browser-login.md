@@ -1,8 +1,8 @@
 # Browser Login Analysis (Chromium DevTools Protocol)
 
 Date: 2026-11-10. Subject: how `discoop login --browser` gets a Discord token out of the user's own Chrome, Edge,
-Chromium or Brave, as built in the package `discoop.browser_login` (with the CLI command and the `browser-path`
-config key; the TUI comes in a later step). Decision record: [ADR 0022](../decisions/0022-browser-login.md), requirements P31 to P33 in
+Chromium or Brave, as built in the package `discoop.browser_login` (together with the CLI command, the `browser-path`
+config key and the TUI login dialog). Decision record: [ADR 0022](../decisions/0022-browser-login.md), requirements P31 to P33 in
 [requirements.md](../requirements.md).
 
 **Legend:** **[VERIFIED]** = observed on 2026-11-10 in a local check (section 4) or by the test suite; the source and
@@ -208,8 +208,7 @@ token (`source=storage` or `source=header`) and must not contain the token.
 5. **Ctrl+C in the terminal** while the window is open: the window closes, the folder is gone, and the command stops
    (exit code 130, as for the other commands).
 6. **A short `--timeout`** (for example 30 s) and doing nothing: exit code 2 after 30 s, window closed, folder gone.
-7. **In the TUI**, start the browser login and press Esc while the window is open: the window closes and the folder is gone
-   (once the TUI step exists).
+7. **In the TUI**, start the browser login and press Esc while the window is open: the window closes and the folder is gone.
 8. **A hard kill** of the terminal while the window is open: the window stays open and its `discoop-browser-*` folder stays
    in the temp folder; a later `discoop login --browser` deletes such folders once they are older than 24 hours (or delete
    the folder by hand after closing the window).
