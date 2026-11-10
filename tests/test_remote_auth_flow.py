@@ -7,7 +7,7 @@ from fake_gateway import TICKET, FakeGateway
 from websockets.asyncio.server import serve
 
 from discoop.errors import DiscoopError, ExitCode
-from discoop.remote_auth.protocol import wait_for_ticket
+from discoop.remote_auth.protocol import TOKEN_HINT, wait_for_ticket
 from discoop.remote_auth.trace import Trace
 
 
@@ -67,11 +67,12 @@ async def test_gives_up_after_max_sessions():
     assert e.value.code == ExitCode.AUTH_REQUIRED
 
 
-async def test_unknown_close_code_is_an_error_with_token_hint():
+async def test_unknown_close_code_is_an_error_with_the_browser_and_token_hint():
     with pytest.raises(DiscoopError) as e:
         await run(FakeGateway("odd_op"))
     assert "code 4000" in e.value.message
-    assert "--token" in (e.value.hint or "")
+    assert e.value.hint == TOKEN_HINT
+    assert "`discoop login --browser`" in e.value.hint and "`discoop login --token`" in e.value.hint
 
 
 async def test_stop_after_qr():

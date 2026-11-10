@@ -23,7 +23,10 @@ from discoop.remote_auth.trace import Trace
 GATEWAY_URL = "wss://remote-auth-gateway.discord.gg/?v=2"
 ORIGIN = "https://discord.com"
 CLOSE_HANDSHAKE_TIMEOUT = 4003
-TOKEN_HINT = "If QR login keeps failing, use `discoop login --token`."
+TOKEN_HINT = (
+    "If QR login keeps failing, use `discoop login --browser` (a browser window where you log in yourself) "
+    "or, as a last resort, `discoop login --token`."
+)
 
 
 class Listener(Protocol):

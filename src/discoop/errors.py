@@ -18,7 +18,11 @@ class ExitCode(IntEnum):
     PARTIAL = 9  # finished, but a channel was skipped (no access, not found) or a file could not be downloaded
 
 
-AUTH_HINT = "Run `discoop login`. AI agents: ask the user to run it in their own terminal."
+AUTH_HINT = (
+    "Run `discoop login` (or `discoop login --browser`). AI agents: tell the user a browser window will open in "
+    "which they log in themselves, wait for their consent, then run `discoop login --browser`; never run "
+    "`discoop login` or `login --token` yourself."
+)
 
 
 class DiscoopError(Exception):
