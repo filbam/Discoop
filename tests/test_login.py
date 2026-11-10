@@ -9,7 +9,7 @@ from rich.console import Console
 
 from discoop import cli, login
 from discoop.api import DiscordAPI
-from discoop.errors import DiscoopError
+from discoop.errors import DiscoopError, ExitCode
 from discoop.remote_auth.crypto import OAEP_SHA256
 from discoop.tokenstore import TokenStore
 
@@ -67,10 +67,10 @@ def test_qr_login_stores_the_decrypted_token(tmp_path):
     ]
 
 
-def test_captcha_is_reported_with_token_hint(tmp_path):
+def test_captcha_is_reported_with_the_browser_hint(tmp_path):
     gateway = FakeGateway("complete")
     trace_path = tmp_path / "trace.jsonl"
-    with gateway_in_thread(gateway) as url, pytest.raises(DiscoopError) as e:
+    with gateway_in_thread(gateway) as url, pytest.raises(login.CaptchaRequired) as e:
         login.qr_login(
             quiet_console(),
             TokenStore.default(),
@@ -78,8 +78,12 @@ def test_captcha_is_reported_with_token_hint(tmp_path):
             api_factory=discord_api(gateway, captcha=True),
             url=url,
         )
-    assert "captcha" in e.value.message
-    assert "--token" in e.value.hint
+    assert isinstance(e.value, DiscoopError)  # every handler of DiscoopError still catches it
+    assert e.value.code == ExitCode.ERROR
+    assert e.value.message == "Discord asked for a captcha, which cannot be solved in a terminal."
+    assert e.value.hint == login.BROWSER_HINT
+    assert "`discoop login --browser`" in e.value.hint and "`discoop login --token`" in e.value.hint
+    assert e.value.hint.index("--browser") < e.value.hint.index("--token")  # the browser first, the token last
     assert TokenStore.default().load() is None
     assert '"captcha_service": "hcaptcha"' in trace_path.read_text(encoding="utf-8")
 
@@ -102,9 +106,14 @@ def test_login_is_refused_in_agent_mode(capsys):
     with pytest.raises(SystemExit) as e:
         cli.main(["--agent", "login", "--token"])
     assert e.value.code == 2
-    err = capsys.readouterr().err
-    assert err.startswith("ERROR AUTH_REQUIRED: Login needs the human user")
-    assert "HINT: Ask the user to run `discoop login`" in err
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        "ERROR AUTH_REQUIRED: Login needs the human user: QR login shows a code to scan with their phone, "
+        "and a token must not pass through an AI.\n"
+        "HINT: Tell the user that a browser window will open in which they log in themselves; after they agree, "
+        "run `discoop login --browser`. Or ask them to run `discoop login` in their own terminal.\n"
+    )
 
 
 def test_login_command_reports_the_user(capsys, monkeypatch):

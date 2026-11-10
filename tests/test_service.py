@@ -306,6 +306,7 @@ def test_command_help():
 
     login_help = cli.command_help(("login",))
     assert "Log in" in login_help
+    assert "--browser" in login_help and "--token" in login_help
 
     status_help = cli.command_help(("status",))
     assert "Check that the stored login still works" in status_help

@@ -76,6 +76,54 @@ def test_status_with_token(capsys, monkeypatch):
     assert "logged_in: yes\nuser: Some One (@someone)\nuser_id: 42\n" in out
 
 
+def test_exit_code_2_hint_sends_agents_to_the_user_and_names_the_browser_login(capsys):
+    code, _, err = run(capsys, "--plain", "status")
+    assert code == 2
+    assert err == (
+        "ERROR AUTH_REQUIRED: Not logged in.\n"
+        "HINT: Run `discoop login` (or `discoop login --browser`). AI agents: tell the user a browser window will open "
+        "in which they log in themselves, wait for their consent, then run `discoop login --browser`; never run "
+        "`discoop login` or `login --token` yourself.\n"
+    )
+
+
+def test_the_root_help_names_the_three_ways_to_log_in_and_the_rule_for_agents(capsys):
+    code, out, _ = run(capsys, "--plain", "--help")
+    assert code == 0
+    text = " ".join(out.split())
+    for line in (
+        "discoop login log in by scanning a QR code with the Discord app",
+        "discoop login --browser log in in a browser window (if QR login fails)",
+        "discoop login --token last resort: paste a token",
+        "do not run `discoop login` or `discoop login --token` yourself and never handle a password or a token",
+        "`discoop login --browser` opens a browser window in which they log in themselves, wait for their consent",
+        "and only then run `discoop --plain login --browser` (it can take up to 5 minutes)",
+    ):
+        assert line in text, line
+
+
+@pytest.mark.parametrize("mode", ["--plain", "--human"])
+def test_login_help_lists_the_browser_options_and_the_rule_for_agents(capsys, mode):
+    code, out, _ = run(capsys, mode, "login", "--help")
+    assert code == 0
+    text = " ".join(out.split())  # the human help is boxed and wrapped
+    for needle in (
+        "Log in with a QR code, a browser window (--browser) or a token (--token).",
+        "--browser",
+        "--browser-path",
+        "--timeout",
+        "30 to 1800",
+        "--format",
+        "--progress-json",
+        "--token",
+        "passkey",
+        "never run `discoop login` or `login --token` yourself",
+        "wait for their consent",
+    ):
+        assert needle in text, needle
+    assert "--handshake-only" not in text  # still hidden
+
+
 def test_logout(capsys):
     TokenStore.default().save("tok")
     code, out, _ = run(capsys, "--plain", "logout")

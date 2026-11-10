@@ -55,6 +55,8 @@ SUMMARY = "Download messages and files from Discord servers you are a member of.
 GETTING_STARTED = """\
 GETTING STARTED
   discoop login                    log in by scanning a QR code with the Discord app
+  discoop login --browser          log in in a browser window (if QR login fails)
+  discoop login --token            last resort: paste a token
   discoop ui                       interactive terminal user interface
   discoop servers                  list your servers
   discoop channels -s "VUT FIT"    list the channels of a server
@@ -87,8 +89,41 @@ NOTE FOR AI AGENTS
   recommended flags, exit codes, and available commands.
   Plain mode strips colors and rich markup, making the output easy
   to parse and token-efficient. Feel free to tell the user you are using plain mode.
-  Logging in needs the human: if a command exits with code 2, ask the
-  user to run `discoop login` in their own terminal."""
+  Logging in needs the human: if a command exits with code 2, do not run
+  `discoop login` or `discoop login --token` yourself and never handle a
+  password or a token. Tell the user that `discoop login --browser` opens
+  a browser window in which they log in themselves, wait for their consent,
+  and only then run `discoop --plain login --browser` (it can take up to
+  5 minutes). Or ask them to run `discoop login` in their own terminal."""
+
+LOGIN_HELP = """\
+Log in with a QR code, a browser window (--browser) or a token (--token).
+
+\b
+Three ways to log in:
+  (default)  Scan a QR code with the Discord mobile app. If Discord
+             asks for a captcha, which a terminal cannot solve,
+             use --browser instead.
+  --browser  A browser window opens (Chrome, Edge, Chromium or Brave,
+             with a temporary profile). You log in to Discord there
+             yourself, with your password or the QR code on the page,
+             and solve a captcha if one appears. Discoop reads the
+             token from that window, closes it, verifies the token and
+             stores it. On Windows a passkey dialog may appear: cancel
+             it and log in another way.
+  --token    Paste a token (hidden prompt or stdin). The last resort.
+
+\b
+With --browser, Discoop waits up to 5 minutes (--timeout). Closing
+the window or running out of time exits with code 2; no usable
+browser (or no desktop session) exits with code 1.
+
+\b
+AI agents: never run `discoop login` or `login --token` yourself and
+never handle a token or a password. Tell the user that a browser window
+will open in which they log in themselves, wait for their consent, then
+run `discoop --plain login --browser` (it can take up to 5 minutes).
+Run `discoop agent-guide` for the details."""
 
 MESSAGES_HELP = """\
 Print the messages of channels, oldest first, or export them with their files.
@@ -245,26 +280,79 @@ def ui(ctx: typer.Context) -> None:
     run_app()
 
 
-@app.command()
+@app.command(help=LOGIN_HELP)
 def login(
     ctx: typer.Context,
     token: bool = typer.Option(
-        False, "--token", help="Paste a token (hidden prompt or stdin) instead of scanning a QR code."
+        False,
+        "--token",
+        help="Paste a token (hidden prompt or stdin) instead of scanning a QR code. The last resort.",
+    ),
+    browser: bool = typer.Option(
+        False,
+        "--browser",
+        help="Log in in a browser window (Chrome, Edge, Chromium or Brave) instead of scanning a QR code. "
+        "Use it when QR login fails because of a captcha.",
+    ),
+    browser_path: Path | None = typer.Option(
+        None,
+        "--browser-path",
+        metavar="PATH",
+        dir_okay=False,
+        help="With --browser: the browser program to start. Default: the browser-path setting, else "
+        "Chrome, Edge, Chromium or Brave is found automatically.",
+        show_default=False,
+    ),
+    timeout: float | None = typer.Option(
+        None,
+        "--timeout",
+        metavar="SECONDS",
+        help=f"With --browser: how long to wait for the login, {login_flow.MIN_BROWSER_TIMEOUT:g} to "
+        f"{login_flow.MAX_BROWSER_TIMEOUT:g} seconds. Default {login_flow.BROWSER_TIMEOUT:g}.",
+        show_default=False,
+    ),
+    output_format: str = typer.Option(
+        "text", "--format", help="With --browser: print the result as text or json (one JSON object)."
+    ),
+    progress_json: bool = typer.Option(
+        False, "--progress-json", help="With --browser: write machine-readable progress events (JSON lines) to stderr."
     ),
     trace: Path | None = typer.Option(
         None, "--trace", dir_okay=False, help="Write an anonymized protocol trace (JSON lines) to this file."
     ),
     handshake_only: bool = typer.Option(False, "--handshake-only", hidden=True),
 ) -> None:
-    """Log in by scanning a QR code with the Discord mobile app."""
     out: Output = ctx.obj
-    if out.agent:
+    fmt = _parse_list_format(output_format)
+    _check_login_options(
+        token=token,
+        browser=browser,
+        browser_path=browser_path,
+        timeout=timeout,
+        fmt=fmt,
+        progress_json=progress_json,
+        trace=trace,
+        handshake_only=handshake_only,
+    )
+    if out.plain and not browser:
         raise DiscoopError(
             ExitCode.AUTH_REQUIRED,
-            "Login needs the human user: it shows a QR code to scan with their phone.",
-            "Ask the user to run `discoop login` in their own terminal.",
+            "Login needs the human user: QR login shows a code to scan with their phone, "
+            "and a token must not pass through an AI.",
+            "Tell the user that a browser window will open in which they log in themselves; after they agree, "
+            "run `discoop login --browser`. Or ask them to run `discoop login` in their own terminal.",
         )
     store = TokenStore.default()
+    if browser:
+        _login_with_browser(
+            out,
+            store,
+            browser_path=browser_path,
+            timeout=timeout if timeout is not None else login_flow.BROWSER_TIMEOUT,
+            fmt=fmt,
+            progress_json=progress_json,
+        )
+        return
     if token:
         result = login_flow.token_login(store)
     else:
@@ -278,6 +366,84 @@ def login(
         out.note(f"Token stored in {location}.")
     if trace is not None:
         out.note(f"Anonymized trace written to {trace}.")
+
+
+def _check_login_options(
+    *,
+    token: bool,
+    browser: bool,
+    browser_path: Path | None,
+    timeout: float | None,
+    fmt: str,
+    progress_json: bool,
+    trace: Path | None,
+    handshake_only: bool,
+) -> None:
+    """The options of `login` that only make sense with --browser, and the ones that cannot go with it."""
+    if browser:
+        clashes = (
+            (token, "--token", "Choose one way to log in: the QR code (no option), --browser or --token."),
+            (trace is not None, "--trace", "--trace records the QR login protocol. Drop one of the two options."),
+            (
+                handshake_only,
+                "--handshake-only",
+                "--handshake-only only tests the connection to the QR login gateway. Drop one of the two options.",
+            ),
+        )
+        for given, name, hint in clashes:
+            if given:
+                raise DiscoopError(ExitCode.BAD_ARGS, f"--browser cannot be used with {name}.", hint)
+    else:
+        needs_browser = (
+            (browser_path is not None, "--browser-path"),
+            (timeout is not None, "--timeout"),
+            (progress_json, "--progress-json"),
+            (fmt == "json", "--format json"),
+        )
+        for given, name in needs_browser:
+            if given:
+                raise DiscoopError(
+                    ExitCode.BAD_ARGS,
+                    f"{name} only works with --browser.",
+                    f"Add --browser to log in through a browser window, or drop {name}.",
+                )
+    low, high = login_flow.MIN_BROWSER_TIMEOUT, login_flow.MAX_BROWSER_TIMEOUT
+    if timeout is not None and not low <= timeout <= high:  # written so that NaN fails too
+        raise DiscoopError(
+            ExitCode.BAD_ARGS,
+            f"--timeout must be between {low:g} and {high:g} seconds.",
+            f"Use for example --timeout {login_flow.BROWSER_TIMEOUT:g} (5 minutes).",
+        )
+
+
+def _login_with_browser(
+    out: Output,
+    store: TokenStore,
+    *,
+    browser_path: Path | None,
+    timeout: float,
+    fmt: str,
+    progress_json: bool,
+) -> None:
+    """`login --browser`: notices (or progress events) while the human logs in, then the result."""
+    progress = login_flow.BrowserProgressJson(timeout) if progress_json else None
+    listener = progress if progress is not None else login_flow.BrowserScreen(out)
+    me, location, browser = login_flow.browser_login(listener, store, browser_path=browser_path, timeout=timeout)
+    clear_cache()
+    if progress is not None:
+        progress.logged_in(me.get("id", "?"))
+    if fmt == "json":
+        out.json({
+            "logged_in": "yes",
+            "user": display_name(me),
+            "user_id": me.get("id", "?"),
+            "token_storage": location,
+            "browser": browser.name.lower(),
+        })
+        return
+    out.message(f"Logged in as {display_name(me)}.", style="bold green")
+    if progress is None:
+        out.note(f"Token stored in {location}.")
 
 
 def _parse_list_format(raw: str) -> str:
@@ -875,7 +1041,7 @@ def config_set(
     key: str = typer.Argument(..., help="Setting name."),
     value: str = typer.Argument(..., help="New value. default-server takes a server name or ID."),
 ) -> None:
-    """Change a setting. default-server is stored as the server ID, export-dir as an absolute path."""
+    """Change a setting. default-server is stored as the server ID, export-dir and browser-path as absolute paths."""
     out: Output = ctx.obj
     config = Config.default()
     check_key(key)
