@@ -1,11 +1,41 @@
 """Tests for the discoop agent-guide module."""
 
 import re
+from pathlib import Path
+
 import typer
 
 from discoop.agent_guide import build_guide
 from discoop.cli import app as cli_app
 from discoop.errors import ExitCode
+
+SKILL_FILE = Path(__file__).resolve().parent.parent / ".claude" / "skills" / "discoop" / "SKILL.md"
+
+# The rule for AI agents about logging in (requirement P33, ADR 0022). `discoop agent-guide` and the skill say the same
+# thing in their own layout, so every phrase must be in both. Case, line breaks and Markdown backticks do not count.
+RULE_PHRASES = (
+    "never run discoop login or discoop login --token",
+    "discoop login --browser will open a browser window (chrome, edge, chromium or brave)",
+    "in which they log in themselves",
+    "you never see the password or the token",
+    "passkey",
+    "explicit consent",
+    "discoop --plain login --browser",
+    "--format json --progress-json",
+    "browser_launch, browser_open, token_captured, logged_in",
+    "up to 5 minutes",
+    "--timeout seconds, default 300, allowed 30 to 1800",
+    "give your shell a timeout longer than that, or run the command in the background and wait until it finishes",
+    "never type into it or click in it",
+    "never read the token, the cookies or the browser profile",
+    "the window was closed or the time ran out",
+    "no usable browser",
+    "ask the user to run discoop login or discoop login --token in their own terminal",
+)
+
+
+def normalized(text: str) -> str:
+    return " ".join(text.replace("`", "").lower().split())
 
 
 def test_cli_app_commands_and_groups_are_all_present():
@@ -128,6 +158,64 @@ def test_agent_rules():
     assert ".partial" in guide
     # Rule regarding not asking for or sending tokens
     assert "token" in guide.lower()
+
+
+def test_the_guide_tells_agents_how_to_log_in_with_the_users_consent():
+    """Login needs the human: the guide names the browser login, the consent, the window rules and the timeout."""
+    guide = build_guide(cli_app)
+    text = normalized(guide)
+
+    for phrase in RULE_PHRASES:
+        assert phrase in text, f"the guide lacks: {phrase}"
+
+    # the order of the steps: tell the user, wait for the consent, only then run the command
+    tell = text.index("tell the user, in plain words, that discoop login --browser will open a browser window")
+    wait = text.index("wait for the user's explicit consent in the chat")
+    run_it = text.index("run: discoop --plain login --browser")
+    assert tell < wait < run_it
+    assert "do not run the command before they agree" in text
+
+    # the section sits between the rules and the command list, and the exit codes point to it
+    heading = guide.index("LOGGING IN (needs the human)\n---")
+    assert guide.index("RULES FOR AI AGENTS") < heading < guide.index("COMMANDS\n--------")
+    exit_codes = guide[guide.index("EXIT CODES\n---"):]
+    assert "see LOGGING IN" in exit_codes and "`login --browser`" in exit_codes
+
+    # the old advice to run `discoop login` is gone from the workflow: the agent follows LOGGING IN instead
+    workflow = guide[: guide.index("RULES FOR AI AGENTS")]
+    assert "follow LOGGING IN below" in workflow
+    assert "ask the user to run `discoop login` in their terminal" not in guide
+
+
+def test_the_login_command_is_listed_with_the_browser_option():
+    login_line = next(line for line in build_guide(cli_app).splitlines() if line.startswith("  discoop login "))
+    assert "--browser" in login_line and "--token" in login_line
+
+
+def test_the_skill_carries_the_same_login_rule_as_the_guide():
+    """No test read the skill before, and the two had drifted apart once: they must keep the same login rule."""
+    assert SKILL_FILE.is_file(), f"the skill is missing: {SKILL_FILE}"
+    skill = SKILL_FILE.read_text(encoding="utf-8")
+    assert skill.startswith("---\nname: discoop\n")  # the front matter is intact
+    text = normalized(skill)
+    for phrase in RULE_PHRASES:
+        assert phrase in text, f"the skill lacks: {phrase}"
+    # and it does not say any more that login is the user's QR code alone
+    assert "never log in for the user" not in text
+    assert "do not run `login`" not in skill
+
+
+def test_the_other_texts_for_agents_say_the_same_in_short():
+    """The help note, the login help and the hint of exit code 2 point agents to the browser login and the consent."""
+    from discoop import cli, errors
+
+    for name, text in (("AI_NOTE", cli.AI_NOTE), ("LOGIN_HELP", cli.LOGIN_HELP), ("AUTH_HINT", errors.AUTH_HINT)):
+        flat = normalized(text)
+        assert "login --browser" in flat, name
+        assert "consent" in flat, name
+        assert "login --token" in flat, name
+    assert "discoop --plain login --browser" in normalized(cli.AI_NOTE)
+    assert "up to 5 minutes" in normalized(cli.AI_NOTE)
 
 
 def test_no_ansi_escape_sequences():

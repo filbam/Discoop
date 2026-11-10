@@ -37,9 +37,10 @@ the exit codes of the installed version.
 1. **Always run with `--plain`** (or set `DISCOOP_PLAIN=1`). It removes colours and rich tables, uses tab-separated
    tables and prints stable machine-readable errors (`ERROR <CODE>: ...`, `HINT: ...` on stderr). `--plain` is a
    global option and goes before the command: `discoop --plain messages ...`.
-2. **Never log in for the user.** If any command exits with code `2` (`AUTH_REQUIRED`), ask the user to run
-   `discoop login` in their own terminal (QR code scanned with the Discord mobile app). Do not run `login`, do not
-   ask for, read, store or transmit tokens or cookies, and do not use `login --token`.
+2. **Never log in on your own.** If any command exits with code `2` (`AUTH_REQUIRED`), never run `discoop login` or
+   `discoop login --token`, and never ask for, read, store or transmit a password, a token or cookies. The user logs
+   in. The one login you may run is `discoop --plain login --browser`, and only after the user's explicit consent
+   (see "Logging in" below).
 3. **Only run Discoop when the user asked for Discord data.** Every download sends requests to Discord from the
    user's account. Do not explore "just to see".
 4. **Keep the default `--safe` mode** for anything larger than a small window. `--fast` (100 messages per request,
@@ -48,12 +49,40 @@ the exit codes of the installed version.
 6. **Exports contain other people's messages.** Keep them out of git (`exports/` and `*.zip` are git-ignored in this
    repo), do not paste them into public places, and do not put real message texts or names into committed files.
 
+## Logging in (needs the human)
+
+If any command exits with code `2`, you are not logged in, and only the user can fix that. Never run
+`discoop login` or `discoop login --token`, and never handle a token, a password or cookies.
+
+**A. Browser window (needs the user's explicit consent first).**
+
+1. Tell the user, in plain words, that `discoop login --browser` will open a browser window (Chrome, Edge, Chromium or
+   Brave) in which THEY log in themselves, with their password or the QR code shown on the web page, and solve a
+   captcha if Discord shows one. You never see the password or the token. On Windows a passkey (Windows Security)
+   dialog may appear; they can cancel it and log in another way.
+2. Wait for the user's explicit consent in the chat. Do not run the command before they agree.
+3. Run `discoop --plain login --browser` (optionally with `--format json --progress-json`). A human is logging in, so it
+   can take up to 5 minutes (`--timeout SECONDS`, default 300, allowed 30 to 1800). Give your shell a timeout longer
+   than that, or run the command in the background and wait until it finishes. `--progress-json` prints one JSON event
+   per line on stderr: `browser_launch`, `browser_open`, `token_captured`, `logged_in`.
+4. While the window is open, never type into it or click in it, and never read the token, the cookies or the browser
+   profile. Discoop reads the token itself, verifies it, stores it and closes the window.
+5. Result:
+
+   | Exit code | Meaning | What to do |
+   |---|---|---|
+   | 0 | Logged in. | Check with `discoop --plain status`. |
+   | 2 | The window was closed or the time ran out. | Tell the user and ask whether to try again. |
+   | 1 | No usable browser (or no desktop session). | Ask the user to run `discoop login` or `discoop login --token` in their own terminal. |
+
+**B. Ask the user to run `discoop login`** (a QR code scanned with the Discord mobile app) in their own terminal.
+
 ## Standard workflow
 
 Follow this order: `status` -> `servers` -> `channels` -> (`threads`) -> `messages`.
 
 ```
-discoop --plain status --format json                       # exit 2 -> ask the user to run `discoop login`
+discoop --plain status --format json                       # exit 2 -> not logged in: see "Logging in" above
 discoop --plain servers --format json
 discoop --plain channels -s "VUT FIT" --format json
 discoop --plain channels -s "VUT FIT" --type forum --format json   # only some channel types
@@ -181,8 +210,8 @@ discoop --plain -v messages ...              # show progress notes in plain mode
 | Code | Name | What to do |
 |---|---|---|
 | 0 | OK | Done. |
-| 1 | ERROR | Unexpected error. Re-run with `--debug`, read the message and hint. |
-| 2 | AUTH_REQUIRED | Ask the user to run `discoop login` themselves. |
+| 1 | ERROR | Unexpected error. Re-run with `--debug`, read the message and hint. (`login --browser`: no usable browser, see "Logging in".) |
+| 2 | AUTH_REQUIRED | Not logged in (or the browser login was closed or timed out). Never log in yourself: see "Logging in". |
 | 3 | AMBIGUOUS | Several servers/channels match the name. Use the numeric ID. |
 | 4 | NOT_FOUND | Server or channel not found. Check names with `servers` / `channels --refresh`. |
 | 5 | NO_ACCESS | HTTP 403: the account lacks permission for the channel. Do not retry. |
@@ -208,11 +237,15 @@ read `parts/part-NNN.md` in order.
 `messages ... --since-last --out exports/NAME-update` -> read only the new export.
 
 **Command exits with code 2.**
-Stop and ask the user to run `discoop login`. Do not try to work around it.
+Stop. Do not run `discoop login` or `discoop login --token`. Tell the user that `discoop login --browser` opens a
+browser window in which they log in themselves, wait for their explicit consent, then run
+`discoop --plain login --browser` (see "Logging in"). Do not try to work around it.
 
 ## Known limits (unverified on a real account as of 2026-11-04)
 
 Real Ctrl+C from a console, forum selection in the TUI, exporting a very large forum, and Linux/macOS have not been
 verified on a real account. An attachment described differently by the API and the CDN may be re-downloaded on a
 repeated export into the same folder (harmless). The `message_count` in the thread list does not include the forum
-post starter message.
+post starter message. The browser login (`login --browser`, added 2026-11-10) has only been tested against fakes so
+far; if it fails in a way the exit codes above do not explain, tell the user and ask them to run `discoop login`
+themselves.
