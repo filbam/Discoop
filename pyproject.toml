@@ -1,6 +1,6 @@
 [project]
 name = "discoop"
-version = "0.1.0"
+version = "1.0.0"
 description = "Download messages and files from Discord servers you are a member of."
 readme = "README.md"
 requires-python = ">=3.12"
