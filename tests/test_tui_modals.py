@@ -1114,6 +1114,205 @@ async def test_login_modal_qr_busy_ignores_browser_key() -> None:
         await pilot.pause()
 
 
+async def test_login_modal_qr_captcha_points_to_browser_and_focuses_row() -> None:
+    keys = RemoteAuthKeys()
+    user = UserPayload(id="42", discriminator="0001", avatar=None, username="qr_user")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "remote-auth/login" in request.url.path:
+            return httpx.Response(400, json={"captcha_key": ["captcha-required"]})
+        return httpx.Response(200, json=[])
+
+    async def fake_wait_ticket(listener: Any, **kwargs: Any) -> LoginTicket:
+        listener.on_qr(QR_URL, time.monotonic() + 120)
+        return LoginTicket(ticket="captcha-ticket", keys=keys, user=user)
+
+    browser_started = asyncio.Event()
+
+    async def fake_wait_browser(listener: Any, *, browser: Browser, timeout: float) -> str:
+        listener.on_launching(browser.name)
+        browser_started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("never comes back")
+
+    api_factory = _make_dummy_api_factory(transport=httpx.MockTransport(handler))
+    app = DiscoopApp(api_factory=api_factory)
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        modal = LoginModal(
+            api_factory=api_factory,
+            wait_for_ticket_fn=fake_wait_ticket,
+            find_browser_fn=lambda: FAKE_BROWSER,
+            wait_for_browser_token_fn=fake_wait_browser,
+        )
+        app.push_screen(modal)
+        await pilot.pause()
+        await pilot.press("g")
+
+        err_label = modal.query_one("#login-error", Label)
+        await wait_until(pilot, lambda: err_label.display)
+        text = str(err_label.content)
+        assert "Discord asked for a captcha, which cannot be solved in a terminal." in text
+        assert "Press b to log in through a browser window instead." in text
+        assert "--browser" not in text  # TUI uses its own pointer to key b, not CLI syntax
+        assert modal.query_one("#login-form").display
+        assert not modal.has_class("-qr")
+        assert app.focused is modal.query_one("#row-login-browser")
+        assert TokenStore.default().load() is None
+
+        # Pressing Enter directly (because the browser row is focused) starts browser login.
+        await pilot.press("enter")
+        await browser_started.wait()
+        await pilot.pause()
+        assert modal.has_class("-browser")
+        await pilot.press("escape")
+        await pilot.pause()
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_lines"),
+    [
+        (
+            DiscoopError(
+                ExitCode.AUTH_REQUIRED,
+                "The browser window was closed before the login finished.",
+                "Run `discoop login --browser` again and finish the login in the window.",
+            ),
+            (
+                "The browser window was closed before the login finished.",
+                "Run `discoop login --browser` again and finish the login in the window.",
+            ),
+        ),
+        (
+            DiscoopError(ExitCode.ERROR, "Just a message without a hint."),
+            ("Just a message without a hint.",),
+        ),
+    ],
+    ids=["with-hint", "without-hint"],
+)
+async def test_login_modal_errors_show_message_and_hint(
+    error: DiscoopError, expected_lines: tuple[str, ...]
+) -> None:
+    async def failing_wait(listener: Any, **kwargs: Any) -> str:
+        listener.on_launching("Chrome")
+        raise error
+
+    app = make_app()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await started(app, pilot)
+        modal = LoginModal(
+            _make_dummy_api_factory(),
+            find_browser_fn=lambda: FAKE_BROWSER,
+            wait_for_browser_token_fn=failing_wait,
+        )
+        app.push_screen(modal)
+        await pilot.pause()
+        await pilot.press("b")
+
+        err_label = modal.query_one("#login-error", Label)
+        await wait_until(pilot, lambda: err_label.display)
+        content = str(err_label.content)
+        for part in expected_lines:
+            assert part in content
+        assert "None" not in content
+        flat = " ".join(screen_text(app, err_label.region).split())
+        for part in expected_lines:
+            assert part in flat, flat
+
+
+async def test_login_modal_qr_error_shows_message_and_hint() -> None:
+    async def failing_qr(listener: Any, **kwargs: Any) -> LoginTicket:
+        listener.on_connecting(1)
+        raise DiscoopError(ExitCode.ERROR, "QR failed.", "Try `discoop login --browser`.")
+
+    app = make_app()
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        modal = LoginModal(_make_dummy_api_factory(), wait_for_ticket_fn=failing_qr)
+        app.push_screen(modal)
+        await pilot.pause()
+        await pilot.press("g")
+
+        err_label = modal.query_one("#login-error", Label)
+        await wait_until(pilot, lambda: err_label.display)
+        assert str(err_label.content) == "QR failed.\nTry `discoop login --browser`."
+        assert app.focused is modal.query_one("#row-login-qr")
+
+
+async def test_login_modal_browser_rejected_token_shows_cli_text_and_stores_nothing() -> None:
+    bad_token = "FAKE-REJECTED-TOKEN-0000"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "users/@me" in request.url.path:
+            return httpx.Response(401, json={"message": "401: Unauthorized", "code": 0})
+        return httpx.Response(200, json=[])
+
+    async def fake_wait(listener: Any, *, browser: Browser, timeout: float) -> str:
+        listener.on_launching(browser.name)
+        listener.on_captured()
+        return bad_token
+
+    api_factory = _make_dummy_api_factory(transport=httpx.MockTransport(handler))
+    app = DiscoopApp(api_factory=api_factory)
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        modal = LoginModal(
+            api_factory=api_factory,
+            find_browser_fn=lambda: FAKE_BROWSER,
+            wait_for_browser_token_fn=fake_wait,
+        )
+        app.push_screen(modal)
+        await pilot.pause()
+        await pilot.press("b")
+
+        err_label = modal.query_one("#login-error", Label)
+        await wait_until(pilot, lambda: err_label.display)
+        assert str(err_label.content) == (
+            "Discord did not accept the token read from the browser window.\n"
+            "Run `discoop login --browser` again. If it keeps failing, use `discoop login --token`."
+        )
+        assert bad_token not in str(err_label.content)
+        assert modal.query_one("#login-form").display
+        assert not modal.has_class("-browser")
+        assert app.focused is modal.query_one("#row-login-browser")
+        assert TokenStore.default().load() is None
+
+
+async def test_login_modal_browser_network_error_keeps_its_message_and_hint() -> None:
+    def offline(token: str | None = None, **kw: Any) -> DiscordAPI:
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("offline")
+
+        kw["delay"] = 0.0
+        kw["max_retries"] = 0
+        return DiscordAPI(token, transport=httpx.MockTransport(handler), sleep=lambda s: None, **kw)
+
+    async def fake_wait(listener: Any, *, browser: Browser, timeout: float) -> str:
+        listener.on_launching(browser.name)
+        listener.on_captured()
+        return "FAKE-TOKEN-0000"
+
+    app = DiscoopApp(api_factory=offline)
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        modal = LoginModal(
+            api_factory=offline,
+            find_browser_fn=lambda: FAKE_BROWSER,
+            wait_for_browser_token_fn=fake_wait,
+        )
+        app.push_screen(modal)
+        await pilot.pause()
+        await pilot.press("b")
+
+        err_label = modal.query_one("#login-error", Label)
+        await wait_until(pilot, lambda: err_label.display)
+        text = str(err_label.content)
+        assert "Network error" in text
+        assert "Check the connection and try again." in text
+        assert "did not accept" not in text
+        assert TokenStore.default().load() is None
+
+
 # ==================== Preview ====================
 
 TRICKY = ("[bold]not markup[/bold] and [1]", '["json", {"a": 1}]', "[/closing] tag")

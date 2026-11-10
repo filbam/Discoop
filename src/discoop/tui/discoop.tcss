@@ -217,6 +217,8 @@ ModalScreen {
 
 .dialog-error {
     display: none;
+    width: 100%;
+    height: auto;
     margin-top: 1;
     color: $error;
     text-style: bold;

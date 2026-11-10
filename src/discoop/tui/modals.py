@@ -31,7 +31,7 @@ from discoop.browser_login import Browser, wait_for_browser_token
 from discoop.cache import clear_cache
 from discoop.cli import LOCAL_ZONE, command_help
 from discoop.config import DEFAULTS, DESCRIPTIONS, MODES, Config, parse_delay, parse_export_dir, parse_mode
-from discoop.errors import DiscoopError
+from discoop.errors import DiscoopError, ExitCode
 from discoop.models import ChannelMessages
 from discoop.qr import qr_text
 from discoop.remote_auth.crypto import UserPayload
@@ -747,12 +747,24 @@ class LoginModal(ScrollingDialog[bool]):
     async def _guarded(self, login: Awaitable[None]) -> None:
         try:
             await login
+        except login_flow.CaptchaRequired as e:
+            self._login_failed(
+                e.message,
+                "Press b to log in through a browser window instead.",
+                focus_selector="#row-login-browser",
+            )
         except DiscoopError as e:
-            self._login_failed(e.message)
+            self._login_failed(e.message, e.hint)
         except Exception as e:  # an unexpected error must not take the whole UI down
             self._login_failed(f"Login failed: {e}")
 
-    def _login_failed(self, message: str) -> None:
+    def _login_failed(
+        self,
+        message: str,
+        hint: str | None = None,
+        *,
+        focus_selector: str | None = None,
+    ) -> None:
         was_qr = self.has_class("-qr")
         was_browser = self.has_class("-browser")
         self._busy = False
@@ -760,8 +772,10 @@ class LoginModal(ScrollingDialog[bool]):
         self.set_class(False, "-qr")
         self.set_class(False, "-browser")
         self.query_one("#row-login-save", ActionRow).update(VERIFY_LABEL)
-        self.show_error(message)
-        if was_qr:
+        self.show_error(f"{message}\n{hint}" if hint else message)
+        if focus_selector is not None:
+            self.query_one(focus_selector, ActionRow).focus()
+        elif was_qr:
             self.query_one("#row-login-qr", ActionRow).focus()
         elif was_browser:
             self.query_one("#row-login-browser", ActionRow).focus()
@@ -782,7 +796,16 @@ class LoginModal(ScrollingDialog[bool]):
         browser = self.find_browser_fn()
         self._browser_name = browser.name
         token = await self.wait_for_browser_token_fn(self, browser=browser, timeout=login_flow.BROWSER_TIMEOUT)
-        await self._finish_login(lambda: token)
+        try:
+            await self._finish_login(lambda: token)
+        except DiscoopError as e:
+            if e.code != ExitCode.AUTH_REQUIRED:
+                raise
+            raise DiscoopError(
+                ExitCode.AUTH_REQUIRED,
+                "Discord did not accept the token read from the browser window.",
+                "Run `discoop login --browser` again. If it keeps failing, use `discoop login --token`.",
+            ) from e
 
     async def _finish_login(self, get_token: Callable[[], str]) -> None:
         """Get the token and check it, in a thread. Esc until then leaves everything as it was."""
