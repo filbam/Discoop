@@ -259,7 +259,8 @@ ModalScreen {
 }
 
 #qr-status,
-#qr-box {
+#qr-box,
+#browser-hint {
     display: none;
 }
 
@@ -283,13 +284,34 @@ ModalScreen {
     text-wrap: nowrap;
 }
 
-LoginModal.-qr #login-form {
+#browser-hint {
+    margin-top: 1;
+    width: 100%;
+    height: auto;
+    color: $text-muted;
+}
+
+LoginModal.-qr #login-form,
+LoginModal.-browser #login-form {
     display: none;
 }
 
 LoginModal.-qr #qr-status,
-LoginModal.-qr #qr-box {
+LoginModal.-qr #qr-box,
+LoginModal.-browser #qr-status,
+LoginModal.-browser #browser-hint {
     display: block;
+}
+
+LoginModal.-browser #qr-status {
+    height: auto;
+}
+
+LoginModal.-browser #qr-status-lbl {
+    text-wrap: wrap;
+    text-overflow: clip;
+    height: auto;
+    margin-right: 1;
 }
 
 LoginModal.-qr.-short Footer {

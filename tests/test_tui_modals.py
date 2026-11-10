@@ -17,8 +17,12 @@ import pytest
 from rich.text import Text
 from textual.widgets import Button, Footer, Input, Label, Static
 
+from discoop import login as login_flow
+from discoop.api import DiscordAPI
+from discoop.browser_login import Browser, BrowserSession, wait_for_browser_token
 from discoop.cli import command_help
 from discoop.config import Config
+from discoop.errors import DiscoopError, ExitCode
 from discoop.models import Author, Channel, ChannelMessages, Message, Server
 from discoop.remote_auth.crypto import OAEP_SHA256, RemoteAuthKeys, UserPayload
 from discoop.remote_auth.protocol import LoginTicket
@@ -35,11 +39,13 @@ from discoop.tui.modals import (
 )
 from discoop.tui.state import WindowSpec
 from discoop.tui.widgets import ActionRow, ChoiceRow, ConfirmRow, InputRow, TextView, wrapped
+from fake_cdp import FAKE_TOKEN, FakeCdpBrowser, FakeSpawn, fast_timings, no_session_left_behind  # noqa: F401
 from fake_messages import NOW
 from test_tui_app import _make_dummy_api_factory, notifications, screen_text, started, wait_until
 
 QR_URL = "https://discord.com/ra/" + "a1B2c3D4e5" * 4 + "xyz"  # as long as a real one: 43 characters of fingerprint
 USER = UserPayload(id="42", discriminator="0001", avatar=None, username="student_a")
+FAKE_BROWSER = Browser("Chrome", Path("/opt/chrome/chrome"))
 
 
 def make_app(api_factory: Any = None) -> DiscoopApp:
@@ -68,6 +74,13 @@ def preview_results(*texts: str) -> list[ChannelMessages]:
 async def waits_forever(listener: Any, **kwargs: Any) -> LoginTicket:
     listener.on_connecting(1)
     listener.on_qr(QR_URL, time.monotonic() + 120)
+    await asyncio.Event().wait()
+    raise AssertionError("never comes back")
+
+
+async def waits_forever_browser(listener: Any, **kwargs: Any) -> str:
+    listener.on_launching("Chrome")
+    listener.on_opened(time.monotonic() + 300)
     await asyncio.Event().wait()
     raise AssertionError("never comes back")
 
@@ -104,6 +117,18 @@ async def open_qr(app: DiscoopApp, pilot: Any) -> None:
     await pilot.press("g")
 
 
+async def open_browser(app: DiscoopApp, pilot: Any) -> None:
+    app.push_screen(
+        LoginModal(
+            _make_dummy_api_factory(),
+            find_browser_fn=lambda: FAKE_BROWSER,
+            wait_for_browser_token_fn=waits_forever_browser,
+        )
+    )
+    await pilot.pause()
+    await pilot.press("b")
+
+
 async def open_window(app: DiscoopApp, pilot: Any) -> None:
     app.push_screen(TimeWindowModal("general"))
 
@@ -128,6 +153,7 @@ async def open_preview(app: DiscoopApp, pilot: Any) -> None:
         open_login,
         open_login_with_a_token,
         open_qr,
+        open_browser,
         open_window,
         open_window_error,
         open_preview,
@@ -149,7 +175,9 @@ async def test_every_visible_row_of_a_dialog_shows_text(open_dialog: Any, size: 
             assert row.region.height >= 1, row
             assert screen_text(app, row.region).strip(), row
         assert not re.search("[\U0001f300-\U0001faff☀-➿]", painted(app)), "no emoji"
-        assert app.screen.focused is not None or app.screen.has_class("-qr"), "the keyboard works at once"
+        assert (
+            app.screen.focused is not None or app.screen.has_class("-qr") or app.screen.has_class("-browser")
+        ), "the keyboard works at once"
 
 
 async def test_a_dialog_keeps_its_row_messages_from_the_app() -> None:
@@ -498,7 +526,7 @@ async def test_login_modal_paste_token_and_logout() -> None:
         app.push_screen(modal)
         await pilot.pause()
 
-        await pilot.press("down")  # the token field
+        await pilot.press("down", "down")  # past the browser row to the token field
         await pilot.pause()
         token_input = modal.query_one("#input-token", Input)
         assert app.focused is token_input
@@ -516,7 +544,7 @@ async def test_login_modal_paste_token_and_logout() -> None:
         app.push_screen(modal2)
         await pilot.pause()
         logout = modal2.query_one("#row-login-logout", ConfirmRow)
-        await pilot.press("down", "down", "down")
+        await pilot.press("down", "down", "down", "down")
         await pilot.pause()
         assert app.focused is logout
         await pilot.press("enter", "enter")
@@ -785,6 +813,305 @@ async def test_qr_view_keeps_frame_and_footer_in_a_tall_window() -> None:
         assert modal.has_class("-tall")
         assert modal.query_one(Footer).display
         assert "Login" in painted(app)
+
+
+async def test_login_modal_browser_row_and_footer_binding() -> None:
+    app = make_app()
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        modal = LoginModal(_make_dummy_api_factory())
+        app.push_screen(modal)
+        await pilot.pause()
+
+        row = modal.query_one("#row-login-browser", ActionRow)
+        assert str(row.content) == "[ Log in with browser (b) ]"
+        await pilot.press("down")
+        await pilot.pause()
+        assert app.focused is row  # right below the QR row
+        footer_keys = {key.key: str(key.description) for key in modal.query("FooterKey")}
+        assert footer_keys["b"] == "Browser"
+
+
+async def test_login_modal_browser_login_success_stores_token_and_dismisses() -> None:
+    seen_auth: list[str | None] = []
+    token_value = "FAKE-BROWSER-TOKEN-0000"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_auth.append(request.headers.get("Authorization"))
+        if "users/@me" in request.url.path:
+            return httpx.Response(200, json={"id": "42", "username": "browser_user"})
+        return httpx.Response(200, json=[])
+
+    def api_factory(token: str | None = None, **kw: Any) -> DiscordAPI:
+        kw["delay"] = 0.0
+        kw.setdefault("mode", "safe")
+        return DiscordAPI(token, transport=httpx.MockTransport(handler), **kw)
+    launching = asyncio.Event()
+    proceed_open = asyncio.Event()
+    opened = asyncio.Event()
+    proceed_capture = asyncio.Event()
+    captured = asyncio.Event()
+    proceed_return = asyncio.Event()
+    got_calls: list[tuple[Browser, float]] = []
+
+    async def fake_wait_browser(listener: Any, *, browser: Browser, timeout: float) -> str:
+        got_calls.append((browser, timeout))
+        listener.on_launching(browser.name)
+        launching.set()
+        await proceed_open.wait()
+        listener.on_opened(time.monotonic() + timeout)
+        opened.set()
+        await proceed_capture.wait()
+        listener.on_captured()
+        captured.set()
+        await proceed_return.wait()
+        return token_value
+
+    dismissed: list[Any] = []
+    app = DiscoopApp(api_factory=api_factory)
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        modal = LoginModal(
+            api_factory=api_factory,
+            find_browser_fn=lambda: FAKE_BROWSER,
+            wait_for_browser_token_fn=fake_wait_browser,
+        )
+        app.push_screen(modal, dismissed.append)
+        await pilot.pause()
+        await pilot.press("down", "enter")  # activate the browser row with Enter
+
+        await launching.wait()
+        await pilot.pause()
+        assert modal.has_class("-browser")
+        assert not modal.query_one("#login-form").display
+        assert str(modal.query_one("#qr-status-lbl", Label).content) == "Opening Chrome..."
+
+        proceed_open.set()
+        await opened.wait()
+        await pilot.pause()
+        assert str(modal.query_one("#qr-status-lbl", Label).content) == (
+            "A browser window opened (Chrome). Log in to Discord there; solve a captcha if one appears."
+        )
+        assert "Expires in" in str(modal.query_one("#qr-countdown-lbl", Label).content)
+        assert "passkey" in str(modal.query_one("#browser-hint", Label).content).lower()
+        assert "Esc" in str(modal.query_one("#browser-hint", Label).content)
+
+        # Pressing b or g while busy does nothing.
+        timer = modal._countdown_timer
+        await pilot.press("b", "g")
+        await pilot.pause()
+        assert modal._countdown_timer is timer
+        assert len(modal.workers) == 1
+        assert not modal.has_class("-qr")
+
+        proceed_capture.set()
+        await captured.wait()
+        await pilot.pause()
+        assert str(modal.query_one("#qr-status-lbl", Label).content) == (
+            "Login detected, closing the browser window..."
+        )
+        assert str(modal.query_one("#qr-countdown-lbl", Label).content) == ""
+
+        proceed_return.set()
+        await wait_until(pilot, lambda: not isinstance(app.screen, LoginModal))
+
+        assert dismissed == [True]
+        assert got_calls == [(FAKE_BROWSER, login_flow.BROWSER_TIMEOUT)]
+        assert seen_auth == [token_value]
+        stored = TokenStore.default().load()
+        assert stored is not None and stored.token == token_value
+        assert any("browser_user" in msg for msg in notifications(app))
+        assert modal._countdown_timer is None
+
+
+async def test_login_modal_browser_listener_callbacks_are_ascii() -> None:
+    app = make_app()
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        modal = LoginModal(_make_dummy_api_factory())
+        app.push_screen(modal)
+        await pilot.pause()
+
+        modal.on_launching("Edge")
+        launching_text = str(modal.query_one("#qr-status-lbl", Label).content)
+        assert launching_text == "Opening Edge..."
+        assert launching_text.isascii()
+
+        modal.on_opened(time.monotonic() + 120)
+        opened_text = str(modal.query_one("#qr-status-lbl", Label).content)
+        assert opened_text == (
+            "A browser window opened (Edge). Log in to Discord there; solve a captcha if one appears."
+        )
+        assert opened_text.isascii()
+        assert "Expires in" in str(modal.query_one("#qr-countdown-lbl", Label).content)
+
+        modal.on_captured()
+        captured_text = str(modal.query_one("#qr-status-lbl", Label).content)
+        assert captured_text == "Login detected, closing the browser window..."
+        assert captured_text.isascii()
+        assert str(modal.query_one("#qr-countdown-lbl", Label).content) == ""
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        DiscoopError(ExitCode.AUTH_REQUIRED, "The browser window was closed before the login finished."),
+        DiscoopError(ExitCode.AUTH_REQUIRED, "The login was not finished within 5 minutes."),
+        DiscoopError(ExitCode.ERROR, "No supported browser was found (Chrome, Edge, Chromium or Brave)."),
+    ],
+    ids=["closed-window", "timeout", "no-browser"],
+)
+async def test_login_modal_browser_failures_return_to_form(error: DiscoopError) -> None:
+    async def failing_wait(listener: Any, **kwargs: Any) -> str:
+        listener.on_launching("Chrome")
+        raise error
+
+    app = make_app()
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        modal = LoginModal(
+            _make_dummy_api_factory(),
+            find_browser_fn=lambda: FAKE_BROWSER,
+            wait_for_browser_token_fn=failing_wait,
+        )
+        app.push_screen(modal)
+        await pilot.pause()
+        await pilot.press("b")
+
+        err_label = modal.query_one("#login-error", Label)
+        await wait_until(pilot, lambda: err_label.display)
+        assert error.message in str(err_label.content)
+        assert modal.query_one("#login-form").display
+        assert not modal.has_class("-browser")
+        assert app.focused is modal.query_one("#row-login-browser")
+        assert modal._countdown_timer is None
+        assert not modal._busy
+        assert TokenStore.default().load() is None
+
+
+async def test_login_modal_browser_escape_reaches_real_engine_and_cleans_up(tmp_path: Path) -> None:
+    fake = FakeCdpBrowser()  # nobody logs in
+    spawn = FakeSpawn(fake)
+    profile_root = tmp_path / "profiles"
+    entered_engine = asyncio.Event()
+
+    async def real_engine_wait(listener: Any, *, browser: Browser, timeout: float) -> str:
+        entered_engine.set()
+        return await wait_for_browser_token(
+            listener,
+            browser=browser,
+            timeout=timeout,
+            poll_interval=0.02,
+            session_factory=lambda b: BrowserSession(
+                b, spawn=spawn, profile_root=profile_root, timings=fast_timings()
+            ),
+        )
+
+    dismissed: list[Any] = []
+    app = make_app()
+    async with fake.running(), app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        modal = LoginModal(
+            _make_dummy_api_factory(),
+            find_browser_fn=lambda: FAKE_BROWSER,
+            wait_for_browser_token_fn=real_engine_wait,
+        )
+        app.push_screen(modal, dismissed.append)
+        await pilot.pause()
+        await pilot.press("b")
+
+        await entered_engine.wait()
+        await wait_until(
+            pilot,
+            lambda: "A browser window opened (Chrome)" in str(modal.query_one("#qr-status-lbl", Label).content),
+        )
+        assert list(profile_root.glob("discoop-browser-*")), "temporary profile exists while window is open"
+
+        await pilot.press("escape")
+        await wait_until(pilot, lambda: app.screen is not modal and not modal.workers)
+
+        assert dismissed == [False]
+        assert fake.close_requested  # cancellation reached the engine and closed the window over CDP
+        assert list(profile_root.glob("discoop-browser-*")) == []  # temporary profile deleted
+        assert modal._countdown_timer is None
+        assert TokenStore.default().load() is None
+
+
+async def test_login_modal_browser_uses_configured_browser_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DISPLAY", ":0")  # on Linux find_browser requires a desktop session
+    program = tmp_path / "edge.exe"
+    program.write_text("not really a browser", encoding="utf-8")
+    Config.default().set("browser-path", str(program))
+    seen_browsers: list[Browser] = []
+
+    async def fake_wait(listener: Any, *, browser: Browser, timeout: float) -> str:
+        seen_browsers.append(browser)
+        listener.on_launching(browser.name)
+        raise DiscoopError(ExitCode.AUTH_REQUIRED, "Closed.")
+
+    app = make_app()
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        modal = LoginModal(_make_dummy_api_factory(), wait_for_browser_token_fn=fake_wait)
+        app.push_screen(modal)
+        await pilot.pause()
+        await pilot.press("b")
+        await wait_until(pilot, lambda: modal.query_one("#login-error", Label).display)
+
+    assert seen_browsers == [Browser("Edge", program)]
+
+
+@pytest.mark.parametrize("size", [(80, 24), (140, 40)])
+async def test_browser_view_fits_window_and_shows_full_text(size: tuple[int, int]) -> None:
+    app = make_app()
+    async with app.run_test(size=size) as pilot:
+        await started(app, pilot)
+        await open_browser(app, pilot)
+        await pilot.pause(0.05)
+
+        modal = app.screen
+        dialog = modal.query_one("#login-dialog").region
+        assert dialog.y >= 0 and dialog.bottom <= size[1]
+        assert dialog.x >= 0 and dialog.right <= size[0]
+
+        assert str(modal.query_one("#qr-status-lbl", Label).content) == (
+            "A browser window opened (Chrome). Log in to Discord there; solve a captcha if one appears."
+        )
+        screen = " ".join(painted(app).split())
+        assert "A browser window opened (Chrome)." in screen, screen
+        assert "Log in to Discord" in screen, screen
+        assert "there; solve a captcha if one appears." in screen, screen
+        assert "Expires in" in screen
+        assert "passkey" in screen.lower()
+        assert "Esc" in screen
+        assert modal.query_one(Footer).display
+
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, LoginModal)
+
+
+async def test_login_modal_qr_busy_ignores_browser_key() -> None:
+    app = make_app()
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        called: list[str] = []
+        modal = LoginModal(
+            _make_dummy_api_factory(),
+            wait_for_ticket_fn=waits_forever,
+            find_browser_fn=lambda: called.append("find") or FAKE_BROWSER,
+        )
+        app.push_screen(modal)
+        await pilot.pause()
+        await pilot.press("g")
+        await wait_until(pilot, lambda: "▀" in str(modal.query_one("#qr-box", Static).content))
+
+        await pilot.press("b")
+        await pilot.pause()
+        assert modal.has_class("-qr") and not modal.has_class("-browser")
+        assert called == []
+        await pilot.press("escape")
+        await pilot.pause()
 
 
 # ==================== Preview ====================
@@ -1077,6 +1404,7 @@ async def test_help_lists_the_keys_of_the_adr() -> None:
         expected = {"↑ ↓", "→", "←", "← →", "Space", "Enter", "Tab, Shift+Tab", "1 2 3", "/", "e", "x, Delete", "X", "a"}
         expected |= {"r", "R", "L", "F5", "Esc", "c", "F1, ?", "F2", "F3", "Ctrl+P", "q"}
         expected |= {"P", "p", "o"}  # save a profile, load a profile, open the export folder
+        expected |= {"b"}  # log in with browser in the login dialog
         assert keys == expected
         for key in expected:
             assert key in guide

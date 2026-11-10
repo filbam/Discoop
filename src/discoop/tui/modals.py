@@ -5,7 +5,7 @@ Provides:
 - HelpScreen: the guide to the TUI and the `--help` of every command.
 - PreviewScreen: fetched messages in any output format, with search and saving to a file.
 - SettingsModal: the user configuration.
-- LoginModal: QR login, a pasted token and logout.
+- LoginModal: QR login, browser login, a pasted token and logout.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from textual.widgets import Footer, Input, Label, Static
 
 from discoop import login as login_flow, paths, profiles
 from discoop.api import DiscordAPI
+from discoop.browser_login import Browser, wait_for_browser_token
 from discoop.cache import clear_cache
 from discoop.cli import LOCAL_ZONE, command_help
 from discoop.config import DEFAULTS, DESCRIPTIONS, MODES, Config, parse_delay, parse_export_dir, parse_mode
@@ -52,6 +53,10 @@ PREVIEW_SUFFIXES = {"text": ".txt", "md": ".md", "json": ".json", "jsonl": ".jso
 
 SAVE_LABEL = "[ Save (Enter) ]"
 VERIFY_LABEL = "[ Verify and save token (Enter) ]"
+BROWSER_HINT_TEXT = (
+    "If your system asks for a passkey or security key, you can cancel that dialog and log in with your "
+    "password or the QR code on the page. Press Esc to cancel and close the browser window."
+)
 QR_DIALOG_HEIGHT = 27  # the QR code, a status line, the frame and the Footer; less loses the frame and the Footer
 
 GUIDE_TOPIC = "TUI guide"
@@ -95,6 +100,7 @@ GUIDE_KEYS = (
     ("F1, ?", "this help"),
     ("F2", "settings"),
     ("F3", "login"),
+    ("b", "login dialog: log in with browser"),
     ("Ctrl+P", "command palette (change the theme)"),
     ("q", "quit. A running operation is stopped first"),
 )
@@ -624,14 +630,15 @@ class LoadProfileModal(Dialog[str | None]):
 
 
 class LoginModal(ScrollingDialog[bool]):
-    """QR login, a pasted token and logout. Dismisses with True when the account changed.
+    """QR login, browser login, a pasted token and logout. Dismisses with True when the account changed.
 
     `g` swaps the form for the QR code, which a phone can only read in one piece. In a short window the frame and the
-    Footer give way to it, and in an even shorter one the scroll keys move it.
+    Footer give way to it, and in an even shorter one the scroll keys move it. `b` opens the user's own browser.
     """
 
     BINDINGS = [
         Binding("g", "generate_qr", "QR code"),
+        Binding("b", "browser_login", "Browser"),
         Binding("escape", "cancel", "Cancel", key_display="Esc"),
     ]
 
@@ -641,13 +648,18 @@ class LoginModal(ScrollingDialog[bool]):
         self,
         api_factory: Callable[..., DiscordAPI] | None = None,
         wait_for_ticket_fn: Callable[..., Awaitable[LoginTicket | None]] = wait_for_ticket,
+        find_browser_fn: Callable[[], Browser] = login_flow.find_login_browser,
+        wait_for_browser_token_fn: Callable[..., Awaitable[str]] = wait_for_browser_token,
     ) -> None:
         super().__init__()
         self.api_factory = api_factory or DiscordAPI
         self.wait_for_ticket_fn = wait_for_ticket_fn
-        self._busy = False  # a login is on its way, by QR code or by token
+        self.find_browser_fn = find_browser_fn
+        self.wait_for_browser_token_fn = wait_for_browser_token_fn
+        self._busy = False  # a login is on its way, by QR code, browser or token
         self._qr_deadline: float | None = None
         self._countdown_timer: Timer | None = None
+        self._browser_name = "Browser"
 
     def compose(self) -> ComposeResult:
         stored = TokenStore.default().load()
@@ -659,6 +671,7 @@ class LoginModal(ScrollingDialog[bool]):
             with FormPanel(enter_moves=False, id="login-form"):
                 yield Label(status, id="login-status-lbl", markup=False)
                 yield ActionRow("[ Generate QR code (g) ]", id="row-login-qr")
+                yield ActionRow("[ Log in with browser (b) ]", id="row-login-browser")
                 yield InputRow("Token", "input-token", placeholder="paste a Discord token", password=True)
                 yield ActionRow(VERIFY_LABEL, id="row-login-save")
                 if stored is not None:
@@ -667,6 +680,7 @@ class LoginModal(ScrollingDialog[bool]):
                 yield Label("", id="qr-status-lbl", markup=False)
                 yield Label("", id="qr-countdown-lbl", markup=False)
             yield Static("", id="qr-box", markup=False)
+            yield Label(BROWSER_HINT_TEXT, id="browser-hint", markup=False)
             yield Label("", id="login-error", classes="dialog-error", markup=False)
         yield dialog_footer()
 
@@ -679,6 +693,8 @@ class LoginModal(ScrollingDialog[bool]):
     def on_action_row_pressed(self, event: ActionRow.Pressed) -> None:
         if event.row.id == "row-login-qr":
             self.action_generate_qr()
+        elif event.row.id == "row-login-browser":
+            self.action_browser_login()
         elif event.row.id == "row-login-save":
             self._verify_token()
         elif event.row.id == "row-login-logout":
@@ -697,6 +713,16 @@ class LoginModal(ScrollingDialog[bool]):
         self.set_class(True, "-qr")
         self._countdown_timer = self.set_interval(1.0, self._tick_countdown)
         self.run_worker(self._guarded(self._qr_login()), group="login")
+
+    def action_browser_login(self) -> None:
+        if self._busy:
+            return
+        self._busy = True
+        self.show_error("")
+        self._clear_qr("Looking for a browser...")
+        self.set_class(True, "-browser")
+        self._countdown_timer = self.set_interval(1.0, self._tick_countdown)
+        self.run_worker(self._guarded(self._browser_login()), group="login")
 
     def _verify_token(self) -> None:
         if self._busy:
@@ -728,13 +754,17 @@ class LoginModal(ScrollingDialog[bool]):
 
     def _login_failed(self, message: str) -> None:
         was_qr = self.has_class("-qr")
+        was_browser = self.has_class("-browser")
         self._busy = False
         self._stop_countdown()
         self.set_class(False, "-qr")
+        self.set_class(False, "-browser")
         self.query_one("#row-login-save", ActionRow).update(VERIFY_LABEL)
         self.show_error(message)
         if was_qr:
             self.query_one("#row-login-qr", ActionRow).focus()
+        elif was_browser:
+            self.query_one("#row-login-browser", ActionRow).focus()
 
     async def _qr_login(self) -> None:
         ticket = await self.wait_for_ticket_fn(self)
@@ -747,6 +777,12 @@ class LoginModal(ScrollingDialog[bool]):
                 return login_flow.exchange_ticket(ticket, api, trace)
 
         await self._finish_login(exchange)
+
+    async def _browser_login(self) -> None:
+        browser = self.find_browser_fn()
+        self._browser_name = browser.name
+        token = await self.wait_for_browser_token_fn(self, browser=browser, timeout=login_flow.BROWSER_TIMEOUT)
+        await self._finish_login(lambda: token)
 
     async def _finish_login(self, get_token: Callable[[], str]) -> None:
         """Get the token and check it, in a thread. Esc until then leaves everything as it was."""
@@ -773,12 +809,16 @@ class LoginModal(ScrollingDialog[bool]):
         if self._qr_deadline is not None:
             left = max(0, int(self._qr_deadline - time.monotonic()))
             text = f"Expires in {left // 60}:{left % 60:02d}"
-        self.query_one("#qr-countdown-lbl", Label).update(text)
+        label = self.query_one("#qr-countdown-lbl", Label)
+        label.update(text)
+        label.display = bool(text)
 
     def _clear_qr(self, status: str) -> None:
         self._qr_deadline = None
         self.query_one("#qr-box", Static).update("")
-        self.query_one("#qr-countdown-lbl", Label).update("")
+        countdown = self.query_one("#qr-countdown-lbl", Label)
+        countdown.update("")
+        countdown.display = False
         self.query_one("#qr-status-lbl", Label).update(status)
 
     # The listener of wait_for_ticket.
@@ -797,3 +837,19 @@ class LoginModal(ScrollingDialog[bool]):
 
     def on_restart(self, reason: str) -> None:
         self._clear_qr(f"{reason.capitalize()}, getting a new QR code...")
+
+    # The listener of wait_for_browser_token.
+
+    def on_launching(self, browser_name: str) -> None:
+        self._browser_name = browser_name
+        self._clear_qr(f"Opening {browser_name}...")
+
+    def on_opened(self, deadline: float) -> None:
+        self._qr_deadline = deadline
+        self.query_one("#qr-status-lbl", Label).update(
+            f"A browser window opened ({self._browser_name}). Log in to Discord there; solve a captcha if one appears."
+        )
+        self._tick_countdown()
+
+    def on_captured(self) -> None:
+        self._clear_qr("Login detected, closing the browser window...")
