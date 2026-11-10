@@ -1,8 +1,8 @@
 # Browser Login Analysis (Chromium DevTools Protocol)
 
 Date: 2026-11-10. Subject: how `discoop login --browser` gets a Discord token out of the user's own Chrome, Edge,
-Chromium or Brave, as built in the package `discoop.browser_login` (engine only; the command, the TUI and the config
-key come in later steps). Decision record: [ADR 0022](../decisions/0022-browser-login.md), requirements P31 to P33 in
+Chromium or Brave, as built in the package `discoop.browser_login` (with the CLI command and the `browser-path`
+config key; the TUI comes in a later step). Decision record: [ADR 0022](../decisions/0022-browser-login.md), requirements P31 to P33 in
 [requirements.md](../requirements.md).
 
 **Legend:** **[VERIFIED]** = observed on 2026-11-10 in a local check (section 4) or by the test suite; the source and
