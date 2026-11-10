@@ -34,6 +34,7 @@ Decisions that are not yet resolved are in [design.md, section 15](../design.md#
 | [0020](0020-since-last.md) | Incremental download (`--since-last`) | Accepted | 2026-11-04 |
 | [0021](0021-english-only-repository.md) | English-only repository | Accepted | 2026-11-04 |
 | [0022](0022-browser-login.md) | Browser login `discoop login --browser` | Accepted | 2026-11-10 |
+| [0023](0023-version-and-single-source.md) | Version 1.0.0 and single source of truth | Accepted | 2026-11-10 |
 
 ## Template
 

@@ -5,7 +5,7 @@ of study information. Personal project for study purposes.
 
 **Warning:** scraping violates Discord's Terms of Service. You use the tool at your own risk; account suspension is possible.
 
-**Status:** work in progress. Working features include `login` (QR code in terminal, `--browser` window, or `--token`), `status`, `logout`,
+**Status:** first `1.x` release (run `discoop --version` or see [CHANGELOG.md](CHANGELOG.md)); partly verified on a real account on Windows 10 (see the login and [analysis](docs/analyses/) notes; Linux and macOS untested). Working features include `login` (QR code in terminal, `--browser` window, or `--token`), `status`, `logout`,
 `servers`, `channels`, `threads`, `config`, `messages` (printing messages to console, downloading attachments and resilient export to folder
 or zip with manifest and automatic resume, download modes `safe` and `fast`, incremental download `--since-last`, token splitting `--max-tokens`), interactive terminal user interface `discoop ui` (TUI), diagnostics `doctor`, diagnostic logging, profile management, and reference `discoop agent-guide`. Threads and forums are fully supported.
 

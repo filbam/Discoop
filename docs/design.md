@@ -374,7 +374,7 @@ Diagnostic command to verify runtime environment, connectivity, and exports fold
   - `export_dir`: writability of exports folder (`export-dir` from config, otherwise current directory) via `os.access` on the nearest existing parent (creates nothing),
   - `disk_space`: free disk space via `shutil.disk_usage` (FAIL below 100 MB, otherwise OK with size in MB),
   - `cache`: cache age (`servers`),
-  - `version`: tool version (`__version__`).
+  - `version`: tool version (`__version__`, read from `pyproject.toml` via package metadata; [ADR 0023](decisions/0023-version-and-single-source.md)).
 - **Output:**
   - in human mode, a Rich table (`check`, `status`, `detail`),
   - in plain mode (`--plain`), tab-separated lines `check<TAB>OK|FAIL<TAB>detail`.

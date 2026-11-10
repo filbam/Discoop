@@ -5,7 +5,13 @@ versions adhere to [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-10
+
+First `1.x` release; earlier `0.x` numbers were never published.
+
 ### Added
+- **Single-source package version ([ADR 0023](docs/decisions/0023-version-and-single-source.md)):** `pyproject.toml` (`project.version`) is now the single place storing the version number; `discoop.__version__` reads it at runtime via `importlib.metadata.version("discoop")` (with `"0+unknown"` fallback when uninstalled), guarded by `tests/test_version.py`.
+- **First real-account check of browser login (2026-11-10, Windows 10, [analysis](docs/analyses/browser-login.md) section 7):** verified Chrome `--debug` login (`source=storage`, `profile_removed=true` in 0.41–0.50 s, `GET /users/@me` 200, `WinVaultKeyring`), Edge `--browser-path` login, `--timeout 30` exit code `2`, clean folder/process removal, and starting `discoop ui`.
 - **Browser login in the TUI (`discoop ui`, 2026-11-10, P31, P32, [ADR 0022](docs/decisions/0022-browser-login.md)):** `LoginModal` (`F3`) now supports logging in through the user's own browser alongside QR login and pasted tokens.
   - Added `[ Log in with browser (b) ]` (`#row-login-browser`) right below the QR row, binding `b` (`action_browser_login`, footer label `Browser`), and listed `b` in Help (`GUIDE_KEYS`). Pressing `b` while a login is already running (`_busy`) does nothing.
   - Added the `-browser` view state (`modals.py`, `discoop.tcss`, fitting in 80x24 and 140x40): hides the form, updates the status label across `Opening <name>...`, `A browser window opened (<name>). Log in to Discord there; solve a captcha if one appears.`, and `Login detected, closing the browser window...`, reuses the countdown timer from `on_opened(deadline)`, and shows a plain-ASCII passkey cancellation and `Esc` notice.

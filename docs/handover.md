@@ -20,7 +20,7 @@ Before starting any work, the following documents **must be read**:
 4. **[docs/journal.md](journal.md):**
    - Chronological journal of development so far, test records on the user's real account, and resolved incidents.
 5. **[docs/decisions/README.md](decisions/README.md):**
-   - Registry of all Architectural Decision Records ([ADR 0001](decisions/0001-record-everything-and-version-it.md) to [ADR 0022](decisions/0022-browser-login.md)).
+   - Registry of all Architectural Decision Records ([ADR 0001](decisions/0001-record-everything-and-version-it.md) to [ADR 0023](decisions/0023-version-and-single-source.md)).
 6. **[docs/analyses/thread-probe-2026-11-04.md](analyses/thread-probe-2026-11-04.md):**
    - Results of probe measurements for threads, forums, and `last_message_id` on a real Discord account with strict distinction between `[VERIFIED]` and `[ASSUMPTION]`.
 7. **[docs/analyses/real-account-check-2026-11-04.md](analyses/real-account-check-2026-11-04.md):**
@@ -32,7 +32,7 @@ Before starting any work, the following documents **must be read**:
 
 ## 2. Current project status (as of 2026-11-10)
 
-- **Test coverage:** All **1186 automated tests** pass (`uv run pytest`; 1 skipped on Windows without symlink privileges). All run offline against fake Discord (`httpx.MockTransport`) and fake CDP (`FakeCdpBrowser`, `FakeSpawn`). Round 2 features were partially verified on a real account on 2026-11-04 (details in [analysis](analyses/real-account-check-2026-11-04.md)), and CLI browser login (`discoop login --browser` with Chrome and Edge, `--timeout 30` exit code `2`) plus starting `discoop ui` were verified on a real account on Windows 10 on 2026-11-10 (details in [browser-login.md](analyses/browser-login.md), section 7). What remains unverified is in section 4.
+- **Test coverage:** All **1190 automated tests** pass (`uv run pytest`; 1 skipped on Windows without symlink privileges). All run offline against fake Discord (`httpx.MockTransport`) and fake CDP (`FakeCdpBrowser`, `FakeSpawn`). Round 2 features were partially verified on a real account on 2026-11-04 (details in [analysis](analyses/real-account-check-2026-11-04.md)), and CLI browser login (`discoop login --browser` with Chrome and Edge, `--timeout 30` exit code `2`) plus starting `discoop ui` were verified on a real account on Windows 10 on 2026-11-10 (details in [browser-login.md](analyses/browser-login.md), section 7). What remains unverified is in section 4.
 - **Origin of round 2:** the implementation (P26–P30) was done by Antigravity according to `docs/briefs/antigravity-round-2.md`, then reviewed by the main Claude and findings were fixed. What was found and fixed is in [journal.md](journal.md), section 2026-11-04.
 - **Installed environment:** Python 3.12+, project managed via `uv`. Development in the repo runs via `uv run discoop ...`, the user has the `discoop` command installed (`uv tool install git+https://github.com/filbam/Discoop`, instructions in [README.md](../README.md)).
 - **The repo is public** (P22, [ADR 0015](decisions/0015-public-repo-and-installation.md)). No token, cookies, or other people's names and message texts may go into git. `[VERIFIED]`: installation from local clone on Windows. `[ASSUMPTION]`: installation from GitHub, Linux, macOS.
@@ -140,7 +140,7 @@ The tool allows pacing selection via configuration (`discoop config set mode saf
     - `export_dir`: writeability of export folder (`export-dir` from config, otherwise current folder) via `os.access` on nearest existing parent (creates nothing),
     - `disk_space`: free space via `shutil.disk_usage` (FAIL under 100 MB, otherwise size in MB),
     - `cache`: server cache age,
-    - `version`: tool version (`__version__`).
+    - `version`: tool version (`__version__`, read from `pyproject.toml` via package metadata per [ADR 0023](decisions/0023-version-and-single-source.md)).
   - Output: in plain mode, tab-separated lines `check<TAB>OK|FAIL<TAB>detail`; in human mode, table (`check`, `status`, `detail`).
   - Exit code based on first failed check (`AUTH_REQUIRED` 2, `NETWORK` 7, otherwise `ERROR` 1); 0 on success.
 
@@ -234,7 +234,7 @@ GitHub (`origin/main`) is at `94bd862`, newer commits are only local (`git log -
 
 ## 4. What follows next
 
-All 6 steps of the original implementation plan plus browser login (round 4) are implemented and tested offline (1186 tests pass, 1 skipped on Windows without symlink privileges). Part of round 2 was verified on a real account on 2026-11-04 (details in [analysis](analyses/real-account-check-2026-11-04.md)), and CLI browser login plus starting `discoop ui` were partly verified on Windows 10 on 2026-11-10 (details in [browser-login.md](analyses/browser-login.md), section 7).
+All 6 steps of the original implementation plan plus browser login (round 4) and single-source versioning ([ADR 0023](decisions/0023-version-and-single-source.md)) are implemented and tested offline (1190 tests pass, 1 skipped on Windows without symlink privileges). Part of round 2 was verified on a real account on 2026-11-04 (details in [analysis](analyses/real-account-check-2026-11-04.md)), and CLI browser login plus starting `discoop ui` were partly verified on Windows 10 on 2026-11-10 (details in [browser-login.md](analyses/browser-login.md), section 7).
 
 1. **Tests by the user on a real account that are still missing:**
    - **Browser login (`login --browser` and TUI `b`):** QR code on the web page, a real captcha, closing the window with X before logging in, Ctrl+C (exit code 130), `Esc` in the TUI during browser login, the Windows Security passkey dialog, Edge first-run/sign-in screens, `source=header`, the new entry under Discord Settings > Devices, `discoop status` the next day, hard kill (>24 h stale profile cleanup), and Linux and macOS (including snap/flatpak browsers).
