@@ -18,7 +18,8 @@ Chronological record of work: what was done, what was decided, incidents, and ne
   - A token rejected by Discord after browser capture exits with code 2 and its own message instead of "stored token is invalid"; `config set browser-path` requires an existing file; an empty explicit path counts as not given; `login --format json` omits `data_dir`; notices use `Output.note`.
   - In the TUI, added `("b", "login dialog: log in with browser")` to `GUIDE_KEYS` (updating `test_help_lists_the_keys_of_the_adr`), updated `test_login_modal_paste_token_and_logout` navigation by one row for `#row-login-browser`, and treated `-browser` like `-qr` for form focus in `test_every_visible_row_of_a_dialog_shows_text` while verifying `Esc` cancellation directly.
 - **Verified and test count:**
-  - `uv run pytest`: **1178 passed, 1 skipped** (the skip is the symlink test on Windows requiring symlink privileges; offline tests using `FakeCdpBrowser`, `FakeSpawn`, `httpx.MockTransport`, and `InMemoryKeyring`).
+  - `uv run pytest`: **1186 passed, 1 skipped** (the skip is the symlink test on Windows requiring symlink privileges; offline tests using `FakeCdpBrowser`, `FakeSpawn`, `httpx.MockTransport`, and `MemoryKeyring`).
+  - Review follow-up fixes: `--browser-path ""` / whitespace-only CLI option is handled as `str | None` so it counts as not given instead of resolving `Path("")` to `.`; `LoginModal.action_generate_qr` clears any prior browser status/countdown before showing `-qr`; and `docs/handover.md` no longer says TUI browser login is unstarted.
   - `[VERIFIED]` locally (2026-11-10): `discoop.browser_login` engine tested against local headless Chrome 157.0.8103.38 and Edge 157.0.4341.42 on Windows 10 using local pages (`127.0.0.1`), never contacting Discord.
   - `[ASSUMPTION]` / Unverified: no real Discord account login has been tried yet.
 - **Incidents:**
