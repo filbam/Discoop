@@ -5,19 +5,22 @@ Chromium or Brave, as built in the package `discoop.browser_login` (together wit
 config key and the TUI login dialog). Decision record: [ADR 0022](../decisions/0022-browser-login.md), requirements P31 to P33 in
 [requirements.md](../requirements.md).
 
-**Legend:** **[VERIFIED]** = observed on 2026-11-10 in a local check (section 4) or by the test suite; the source and
-the browser version are named. **[ASSUMPTION]** = general knowledge, documentation, or reasoning that has not been
-observed here. Everything that concerns Discord's own web client or the user's real account is an assumption until the
-checklist in section 6 has been done.
+**Legend:** **[VERIFIED]** = observed on 2026-11-10 in a local check (section 4), by the test suite, or in the
+owner's first real-account check (section 7); the source and browser are named. **[ASSUMPTION]** = general knowledge,
+documentation, or reasoning that has not been observed here. Items in sections 3 and 6 that were not part of the first
+real-account check remain assumptions until tested.
 
 **Methodology and privacy:**
-- The local check ran on Windows 10 Education 10.0.19045 with the installed Chrome **157.0.8103.38** and Edge
+- **Local check (section 4):** ran on Windows 10 Education 10.0.19045 with the installed Chrome **157.0.8103.38** and Edge
   **157.0.4341.42**, Python 3.12.10 and `websockets` 17.4. Both browsers were started **headless** (`--headless=new`) with
   a fresh temporary `--user-data-dir`, on tiny pages served from `127.0.0.1`. Discord was never contacted and no browser
   was navigated to `discord.com`.
-- The user's own Chrome and Edge windows were open during the check and were not touched: every browser the check started
+- The user's own Chrome and Edge windows were open during the local check and were not touched: every browser the check started
   had its own profile folder, and the only processes ever stopped were ones whose command line named that folder.
-- The check scripts are one-off and live outside the repository. All tokens are made up (`FAKE-...`).
+- The local check scripts are one-off and live outside the repository. All tokens are made up (`FAKE-...`).
+- **First real-account check (section 7):** on 2026-11-10 on Windows 10, the owner ran `discoop` commands in their own
+  terminal against their real Discord account and pasted the terminal output into the chat. Agents never contacted Discord,
+  started a real browser, or copied any display name, handle, user ID, or token into the repository.
 
 ---
 
@@ -83,9 +86,9 @@ dependency (`websockets` is already used for the QR gateway).
 | T2 | `DOMStorage.enable` is **not required** before reading (the reads worked before and after it). The engine still enables the domain, as the documented way to use it. | **[VERIFIED]** Chrome 157, Edge 157. |
 | T3 | For an origin that no frame of the page has, the read fails with error code -32000 `Frame not found for the given storage id`. So reads fail while the page is still loading and while the user is on another site, which is why an error from this one command only means "not now" and never ends the login. | **[VERIFIED]** Chrome 157, Edge 157. |
 | T4 | `Network.requestWillBeSent` events arrive on the browser WebSocket with the page's `sessionId`; `request.headers` carries the `Authorization` header a page script set, under the spelling the page used (`Authorization`). The engine compares the name case-insensitively. Cookies are not read. | **[VERIFIED]** Chrome 157, Edge 157, for a header set by a script on a local page. |
-| T5 | Discord's web client keeps the token in the localStorage key `token` as a JSON-encoded string (the value is the token wrapped in double quotes). The engine decodes it with `json.loads` and, if the value is not JSON, takes it as it is. | **[ASSUMPTION]** until checked on a real account (checklist, section 6). A page script set the same shape in the local check (**[VERIFIED]** that the engine reads that shape). |
-| T6 | Discord's web client hides `window.localStorage` from page scripts, which is why the passive DOMStorage domain is used and `Runtime.evaluate` is not. | **[ASSUMPTION]** |
-| T7 | Once a token exists, the web client's HTTP client adds `Authorization` to every request under `/api/` ([discord-login.md](discord-login.md), section 4.2: function `prepareRequest` in the client JS). So the header source should fire shortly after the login, and it is a second chance if T5 turns out wrong. | Client JS: **[VERIFIED]** in the earlier analysis. Seen through CDP on a real login: **[ASSUMPTION]**. |
+| T5 | Discord's web client keeps the token in the localStorage key `token` as a JSON-encoded string (the value is the token wrapped in double quotes). The engine decodes it with `json.loads` and, if the value is not JSON, takes it as it is. | **[VERIFIED]** for Chrome on Windows 10 (2 runs in section 7: `token found source=storage`, `GET /users/@me` returned 200; Edge's source was not recorded because it ran without `--debug`). The local check also **[VERIFIED]** that the engine reads that JSON-string shape. |
+| T6 | Discord's web client hides `window.localStorage` from page scripts, which is why the passive DOMStorage domain is used and `Runtime.evaluate` is not. | **[VERIFIED]** that `DOMStorage.getDOMStorageItems` reads Discord's `localStorage` on the real page (Chrome on Windows 10, 2 runs in section 7: `storage readable=false`, then `storage readable=true` 1.0–1.5 s later and `source=storage`). That `window.localStorage` is hidden from page scripts was not tested directly and stays **[ASSUMPTION]**. |
+| T7 | Once a token exists, the web client's HTTP client adds `Authorization` to every request under `/api/` ([discord-login.md](discord-login.md), section 4.2: function `prepareRequest` in the client JS). So the header source should fire shortly after the login, and it is a second chance if T5 turns out wrong. | Client JS: **[VERIFIED]** in the earlier analysis. Seen through CDP on a real login: **[ASSUMPTION]** (`source=storage` fired first in both Chrome `--debug` runs in section 7, so `source=header` has not fired first and it is unknown whether it fires at all). |
 
 ### 3.3 The process and the profile
 
@@ -93,7 +96,7 @@ dependency (`websockets` is already used for the QR gateway).
 |---|---|---|
 | P1 | **Edge 157 relaunches itself on this Windows 10 machine.** The `msedge.exe` that was started exits with **code 0 after about 0.05 s**; a second `msedge.exe` (the real browser, with the extra flag `--edge-skip-compat-layer-relaunch` on its command line) carries on. The port file appears 0.25 s after the start. `SystemInfo.getProcessInfo` reports a browser process id that is **not** the id of the process that was started. Chrome 157 does not do this (its reported id equals the started one). Consequences: an exit with code 0 before the port file is **not** a failed start; the exit code and handle of the first process say nothing about the window afterwards; the real browser is closed through `Browser.close` and, only if that is ignored, stopped by the process id from `SystemInfo.getProcessInfo`. | **[VERIFIED]** Edge 157 and Chrome 157, Windows 10 (process listing and local check, section 4). Why Edge does it (the flag name suggests an application-compatibility relaunch): **[ASSUMPTION]**. |
 | P2 | On Windows, a profile in a folder with a long path cannot be deleted by ordinary calls: Chrome writes files such as `Default\Extensions\<id>\<version>\images\...` and `OptimizationGuideModelsManifest\...`, the full path passes 260 characters, and `unlink`/`rmdir` fail with WinError 3 and 145 although the files are listed. Deleting through the extended-length form (`\\?\` prefix) worked on the very same leftover profile. The engine always deletes that way on Windows. A normal `%TEMP%` path is short, so this is a safety net; it was found because the check's profile root was deep. | **[VERIFIED]** Chrome 157, Windows 10 (failed without the prefix, succeeded with it); also a test on Windows. |
-| P3 | After `Browser.close`, headless Chrome and Edge profiles were deleted at once (0 retries, 0.11 to 0.17 s). Windows may keep file locks for a moment after a headed browser exits, which is why the deletion is retried for up to 10 s. | Headless: **[VERIFIED]**. Headed: **[ASSUMPTION]**. |
+| P3 | After `Browser.close`, headless Chrome and Edge profiles were deleted at once (0 retries, 0.11 to 0.17 s). Windows may keep file locks for a moment after a headed browser exits, which is why the deletion is retried for up to 10 s. | Headless: **[VERIFIED]**. Headed Chrome on Windows 10: **[VERIFIED]** (`profile_removed=true` 0.41 s and 0.50 s after token detection in 2 runs, with no WARNING, section 7). Headed Edge on Windows 10: no `discoop-browser-*` folder or process remained afterwards (checked by absence, section 7; deletion timing not recorded). |
 | P4 | A hard-killed Discoop (power loss, `kill -9`) cannot clean up, and its profile holds a live Discord web session. At the start of each run, `discoop-browser-*` folders in the temp folder older than 24 hours are deleted (never through a symbolic link). Within a normal run, cleanup also runs on success, error, timeout, task cancellation (Esc in the TUI), Ctrl+C, a failed start, and a second cancel during the cleanup; an `atexit` hook handles what is left. | **[VERIFIED]** by tests, including a real interpreter exit. (The symbolic-link test needs link rights and was skipped on this Windows machine.) |
 | P5 | A GUI browser on Windows does not receive Ctrl+C from the terminal, while on Linux and macOS it sits in the terminal's process group and does. Either way the cleanup is explicit, so the outcome is the same. | **[ASSUMPTION]** |
 
@@ -101,7 +104,7 @@ dependency (`websockets` is already used for the QR gateway).
 
 | # | Fact | Status |
 |---|---|---|
-| D1 | Chrome 136 and newer refuse remote debugging on the **default** profile; a custom `--user-data-dir` is mandatory. The engine always uses one (and it keeps the user's own profile and windows out of it). The default profile was deliberately not tried: it would touch the user's own browser. | **[ASSUMPTION]** (from Chrome's published change; a custom profile works in 157, see B1). |
+| D1 | Chrome 136 and newer refuse remote debugging on the **default** profile; a custom `--user-data-dir` is mandatory. The engine always uses one (and it keeps the user's own profile and windows out of it). The default profile was deliberately not tried: it would touch the user's own browser. | **[ASSUMPTION]** (from Chrome's published change; a custom `--user-data-dir` worked in headless Chrome 157 and Edge 157, see B1, and **[VERIFIED]** with the owner's installed headed Chrome and Edge on Windows 10 in section 7, versions not recorded). |
 | D2 | `discord.com/login` may open the Windows Security passkey dialog in real Chrome or Edge as well, as it did in the embedded browser ([discord-login.md](discord-login.md), section 8): the login page asks for a conditional passkey on every display. The user can cancel it. | **[ASSUMPTION]** |
 | D3 | A fresh Edge profile may show first-run or sign-in screens even with `--no-first-run`. They are part of the window the user is in anyway. | **[ASSUMPTION]** |
 | D4 | On macOS, closing the last window may not quit the app (see B6), and the app is started by running the binary inside the `.app` bundle directly, which opens a separate instance for a different `--user-data-dir`. | **[ASSUMPTION]** |
@@ -198,23 +201,83 @@ These turn the Discord-specific assumptions (T5, T6, T7, D1 to D7) and the heade
 Nothing here sends anything but the login itself. Run with `--debug` where possible: the log says which source found the
 token (`source=storage` or `source=header`) and must not contain the token.
 
-1. **Chrome, password login.** `discoop login --browser`: a window opens on `discord.com/login`; log in (with 2FA if the
-   account has it). The window closes by itself and the command reports the account. Record the `source=` line.
-2. **Chrome, QR code on the web page** (scan it with the phone), and a **captcha** if Discord shows one: this is the case
-   the feature exists for.
-3. **Edge**, the same login (`--browser-path` or auto-detected). Note any first-run or sign-in screen.
-4. **Closing the window before logging in** (the X button): exit code 2 with the "window was closed" message within a few
-   seconds; afterwards no `discoop-browser-*` folder in the temp folder and no leftover Chrome or Edge process.
-5. **Ctrl+C in the terminal** while the window is open: the window closes, the folder is gone, and the command stops
+1. **[Done, 2026-11-10 (section 7)] Chrome login.** `discoop --debug login --browser` ran twice: the window opened on
+   `discord.com/login`, the owner logged in (password vs QR on the page not recorded), `source=storage` captured the token,
+   `GET /users/@me` returned 200, the token was stored in `WinVaultKeyring`, and the window closed itself.
+2. **[Open] Chrome, QR code on the web page and a captcha:** not recorded whether the QR code on the page was used in item 1,
+   and no captcha appeared.
+3. **[Done, 2026-11-10 (section 7)] Edge login.** `discoop login --browser --browser-path <msedge.exe>` (without `--debug`):
+   the window opened, the login was detected, the window closed, and the token was stored in the keyring. Any first-run or
+   sign-in screens, the source, and the deletion timing were not recorded.
+4. **[Open] Closing the window before logging in** (the X button): exit code 2 with the "window was closed" message within a
+   few seconds; afterwards no `discoop-browser-*` folder in the temp folder and no leftover Chrome or Edge process.
+5. **[Open] Ctrl+C in the terminal** while the window is open: the window closes, the folder is gone, and the command stops
    (exit code 130, as for the other commands).
-6. **A short `--timeout`** (for example 30 s) and doing nothing: exit code 2 after 30 s, window closed, folder gone.
-7. **In the TUI**, start the browser login and press Esc while the window is open: the window closes and the folder is gone.
-8. **A hard kill** of the terminal while the window is open: the window stays open and its `discoop-browser-*` folder stays
-   in the temp folder; a later `discoop login --browser` deletes such folders once they are older than 24 hours (or delete
-   the folder by hand after closing the window).
-9. **The passkey dialog** (Windows Security) may appear on the login page: cancel it and log in with the password or the QR
-   code.
-10. **Afterwards:** `discoop status` works the next day (the token stays valid after the window closed), and Discord's
+6. **[Done, 2026-11-10 (section 7)] Short `--timeout` (`30` s) and doing nothing:** run twice; second run returned `"The login
+   was not finished within 30 seconds."`, the `--timeout` hint, and exit code `2` (`$LASTEXITCODE`). Absence of leftover
+   `discoop-browser-*` folders and processes was checked after the first timeout run (not repeated after the second).
+7. **[Partly done — TUI started only, 2026-11-10 (section 7)] In the TUI:** the owner started `discoop ui` and reported
+   `"everything works"` with no leftover browser folder or process afterwards; individual TUI browser login steps (`b`, `Esc`
+   while the window is open, captcha redirection) remain **Open**.
+8. **[Open] A hard kill** of the terminal while the window is open: the window stays open and its `discoop-browser-*` folder
+   stays in the temp folder; a later `discoop login --browser` deletes such folders once they are older than 24 hours (or
+   delete the folder by hand after closing the window).
+9. **[Open] The passkey dialog** (Windows Security) may appear on the login page: cancel it and log in with the password or
+   the QR code.
+10. **[Open] Afterwards:** `discoop status` works the next day (the token stays valid after the window closed), and Discord's
     Settings, Devices lists a new web session.
-11. **Headed behaviour:** note how long the window takes to disappear and whether the temp folder is deleted at once or only
-    after retries (the log shows `profile_removed=true`, or a WARNING if it was not).
+11. **[Done for Chrome; partly checked for Edge, 2026-11-10 (section 7)] Headed behaviour:** Chrome closed itself and logged
+    `profile_removed=true` 0.41 s and 0.50 s after token detection with no WARNING; Edge closed itself and left no
+    `discoop-browser-*` folder or process afterwards (timing not recorded).
+
+---
+
+## 7. Results of the first real-account check (2026-11-10)
+
+**Method:** On 2026-11-10 (Windows 10), the owner ran the commands below in their own terminal on their real Discord account and
+pasted the terminal output into the chat. Agents did not contact Discord, did not start a real browser, and wrote no display
+name, handle, ID, or token into the repository.
+
+### Observed (`[VERIFIED]`)
+
+1. **Chrome (`discoop --debug login --browser`, 2 runs):**
+   - Both runs opened a browser window on Discord's login page and the owner logged in (whether by password or by QR code on
+     the page was not recorded).
+   - The diagnostic log recorded `browser connected ... handed_off=false`, then `storage readable=false` initially and
+     `storage readable=true` 1.0 to 1.5 s later while the page finished loading, and then `token found source=storage`
+     about 46 s (run 1) and 20 s (run 2) after page attachment.
+   - `profile_removed=true` was logged 0.41 s (run 1) and 0.50 s (run 2) after token detection, with no WARNING.
+   - `GET /users/@me` answered HTTP 200, the token was stored in the Windows keyring (`WinVaultKeyring`), and the window
+     closed by itself.
+   - The `header` source (`source=header`) did not fire first in either run.
+2. **Edge (`discoop login --browser --browser-path <msedge.exe>`, without `--debug`):**
+   - The browser window opened, the login was detected, the window closed, the owner was logged in, and the token was stored
+     in the keyring.
+   - Not recorded: which source (`storage` vs `header`) found the token, the profile removal timing, or whether any first-run
+     or sign-in screen appeared.
+3. **Timeout (`discoop login --browser --timeout 30`, run twice with nothing done):**
+   - Second run printed `"The login was not finished within 30 seconds."`, the hint to run again with `--timeout`, and
+     exited with code `2` (`$LASTEXITCODE`).
+4. **Leftovers check (Windows 10):**
+   - After the two Chrome runs, the Edge run, the first 30 s timeout run, and a `discoop ui` session,
+     `Get-ChildItem $env:TEMP -Filter 'discoop-browser-*'` printed nothing and `Get-CimInstance Win32_Process` showed no
+     process with `discoop-browser-` in its command line.
+   - This check was not repeated after the second 30 s timeout run.
+5. **TUI (`discoop ui`):**
+   - The owner started `discoop ui` and reported `"everything works"`. Which specific TUI steps were performed was not stated,
+     so `Esc` cancellation, captcha redirection, and individual TUI browser-login actions are not claimed as verified.
+
+### Not checked yet (open)
+
+- QR code on the web page (not recorded whether used in Chrome)
+- A real captcha
+- Closing the window with X before logging in
+- Ctrl+C in the terminal (exit code 130)
+- `Esc` in the TUI during browser login
+- The Windows Security passkey dialog
+- Edge first-run or sign-in screens
+- The `header` source (`source=header`)
+- The new entry under Discord Settings > Devices
+- `discoop status` the next day
+- A hard kill leaving a stale `discoop-browser-*` folder for >24 h cleanup
+- Linux and macOS (including snap/flatpak browsers)
