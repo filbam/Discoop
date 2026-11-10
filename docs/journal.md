@@ -4,6 +4,35 @@ Chronological record of work: what was done, what was decided, incidents, and ne
 
 ---
 
+## 2026-11-10
+
+**Browser login `discoop login --browser`, AI consent rule, and TUI integration (P31–P33, [ADR 0022](decisions/0022-browser-login.md), [analysis](analyses/browser-login.md)):**
+- **What was done:**
+  - **Decision and requirements:** Recorded [ADR 0022](decisions/0022-browser-login.md) (`Accepted`; partially supersedes/amends [ADR 0005](decisions/0005-qr-login-without-a-browser.md), [ADR 0008](decisions/0008-fallback-login-token.md), and [ADR 0009](decisions/0009-login-in-agent-mode.md)) and added requirements P31–P33 in [requirements.md](requirements.md).
+  - **Engine (`src/discoop/browser_login/`):** Built `find_browser` (Chrome, Edge, Chromium, Brave; `DISPLAY`/`WAYLAND_DISPLAY` check on Linux), `BrowserSession` (separate instance with temporary `--user-data-dir`, `--remote-debugging-port=0`, no automation flags, Edge relaunch handling, cleanup in every exit path, Windows extended-length `\\?\` profile deletion, 24 h stale profile sweep, `atexit`), CDP client (`cdp.py` over `websockets` with silenced frame logger), and `wait_for_browser_token` (`flow.py`, watching `localStorage` `token` and `Authorization` headers to `/api/`, exit code 2 on window close or timeout, exit code 1 on browser/protocol failure).
+  - **CLI and config (`login.py`, `cli.py`, `config.py`, `remote_auth/protocol.py`, `errors.py`):** Added `discoop login --browser` with `--browser-path`, `--timeout` (30–1800 s, default 300 s), `--format json` (lower-case `browser` id), and `--progress-json` (`browser_launch`, `browser_open`, `token_captured`, `logged_in` on stderr); added config key `browser-path` (Settings modal preserves any configured value); added `CaptchaRequired` + `BROWSER_HINT`, updated `TOKEN_HINT` and `AUTH_HINT`, and allowed `login --browser` in plain mode while keeping QR and `--token` refused with exit code 2.
+  - **AI instructions (`agent_guide.py`, `.claude/skills/discoop/SKILL.md`):** Added the `LOGGING IN` rule requiring AI agents to tell the user a browser window will open (and a passkey dialog may appear), wait for explicit consent, use a timeout > 5 min or background execution, never interact with the window or read secrets, and handle exit codes 0/1/2; verified by `tests/test_agent_guide.py` (`RULE_PHRASES`).
+  - **TUI (`tui/modals.py`, `tui/discoop.tcss`):** Added `[ Log in with browser (b) ]` (`#row-login-browser`) right below QR login in `LoginModal`, binding `b` (`Browser`), `-browser` view state (status updates, reused countdown, passkey and `Esc` notices, fitting in 80x24 and 140x40), `GUIDE_KEYS` entry for `b`, constructor-injected seams (`find_browser_fn`, `wait_for_browser_token_fn`), `Esc` cancellation reaching the engine, error hints in `LoginModal` (`CaptchaRequired` pointing to `b` and focusing `#row-login-browser`), and CLI-matching error text when Discord rejects a token read from the browser.
+- **Decisions:**
+  - In `--format json`, `browser` uses the lower-case id (`"chrome"`, `"edge"`, `"chromium"`, `"brave"`, `"browser"`) matching `--progress-json`, while human text keeps display names.
+  - A token rejected by Discord after browser capture exits with code 2 and its own message instead of "stored token is invalid"; `config set browser-path` requires an existing file; an empty explicit path counts as not given; `login --format json` omits `data_dir`; notices use `Output.note`.
+  - In the TUI, added `("b", "login dialog: log in with browser")` to `GUIDE_KEYS` (updating `test_help_lists_the_keys_of_the_adr`), updated `test_login_modal_paste_token_and_logout` navigation by one row for `#row-login-browser`, and treated `-browser` like `-qr` for form focus in `test_every_visible_row_of_a_dialog_shows_text` while verifying `Esc` cancellation directly.
+- **Verified and test count:**
+  - `uv run pytest`: **1178 passed, 1 skipped** (the skip is the symlink test on Windows requiring symlink privileges; offline tests using `FakeCdpBrowser`, `FakeSpawn`, `httpx.MockTransport`, and `InMemoryKeyring`).
+  - `[VERIFIED]` locally (2026-11-10): `discoop.browser_login` engine tested against local headless Chrome 157.0.8103.38 and Edge 157.0.4341.42 on Windows 10 using local pages (`127.0.0.1`), never contacting Discord.
+  - `[ASSUMPTION]` / Unverified: no real Discord account login has been tried yet.
+- **Incidents:**
+  1. Edge on Windows relaunches itself: the process Discoop starts exits with code 0 after about 0.05 s and the real browser carries on under another process id. The engine handles it ([analysis](analyses/browser-login.md), fact P1).
+  2. During its local check the engine's author left five headless Edge process trees running against five temporary profile folders (its early probes took the relaunch for a failed start). It found them with a read-only process listing, stopped only those five main processes (identified by a unique marker in their command lines) and deleted the folders. The owner's own Chrome and Edge windows were not touched.
+  3. A one-off safety-net script of that check once matched and ended its own shell; nothing else was affected.
+  4. That agent ran two read-only `git log` commands at the start, although sub-agents never run git.
+  5. The agent that wrote the CLI side ran `discoop --plain status` once by mistake: one read-only `GET /users/@me` request went to Discord with the owner's stored real token, and the account's display name and id were printed into that agent's tool output only (nothing was written to the repository). All its other runs of the real CLI were local.
+- **Next:**
+  - Owner's real-account check ([analysis](analyses/browser-login.md), section 6): Chrome and Edge, password login, QR code on the page, a real captcha if one shows, closing the window, Ctrl+C, a short `--timeout`, the TUI with `F3` and `b` and `Esc`, a hard kill, the passkey dialog, `status` the next day, and headed-window behaviour.
+  - Still unverified: Linux and macOS, snap or flatpak browsers, the real captcha flow, the TUI with the real engine on Windows (plus the earlier unverified real-account items below).
+  - Possible follow-ups (not started): a browser check in `discoop doctor`, and a `browser-path` row in the TUI Settings dialog (`F2`).
+  - Pushing is the owner's decision (push only on instruction).
+
 ## 2026-11-09
 
 **Agent skill for using Discoop:**
