@@ -1,6 +1,6 @@
 # 0009: `login` refuses in agent mode
 
-- **Status:** Accepted
+- **Status:** Accepted, agent-mode refusal amended by ADR 0022
 - **Date:** 2026-11-03
 - **Decided by:** the user
 

@@ -1,6 +1,6 @@
 # 0008: Fallback login `discoop login --token`
 
-- **Status:** Accepted
+- **Status:** Accepted, browser option and captcha hint superseded by ADR 0022
 - **Date:** 2026-11-03
 - **Decided by:** the user
 

@@ -1,6 +1,6 @@
 # 0005: QR login in the terminal without a browser
 
-- **Status:** Accepted
+- **Status:** Accepted, browser rejection superseded by ADR 0022
 - **Date:** 2026-11-03
 - **Decided by:** the user (requirements P13 and P14), technical solution based on [analyses/discord-login.md](../analyses/discord-login.md)
 

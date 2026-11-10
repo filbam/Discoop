@@ -16,11 +16,11 @@ Decisions that are not yet resolved are in [design.md, section 15](../design.md#
 | [0002](0002-private-repo-and-identity.md) | Private repo `filbam/Discoop` and git identity | Accepted, private repo superseded by ADR 0015 | 2026-11-03 |
 | [0003](0003-rules-for-agents-in-the-users-browser.md) | Rules for agents in the user's browser | Accepted | 2026-11-03 |
 | [0004](0004-name-discoop.md) | Tool name `discoop` | Accepted | 2026-11-03 |
-| [0005](0005-qr-login-without-a-browser.md) | QR login in the terminal without a browser | Accepted | 2026-11-03 |
+| [0005](0005-qr-login-without-a-browser.md) | QR login in the terminal without a browser | Accepted, browser rejection superseded by ADR 0022 | 2026-11-03 |
 | [0006](0006-python.md) | Implementation in Python (uv, Typer, Rich, …) | Accepted | 2026-11-03 |
 | [0007](0007-english-in-the-tool.md) | English help and tool messages | Superseded by ADR 0021 | 2026-11-03 |
-| [0008](0008-fallback-login-token.md) | Fallback login `discoop login --token` | Accepted | 2026-11-03 |
-| [0009](0009-login-in-agent-mode.md) | `login` refuses in agent mode | Accepted | 2026-11-03 |
+| [0008](0008-fallback-login-token.md) | Fallback login `discoop login --token` | Accepted, browser option and captcha hint superseded by ADR 0022 | 2026-11-03 |
+| [0009](0009-login-in-agent-mode.md) | `login` refuses in agent mode | Accepted, agent-mode refusal amended by ADR 0022 | 2026-11-03 |
 | [0010](0010-work-through-agents.md) | Work through agents, managed by the main Claude | Accepted | 2026-11-03 |
 | [0011](0011-default-behaviour-of-messages.md) | Default behaviour of `messages`: threads enabled, 24 h window, `text` format | Accepted | 2026-11-03 |
 | [0012](0012-rename-agent-mode-to-plain.md) | Rename "agent mode" to "plain mode" (`--plain`) | Accepted | 2026-11-03 |
@@ -33,6 +33,7 @@ Decisions that are not yet resolved are in [design.md, section 15](../design.md#
 | [0019](0019-threads.md) | Threads and forum posts (basis: [probe](../analyses/thread-probe-2026-11-04.md)) | Accepted | 2026-11-04 |
 | [0020](0020-since-last.md) | Incremental download (`--since-last`) | Accepted | 2026-11-04 |
 | [0021](0021-english-only-repository.md) | English-only repository | Accepted | 2026-11-04 |
+| [0022](0022-browser-login.md) | Browser login `discoop login --browser` | Accepted | 2026-11-10 |
 
 ## Template
 
