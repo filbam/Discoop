@@ -1313,6 +1313,70 @@ async def test_login_modal_browser_network_error_keeps_its_message_and_hint() ->
         assert TokenStore.default().load() is None
 
 
+async def test_login_modal_typing_b_and_g_in_token_input_does_not_start_login() -> None:
+    app = make_app()
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        called: list[str] = []
+        modal = LoginModal(
+            _make_dummy_api_factory(),
+            wait_for_ticket_fn=lambda *a, **kw: called.append("qr") or waits_forever(*a, **kw),
+            find_browser_fn=lambda: called.append("browser") or FAKE_BROWSER,
+        )
+        app.push_screen(modal)
+        await pilot.pause()
+
+        await pilot.press("down", "down")  # focus #input-token
+        await pilot.pause()
+        await pilot.press("a", "b", "g", "1")
+        await pilot.pause()
+
+        assert modal.field("#input-token") == "abg1"
+        assert not modal.has_class("-browser") and not modal.has_class("-qr")
+        assert called == []
+
+
+async def test_login_modal_qr_after_failed_browser_clears_stale_status_and_countdown() -> None:
+    async def failing_browser(listener: Any, **kwargs: Any) -> str:
+        listener.on_launching("Chrome")
+        listener.on_opened(time.monotonic() + 300)
+        raise DiscoopError(ExitCode.AUTH_REQUIRED, "The browser window was closed before the login finished.")
+
+    qr_entered = asyncio.Event()
+    proceed_qr = asyncio.Event()
+
+    async def slow_qr(listener: Any, **kwargs: Any) -> LoginTicket:
+        qr_entered.set()
+        await proceed_qr.wait()
+        raise ConnectionError("qr offline")
+
+    app = make_app()
+    async with app.run_test(size=(140, 40)) as pilot:
+        await started(app, pilot)
+        modal = LoginModal(
+            _make_dummy_api_factory(),
+            wait_for_ticket_fn=slow_qr,
+            find_browser_fn=lambda: FAKE_BROWSER,
+            wait_for_browser_token_fn=failing_browser,
+        )
+        app.push_screen(modal)
+        await pilot.pause()
+
+        await pilot.press("b")
+        err_label = modal.query_one("#login-error", Label)
+        await wait_until(pilot, lambda: err_label.display)
+
+        await pilot.press("g")
+        await qr_entered.wait()
+        await pilot.pause()
+        assert str(modal.query_one("#qr-status-lbl", Label).content) == "Connecting to the Discord QR gateway..."
+        assert str(modal.query_one("#qr-countdown-lbl", Label).content) == ""
+        assert not modal.query_one("#qr-countdown-lbl", Label).display
+
+        proceed_qr.set()
+        await wait_until(pilot, lambda: err_label.display and "qr offline" in str(err_label.content))
+
+
 # ==================== Preview ====================
 
 TRICKY = ("[bold]not markup[/bold] and [1]", '["json", {"a": 1}]', "[/closing] tag")

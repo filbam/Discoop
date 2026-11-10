@@ -151,14 +151,19 @@ def test_the_given_path_wins_then_the_setting_then_auto_detection(asked_locator)
     login.find_login_browser()
     login.find_login_browser(Path("/given/browser"))
     login.find_login_browser("")  # an empty path counts as not given
+    login.find_login_browser("   ")  # whitespace-only counts as not given
     login.find_login_browser(None)
     assert asked_locator == [
         None,
         "/configured/browser",  # the setting
         Path("/given/browser"),  # the given path wins over the setting
         "/configured/browser",  # an empty path counts as not given
+        "/configured/browser",  # whitespace-only counts as not given
         "/configured/browser",
     ]
+    Config.default().set("browser-path", "   ")  # hand-edited blank setting also counts as unset
+    login.find_login_browser()
+    assert asked_locator[-1] is None
     Config.default().unset("browser-path")
     login.find_login_browser()
     assert asked_locator[-1] is None

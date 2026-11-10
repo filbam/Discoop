@@ -294,11 +294,10 @@ def login(
         help="Log in in a browser window (Chrome, Edge, Chromium or Brave) instead of scanning a QR code. "
         "Use it when QR login fails because of a captcha.",
     ),
-    browser_path: Path | None = typer.Option(
+    browser_path: str | None = typer.Option(
         None,
         "--browser-path",
         metavar="PATH",
-        dir_okay=False,
         help="With --browser: the browser program to start. Default: the browser-path setting, else "
         "Chrome, Edge, Chromium or Brave is found automatically.",
         show_default=False,
@@ -344,10 +343,11 @@ def login(
         )
     store = TokenStore.default()
     if browser:
+        explicit_browser_path = Path(browser_path.strip()) if (browser_path is not None and browser_path.strip()) else None
         _login_with_browser(
             out,
             store,
-            browser_path=browser_path,
+            browser_path=explicit_browser_path,
             timeout=timeout if timeout is not None else login_flow.BROWSER_TIMEOUT,
             fmt=fmt,
             progress_json=progress_json,
@@ -372,7 +372,7 @@ def _check_login_options(
     *,
     token: bool,
     browser: bool,
-    browser_path: Path | None,
+    browser_path: str | None,
     timeout: float | None,
     fmt: str,
     progress_json: bool,
@@ -393,6 +393,15 @@ def _check_login_options(
         for given, name, hint in clashes:
             if given:
                 raise DiscoopError(ExitCode.BAD_ARGS, f"--browser cannot be used with {name}.", hint)
+        if browser_path is not None and browser_path.strip():
+            candidate = Path(browser_path.strip()).expanduser()
+            if candidate.is_dir():
+                raise DiscoopError(
+                    ExitCode.BAD_ARGS,
+                    f"{candidate} is a folder, not a browser program.",
+                    "Give the program itself. On macOS that is the file inside the app, e.g. "
+                    "`.../Google Chrome.app/Contents/MacOS/Google Chrome`.",
+                )
     else:
         needs_browser = (
             (browser_path is not None, "--browser-path"),

@@ -710,6 +710,7 @@ class LoginModal(ScrollingDialog[bool]):
             return
         self._busy = True
         self.show_error("")
+        self._clear_qr("Connecting to the Discord QR gateway...")
         self.set_class(True, "-qr")
         self._countdown_timer = self.set_interval(1.0, self._tick_countdown)
         self.run_worker(self._guarded(self._qr_login()), group="login")

@@ -230,6 +230,7 @@ BAD_OPTIONS = [
     (["--browser", "--trace", "trace.jsonl"], "--browser cannot be used with --trace."),
     (["--browser", "--handshake-only"], "--browser cannot be used with --handshake-only."),
     (["--browser-path", "some-browser"], "--browser-path only works with --browser."),
+    (["--browser-path", ""], "--browser-path only works with --browser."),
     (["--timeout", "60"], "--timeout only works with --browser."),
     (["--progress-json"], "--progress-json only works with --browser."),
     (["--format", "json"], "--format json only works with --browser."),
@@ -238,6 +239,8 @@ BAD_OPTIONS = [
     (["--browser", "--timeout", "0"], "--timeout must be between 30 and 1800 seconds."),
     (["--browser", "--timeout", "-5"], "--timeout must be between 30 and 1800 seconds."),
     (["--browser", "--timeout", "nan"], "--timeout must be between 30 and 1800 seconds."),
+    (["--browser", "--timeout", "inf"], "--timeout must be between 30 and 1800 seconds."),
+    (["--browser", "--timeout", "-inf"], "--timeout must be between 30 and 1800 seconds."),
     (["--browser", "--format", "xml"], 'Unknown format "xml".'),
 ]
 
@@ -386,7 +389,14 @@ def test_the_option_the_setting_and_auto_detection_reach_the_locator(monkeypatch
     assert Path(asked[-1]) == given
     assert Config.default().get("browser-path") == str(configured)  # and does not change the setting
 
+    assert run(capsys, "--agent", "login", "--browser", "--browser-path", "")[0] == 0  # empty counts as not given
+    assert asked[-1] == str(configured)
+    assert run(capsys, "--agent", "login", "--browser", "--browser-path", "   ")[0] == 0
+    assert asked[-1] == str(configured)
+
     run(capsys, "--agent", "config", "unset", "browser-path")
+    assert run(capsys, "--agent", "login", "--browser", "--browser-path", "")[0] == 0
+    assert asked[-1] is None
     assert run(capsys, "--agent", "login", "--browser")[0] == 0
     assert asked[-1] is None
 

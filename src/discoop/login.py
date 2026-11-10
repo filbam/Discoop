@@ -189,8 +189,11 @@ def exchange_ticket(ticket: LoginTicket, api: DiscordAPI, trace: Trace) -> str:
 def find_login_browser(browser_path: BrowserPath = None) -> Browser:
     """The browser to log in with: the given path first, then the `browser-path` setting, then auto-detection
     (Chrome, Edge, Chromium or Brave). Raises DiscoopError (exit code 1) if there is none."""
-    if browser_path is None or os.fspath(browser_path) == "":
+    raw = None if browser_path is None else os.fspath(browser_path).strip()
+    if not raw:
         browser_path = Config.default().get("browser-path")
+        if isinstance(browser_path, str) and not browser_path.strip():
+            browser_path = None
     return find_browser(browser_path)
 
 
