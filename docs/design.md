@@ -37,7 +37,7 @@ The tool runs on **Windows, Linux, and macOS** (P13). No part may depend on a si
 | Token storage | keyring (Windows Credential Manager, macOS Keychain, Linux Secret Service) | token is not stored in a plain-text file. On Linux without Secret Service fallback, section 10 |
 | Data paths | platformdirs | correct directory on every OS |
 | Cache and state | SQLite (stdlib `sqlite3`) | single file, fast name lookup |
-| Installation | `uv tool install git+https://github.com/filbam/Discoop` | `discoop` command available globally on Windows, Linux, and macOS ([ADR 0015](decisions/0015-public-repo-and-installation.md)) |
+| Installation | `uv tool install git+https://github.com/filbam/Discoop@stable` | `discoop` command available globally on Windows, Linux, and macOS from tested releases ([ADR 0024](decisions/0024-releases-tags-and-stable-branch.md)) |
 
 ## 4. Commands
 
@@ -284,6 +284,7 @@ discoop config set delay 1.0
 discoop config set export-dir "exports"
 discoop config set mode safe
 discoop config set browser-path "C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
+discoop config set update-check off
 discoop config get delay
 discoop config unset delay
 discoop config list [--format text|json]
@@ -291,7 +292,7 @@ discoop config list [--format text|json]
 Stored in `config.toml` in the configuration directory (section 10).
 
 **Implemented on 2026-11-03:**
-- **Keys:** `browser-path`, `default-server`, `delay` (default 1.0 s), `export-dir`, and `mode` (values `safe` or `fast`, default `safe`).
+- **Keys:** `browser-path`, `default-server`, `delay` (default 1.0 s), `export-dir`, `mode` (values `safe` or `fast`, default `safe`), and `update-check` (values `on` or `off`, default `on`).
 - **`mode`** (added for safe scraping): determines default download mode (`safe` or `fast`).
 - **`default-server`** on `set` is looked up as a server (name or ID) and its **ID** is stored, so
   renaming the server does not break the setting.
@@ -299,6 +300,7 @@ Stored in `config.toml` in the configuration directory (section 10).
   In the TUI, it is the default export folder, falling back to `Documents/discoop` ([ADR 0016](decisions/0016-default-export-folder-in-tui.md)).
   CLI without it keeps defaulting to the current directory.
 - **`browser-path`** (added 2026-11-10, P31): the browser program that `login --browser` starts. Stored as an absolute path and checked on `set`: it must be an existing file (a folder is rejected; on macOS that means the program inside the `.app` bundle). Without it the browser is found automatically (Chrome, Edge, Chromium, Brave). `--browser-path` on the command wins over it. No default: `config list` shows it empty.
+- **`update-check`** ([ADR 0025](decisions/0025-update-notifier.md)): enables (`on`, default) or disables (`off`) passive GitHub release update checking across CLI, TUI, and `discoop doctor`. Shown by `discoop config list` in both text and `--format json` output. When set to `off`, no update-check network request is made.
 - **Machine-readable output:** `discoop config list --format json` returns configuration as a JSON object on stdout.
 - **Unknown key** or invalid value exits with code `8`.
 
@@ -310,7 +312,10 @@ discoop agent-guide
 
 Prints a compact reference for AI on ~1 screen in plain text without ANSI escape sequences:
 - recommended workflow (`status` → `servers` → `channels` → `messages`),
-- the rules for AI agents, including the section **LOGGING IN** (P33, [ADR 0022](decisions/0022-browser-login.md)): never run `discoop login` or `login --token` and never handle a token or a password; tell the user that a browser window will open in which they log in themselves, wait for their explicit consent, then run `discoop --plain login --browser` (it can take up to 5 minutes: give the shell a longer timeout or run it in the background); never type into the window; what exit codes 0, 1 and 2 mean afterwards. The skill `.claude/skills/discoop/SKILL.md` carries the same rule, and a test keeps the two in step,
+- the rules for AI agents, including:
+  - the section **LOGGING IN** (P33, [ADR 0022](decisions/0022-browser-login.md)): never run `discoop login` or `login --token` and never handle a token or a password; tell the user that a browser window will open in which they log in themselves, wait for their explicit consent, then run `discoop --plain login --browser` (it can take up to 5 minutes: give the shell a longer timeout or run it in the background); never type into the window; what exit codes 0, 1 and 2 mean afterwards,
+  - the update-notice rule ([ADR 0025](decisions/0025-update-notifier.md)): any update notice is informational and terminal-only; if an agent sees it or `discoop doctor`'s `update` row, it informs the user and never runs `uv tool upgrade`, `uv tool install`, or reinstalls `discoop` itself.
+  The skill `.claude/skills/discoop/SKILL.md` carries the same rules, and tests keep the two in step,
 - complete exit codes table generated directly from the `ExitCode` enum,
 - dynamic list of all registered commands and subcommands from the Typer application with their one-line descriptions.
 A link to `discoop agent-guide` is given directly in the `NOTE FOR AI AGENTS` section in `discoop --help`.
@@ -359,6 +364,11 @@ Interactive terminal user interface (TUI) built on the Textual library (P16, P17
 
 **Forums and media channels in TUI (2026-11-04):** selected like other channels (selection accepts `MESSAGE_TYPES` and `FORUM_TYPES`; category cannot be selected, selecting it selects its channels). Their posts are threads, so with Threads = no and a forum selected, the form shows a warning and `F5` start is rejected with a message before the first Discord call (service would reject it with code 8). Verified by fake Discord tests (`tests/test_tui_forums.py`), not yet on a real account.
 
+**Update indicator ([ADR 0025](decisions/0025-update-notifier.md)):**
+- `#top-bar` includes an `#update-indicator` label right after `#mode-indicator`, hidden until a newer release is known, then displaying `↑ <latest>` in the warning colour while keeping the responsive layouts (`75x28`, `80x24`, `140x40`) valid.
+- After mount, a separate thread worker (`exit_on_error=False`, outside the `net` worker group so it does not compete with or get cancelled with Discord network workers; injectable seam on `DiscoopApp` for testing) checks for a newer GitHub release via `update_check.py`.
+- The TUI check is not limited by `notified_at` and never writes `notified_at`. When a newer release is found, it logs once per session in the Log pane: `New release <latest> is available (you have <current>). Quit and run: uv tool upgrade discoop. Release notes: <url>`.
+
 **Known limitations:** TUI lacks `--since-last` and `--max-tokens`; Esc during a running HTTP request takes effect only after it finishes (timeout 20 s); pauses during attachment retry cannot be interrupted immediately; Footer does not fit completely in 80 columns width; CLI command always includes `--delay` from config. Running `discoop ui` on a real account and QR login in TUI were confirmed by the user on 2026-11-04 ([analysis](analyses/real-account-check-2026-11-04.md)), and `discoop ui` was started again on 2026-11-10 with no reported issues ([browser-login.md](analyses/browser-login.md) section 7). Individual TUI browser-login steps (`b`, `Esc`, captcha redirection), Ctrl+C in TUI, forum selection and Threads toggle on a real account, and Linux or macOS remain unverified.
 
 ### 4.9 `doctor`
@@ -368,17 +378,18 @@ discoop doctor
 ```
 
 Diagnostic command to verify runtime environment, connectivity, and exports folder:
-- **Checks 6 items:**
+- **Checks 7 items:**
   - `login`: login via `GET /users/@me` (`api.get_me()`),
   - `network`: Discord API availability (distinguishes network errors from invalid tokens; if the user is not logged in, it is `skipped`),
   - `export_dir`: writability of exports folder (`export-dir` from config, otherwise current directory) via `os.access` on the nearest existing parent (creates nothing),
   - `disk_space`: free disk space via `shutil.disk_usage` (FAIL below 100 MB, otherwise OK with size in MB),
   - `cache`: cache age (`servers`),
-  - `version`: tool version (`__version__`, read from `pyproject.toml` via package metadata; [ADR 0023](decisions/0023-version-and-single-source.md)).
+  - `version`: tool version (`__version__`, read from `pyproject.toml` via package metadata; [ADR 0023](decisions/0023-version-and-single-source.md)),
+  - `update`: fresh check against the latest GitHub release (ignoring the 24 h cache interval and updating `update-check.json` while preserving `notified_at`; [ADR 0025](decisions/0025-update-notifier.md)). Always reports status `OK` and never changes the exit code. Detail variants: `up to date (latest <version>)`, `<latest> available: uv tool upgrade discoop`, `no release published yet`, `skipped (update-check is off)`, or `could not check: <short reason>`.
 - **Output:**
   - in human mode, a Rich table (`check`, `status`, `detail`),
   - in plain mode (`--plain`), tab-separated lines `check<TAB>OK|FAIL<TAB>detail`.
-- **Exit code:** exit code of the first failed check (`AUTH_REQUIRED` 2, `NETWORK` 7, otherwise `ERROR` 1), on success 0.
+- **Exit code:** exit code of the first failed check (`AUTH_REQUIRED` 2, `NETWORK` 7, otherwise `ERROR` 1), on success 0 (`update` is always `OK`).
 
 ### 4.10 `profiles`
 
@@ -616,10 +627,11 @@ Directories are determined by `platformdirs` per OS:
 | Linux | `~/.local/share/discoop/` | `~/.config/discoop/` |
 
 Contents:
-- `config.toml`: settings (`browser-path`, `default-server`, `delay`, `export-dir`, `mode`).
+- `config.toml`: settings (`browser-path`, `default-server`, `delay`, `export-dir`, `mode`, `update-check`).
 - `profiles.json` (configuration directory): named settings profiles (`server`, `channels`, `from`, `to`, `last`, `mode`), shared between CLI and TUI.
 - `tui-state.json` (configuration directory): TUI state by account ID (selection, time windows, mode, `Folder`/`Name`, threads, dates of last channel exports).
 - `sync-state.json` (data directory): `--since-last` state by account ID, storing `last_message_id` and `updated` timestamp for each channel and thread ([ADR 0020](decisions/0020-since-last.md)). Separated from `cache.db` to survive clearing it.
+- `update-check.json` (data directory): cached GitHub release check (`checked_at`, `latest_version`, `latest_url`, `failed_at`, `notified_at` in Unix seconds) written atomically via `replace_file` (`os.replace`) ([ADR 0025](decisions/0025-update-notifier.md)). Missing or corrupt content counts as an empty cache.
 - `cache.db`: SQLite with tables (schema 2):
   - **now:** `servers`, `channels` (type, category, position, topic, `last_message_id`, forum tags), `threads`, `thread_lists` (since when a channel's thread list has been loaded), and `fetched` (when what was refreshed).
     Normalised names are calculated in Python; there are only a few hundred channels.
@@ -688,6 +700,11 @@ NOTE FOR AI AGENTS
 ```
 Discoop/
   pyproject.toml
+  .github/
+    workflows/
+      release.yml     tag-triggered test, stable-branch advance, and GitHub Release workflow
+  scripts/
+    release_notes.py  stdlib-only tag/version check and CHANGELOG note extractor (outside package)
   src/discoop/
     cli.py            Typer app, commands, global options, mode selection
     service.py        service layer: unified business logic for CLI and TUI
@@ -713,6 +730,7 @@ Discoop/
     tokens.py         token count estimation and formatting
     syncstate.py      sync state management for --since-last (sync-state.json)
     split.py          markdown splitting into parts by tokens (split_markdown)
+    update_check.py   GitHub Releases update check, atomic cache, CLI/TUI/doctor helpers
     agent_guide.py    generation of unstyled guide and reference for AI agents
     tui/              interactive terminal user interface (Textual)
       tuistate.py     persistent TUI state in tui-state.json and activity formatting
@@ -797,3 +815,59 @@ Steps 4 through 6 and resilient export ([ADR 0017](decisions/0017-reliable-expor
 | 9 | Inaccessible channels in `channels` | **Deferred** (2026-11-03, low priority): the user does not consider this important, and Discord plans according to changelog 2026-08-12 that REST will stop returning inaccessible channels to users as well. Supporting material: [analyses/channel-access.md](analyses/channel-access.md).<br>Original proposal: calculate access (`VIEW_CHANNEL`, and `READ_MESSAGE_HISTORY` when reading):<br>• basic server permissions from `permissions` in `/users/@me/guilds`, server owner has all permissions,<br>• `permission_overwrites` overrides for @everyone, user roles, and the user themselves.<br>User roles must be fetched (`GET /users/@me/guilds/{id}/member`, verify). Inaccessible channels hidden by default, `--include-hidden` shows them |
 
 **Ideas for later (v2):** local archive of all messages in SQLite with full-text search, `discoop sync` for a list of watched channels, clustering consecutive messages from the same author (fewer tokens), `--author` filter, `--has file`.
+
+## 16. Release pipeline ([ADR 0024](decisions/0024-releases-tags-and-stable-branch.md))
+
+Releases follow Semantic Versioning (`vX.Y.Z` annotated git tags) with `project.version` in `pyproject.toml` as the single source of truth ([ADR 0023](decisions/0023-version-and-single-source.md); checked at runtime via `discoop --version`).
+
+**Installation and upgrade channel:**
+- Users install from the `stable` branch: `uv tool install git+https://github.com/filbam/Discoop@stable`.
+- Upgrades use `uv tool upgrade discoop`.
+- Existing installations previously tracking `main` switch once with `uv tool install --force git+https://github.com/filbam/Discoop@stable`.
+
+**Owner's release steps (only on the user's explicit instruction):**
+1. Bump `project.version` in `pyproject.toml` and run `uv lock` and `uv sync`.
+2. Rename `[Unreleased]` in `CHANGELOG.md` to `## [X.Y.Z] - YYYY-MM-DD`, adding a fresh empty `## [Unreleased]` heading above it.
+3. Add a journal entry in `docs/journal.md`.
+4. Commit the release preparation on `main`, create an annotated tag `git tag -a vX.Y.Z -m "discoop X.Y.Z"`, and push `git push origin main vX.Y.Z`.
+
+**GitHub Actions workflow (`.github/workflows/release.yml`):**
+- Triggered only on pushed tags matching `v[0-9]+.[0-9]+.[0-9]+`.
+- Top-level `permissions: contents: read`; uses only `actions/checkout` and `astral-sh/setup-uv` pinned to released versions (no other third-party actions).
+- **Job `test`:** runs on `ubuntu-latest`, `windows-latest`, and `macos-latest` with `uv sync --locked` and `uv run pytest`.
+- **Job `release`:** requires `needs: test`, runs on `ubuntu-latest` with `permissions: contents: write` and checkout `fetch-depth: 0`, and runs four steps in order:
+  1. `scripts/release_notes.py --tag "$GITHUB_REF_NAME" --out notes.md` — standalone Python standard-library script (not part of the installed package); aborts if the tag does not match `project.version` in `pyproject.toml` or if the matching `CHANGELOG.md` section is missing or empty.
+  2. `uv build` — builds sdist and wheel artifacts into `dist/`.
+  3. `git push origin "$GITHUB_SHA:refs/heads/stable"` without `--force` — creates `stable` on first run and rejects non-fast-forward updates so `stable` can never move backwards.
+  4. `gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "discoop X.Y.Z" --notes-file notes.md` with `GH_TOKEN: ${{ github.token }}`.
+
+CI workflows for ordinary pushes or pull requests and PyPI publishing remain out of scope.
+
+## 17. Update notifier ([ADR 0025](decisions/0025-update-notifier.md))
+
+The update check module (`src/discoop/update_check.py`) passively checks GitHub Releases without blocking commands, modifying exit codes, or sending user credentials.
+
+**Source, privacy, and HTTP behaviour:**
+- Requests `GET https://api.github.com/repos/filbam/Discoop/releases/latest` (latest non-draft, non-prerelease release) with headers `Accept: application/vnd.github+json` and `User-Agent: discoop/<version>`, using existing `httpx` with a `2` s timeout.
+- **Never** sends an `Authorization` header or any user data, even when `GITHUB_TOKEN` or `GH_TOKEN` is set in the environment.
+- HTTP `404` means no release is published yet (treated as nothing newer; silent in CLI and TUI). All other HTTP, transport, timeout, or parse errors are silent to the user in CLI and TUI and logged at `DEBUG` level via standard `logging` (captured by `--debug` and `--log`).
+
+**Versions, URLs, and cache:**
+- Parses `tag_name` matching `vX.Y.Z` or `X.Y.Z` as an integer triple `(X, Y, Z)` and compares against `discoop.__version__` (non-`X.Y.Z` values such as `"0+unknown"` never notify). Notifies only when the remote version is strictly newer. No version literal is placed under `src/`.
+- Release URL uses `html_url` if it starts with `https://github.com/filbam/Discoop/releases/`; otherwise falls back to `https://github.com/filbam/Discoop/releases/tag/<tag>`.
+- Cache file: `paths.data_dir() / "update-check.json"`, storing Unix seconds `checked_at`, `latest_version`, `latest_url`, `failed_at`, and `notified_at`. Missing or corrupt files count as an empty cache. Updates are written atomically with `replace_file` (`os.replace`).
+- Throttling: checks at most once per `24` h after success (`checked_at`); retries no sooner than `1` h after failure (`failed_at`), preserving any previous `latest_version` and `latest_url` values.
+
+**Off switches:**
+- `DISCOOP_NO_UPDATE_NOTIFIER` truthy, `discoop config set update-check off` (`on`/`off`, default `on`, shown by `config list` in text and JSON), and (for CLI notice) `CI` truthy. When turned off, no network request is made.
+
+**Surfaces:**
+- **CLI notice (`cli.py`):** printed on `stderr` after command completion (after output and any error), at most once per `24` h (`notified_at`), never changes exit code. Eligible only when `stderr.isatty()`, `CI` is not truthy, notifier is not off, a subcommand ran and is not `ui`/`--ui`, not `--version`, not help (`--help` or no subcommand), not `--format json`/`jsonl` or `--progress-json`, and not Ctrl+C (exit `130`). When a check is due, a daemon thread starts at command start and is joined for at most `1` s at command end. Prints ASCII 3-line notice (yellow in Rich/human mode, unstyled in plain mode):
+  ```
+  A new release of discoop is available: <current> -> <latest>
+  To upgrade, run: uv tool upgrade discoop
+  <url>
+  ```
+- **TUI (`tui/app.py`, `tui/discoop.tcss`):** `#update-indicator` label in `#top-bar` right after `#mode-indicator`, hidden until a newer release is known, then showing `↑ <latest>` in warning colour (`$warning`). Runs in a separate thread worker after mount (`exit_on_error=False`, outside `net` group; injectable seam on `DiscoopApp`), ignores and never writes `notified_at`, and logs once per session in the Log pane: `New release <latest> is available (you have <current>). Quit and run: uv tool upgrade discoop. Release notes: <url>`.
+- **`discoop doctor` (`cli.py`):** `update` row right after `version` (7 checks total), always checking fresh and updating cache while always reporting `OK`.
+- **AI agents (`agent_guide.py`, `.claude/skills/discoop/SKILL.md`):** state that any update notice is informational and terminal-only, and that agents tell the user when they see it or `doctor`'s `update` row and never run `uv tool upgrade`, `uv tool install`, or reinstall `discoop` itself.

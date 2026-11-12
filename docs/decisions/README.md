@@ -26,7 +26,7 @@ Decisions that are not yet resolved are in [design.md, section 15](../design.md#
 | [0012](0012-rename-agent-mode-to-plain.md) | Rename "agent mode" to "plain mode" (`--plain`) | Accepted | 2026-11-03 |
 | [0013](0013-tui-and-shared-service-layer.md) | Interactive terminal user interface (TUI) and shared service layer | Accepted, TUI layout superseded by ADR 0014 | 2026-11-03 |
 | [0014](0014-tui-keyboard-one-tree.md) | TUI: keyboard navigation, single tree, terminal colours | Accepted | 2026-11-03 |
-| [0015](0015-public-repo-and-installation.md) | Public repo and installation via `uv tool` | Accepted | 2026-11-04 |
+| [0015](0015-public-repo-and-installation.md) | Public repo and installation via `uv tool` | Superseded by ADR 0024 | 2026-11-04 |
 | [0016](0016-default-export-folder-in-tui.md) | Default export folder in TUI: `Documents/discoop` | Accepted | 2026-11-04 |
 | [0017](0017-reliable-export-and-partial-success.md) | Resilient export and partial result | Accepted | 2026-11-04 |
 | [0018](0018-logging.md) | Optional diagnostic logging (`--debug`, `--log`) | Accepted | 2026-11-04 |
@@ -35,6 +35,8 @@ Decisions that are not yet resolved are in [design.md, section 15](../design.md#
 | [0021](0021-english-only-repository.md) | English-only repository | Accepted | 2026-11-04 |
 | [0022](0022-browser-login.md) | Browser login `discoop login --browser` | Accepted | 2026-11-10 |
 | [0023](0023-version-and-single-source.md) | Version 1.0.0 and single source of truth | Accepted | 2026-11-10 |
+| [0024](0024-releases-tags-and-stable-branch.md) | Releases, tags, and the `stable` branch | Accepted | 2026-11-12 |
+| [0025](0025-update-notifier.md) | Update notifier | Accepted | 2026-11-12 |
 
 ## Template
 

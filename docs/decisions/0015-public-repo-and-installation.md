@@ -1,6 +1,6 @@
 # 0015: Public repo and installation via `uv tool`
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR 0024
 - **Date:** 2026-11-04
 - **Decided by:** the user
 

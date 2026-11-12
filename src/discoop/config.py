@@ -10,6 +10,8 @@ from discoop.errors import DiscoopError, ExitCode
 
 MODES = ("safe", "fast")
 DEFAULT_MODE = "safe"
+UPDATE_CHECK_VALUES = ("on", "off")
+DEFAULT_UPDATE_CHECK = "on"
 
 DESCRIPTIONS = {
     "browser-path": "browser program for `login --browser` (default: Chrome, Edge, Chromium or Brave is auto-detected)",
@@ -17,8 +19,13 @@ DESCRIPTIONS = {
     "delay": "seconds between Discord API requests",
     "export-dir": "folder for relative --out/--zip paths (default: current folder; TUI: Documents/discoop)",
     "mode": "download mode: safe (human-like scrolling pauses) or fast",
+    "update-check": "check GitHub Releases for a newer discoop version: on or off",
 }
-DEFAULTS: dict[str, Any] = {"delay": 1.0, "mode": DEFAULT_MODE}
+DEFAULTS: dict[str, Any] = {
+    "delay": 1.0,
+    "mode": DEFAULT_MODE,
+    "update-check": DEFAULT_UPDATE_CHECK,
+}
 
 
 class Config:
@@ -86,6 +93,17 @@ def parse_mode(raw: str) -> str:
     return value
 
 
+def parse_update_check(raw: str) -> str:
+    value = raw.strip().lower()
+    if value not in UPDATE_CHECK_VALUES:
+        raise DiscoopError(
+            ExitCode.BAD_ARGS,
+            f'Unknown update-check value "{raw}".',
+            f"Use one of: {', '.join(UPDATE_CHECK_VALUES)}.",
+        )
+    return value
+
+
 def parse_export_dir(raw: str) -> str:
     """An absolute folder path, so the setting means the same folder whatever the current folder is later."""
     if not raw.strip():
@@ -128,4 +146,6 @@ def parse_value(key: str, raw: str) -> Any:
         return parse_export_dir(raw)
     if key == "mode":
         return parse_mode(raw)
+    if key == "update-check":
+        return parse_update_check(raw)
     return parse_delay(raw)

@@ -1,6 +1,6 @@
 import pytest
 
-from discoop.config import DESCRIPTIONS, Config, parse_delay, parse_mode, parse_value
+from discoop.config import DEFAULTS, DESCRIPTIONS, Config, parse_delay, parse_mode, parse_update_check, parse_value
 from discoop.errors import DiscoopError, ExitCode
 
 
@@ -115,3 +115,28 @@ def test_export_dir(tmp_path, monkeypatch):
         with pytest.raises(DiscoopError) as e:
             parse_value("export-dir", bad)
         assert e.value.code == ExitCode.BAD_ARGS
+
+
+def test_update_check_setting_and_parsing():
+    assert "update-check" in DESCRIPTIONS
+    assert DEFAULTS["update-check"] == "on"
+    config = Config.default()
+    assert config.get("update-check") == "on"
+
+    assert parse_update_check("on") == "on"
+    assert parse_update_check("off") == "off"
+    assert parse_value("update-check", "on") == "on"
+    assert parse_value("update-check", "off") == "off"
+    assert parse_value("update-check", "OFF") == "off"
+    assert parse_value("update-check", "  On  ") == "on"
+
+    for bad in ("", "  ", "true", "false", "1", "yes", "maybe"):
+        with pytest.raises(DiscoopError) as e:
+            parse_value("update-check", bad)
+        assert e.value.code == ExitCode.BAD_ARGS
+
+    config.set("update-check", "off")
+    assert Config.default().get("update-check") == "off"
+    assert Config.default().unset("update-check") is True
+    assert Config.default().get("update-check") == "on"
+    assert Config.default().unset("update-check") is False

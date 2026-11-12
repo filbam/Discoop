@@ -32,5 +32,6 @@ def isolated_env(tmp_path, monkeypatch):
     monkeypatch.setattr("discoop.paths.config_dir", lambda: tmp_path / "config")
     monkeypatch.setattr("discoop.paths.documents_dir", lambda: tmp_path / "documents")
     monkeypatch.delenv("DISCOOP_AGENT", raising=False)
+    monkeypatch.setenv("DISCOOP_NO_UPDATE_NOTIFIER", "1")
     yield memory
     keyring.set_keyring(previous)
