@@ -1193,21 +1193,22 @@ async def test_typing_a_window_updates_preset_and_rejects_nothing_silently() -> 
         window = app.query_one("#row-window", ChoiceRow)
         from_input = app.query_one("#input-from", Input)
         from_input.value = "2026-10-01"
-        await pilot.pause()
+        await wait_until(pilot, lambda: app.selection.global_window.from_ == "2026-10-01" and window.value == "custom")
         assert app.selection.global_window.from_ == "2026-10-01"
         assert window.value == "custom"
 
         from_input.value = "24h"
-        await pilot.pause()
+        await wait_until(pilot, lambda: window.value == "24h" and app.selection.global_window.from_ == "24h")
+        assert app.selection.global_window.from_ == "24h"
         assert window.value == "24h"
 
         app.query_one("#input-last", Input).value = "20"
-        await pilot.pause()
+        await wait_until(pilot, lambda: app.selection.global_window.last == 20 and window.value == "custom")
         assert app.selection.global_window.last == 20
         assert window.value == "custom"
 
         window.action_step(1)  # from "custom" back to the first preset
-        await pilot.pause()
+        await wait_until(pilot, lambda: window.value == "24h" and app.selection.global_window.last is None)
         assert window.value == "24h"
         assert app.selection.global_window.last is None
 
