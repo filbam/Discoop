@@ -59,6 +59,15 @@ def _strip_yaml_comment(line: str) -> str:
     return line.rstrip()
 
 
+def _decode_workflow_bytes(raw: bytes) -> str:
+    """Normalize CRLF line endings to LF before validating and decoding workflow YAML."""
+    normalized = raw.replace(b"\r\n", b"\n")
+    assert b"\r" not in normalized, "Workflow YAML must not contain bare CR characters."
+    assert b"\t" not in normalized, "Workflow YAML must not contain tabs."
+    assert normalized.endswith(b"\n"), "Workflow YAML must end with a newline."
+    return normalized.decode("utf-8")
+
+
 def _parse_workflow_yaml(text: str) -> dict[str, object]:
     """Parse a clean indentation-based subset of YAML used by workflow files."""
     assert "\t" not in text, "Workflow YAML must not contain tab characters."
@@ -370,15 +379,18 @@ def test_cli_fails_on_empty_changelog_section(
     assert not out.exists()
 
 
-def test_extract_ignores_similar_headings_and_stops_at_next_section() -> None:
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_extract_ignores_similar_headings_and_stops_at_next_section(newline: str) -> None:
     mod = _load_release_notes_module()
     changelog = (
         "## [Unreleased]\n\n"
         "## [1.2.3-rc1] - 2026-11-11\n\n- Pre-release.\n\n"
         "## [1.2.3] - 2026-11-12\n\n- Final release.\n\n"
         "## [1.2.2]\n\n- Older.\n"
-    )
-    assert mod.extract_changelog_section(changelog, "1.2.3") == "- Final release.\n"
+    ).replace("\n", newline)
+    notes = mod.extract_changelog_section(changelog, "1.2.3")
+    assert "\r" not in notes
+    assert notes == "- Final release.\n"
 
 
 def test_cli_fails_when_pyproject_missing_version(
@@ -423,17 +435,54 @@ def test_extract_real_repo_1_0_0_changelog() -> None:
     assert "## [Unreleased]" not in notes
     assert "## [1.0.0]" not in notes
 
+    crlf_changelog = changelog_text.replace("\n", "\r\n")
+    assert mod.extract_changelog_section(crlf_changelog, "1.0.0") == notes
+
     pyproject_ver = mod.read_pyproject_version(ROOT / "pyproject.toml")
     assert re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", pyproject_ver)
 
 
-def test_release_workflow_yaml_structure() -> None:
-    raw = WORKFLOW.read_bytes()
-    assert b"\r\n" not in raw, "release.yml must use LF line endings"
-    assert b"\t" not in raw, "release.yml must not contain tabs"
-    assert raw.endswith(b"\n")
+def test_workflow_yaml_normalization_handles_lf_and_crlf() -> None:
+    sample_lf = (
+        "name: Release\n"
+        "\n"
+        "on:\n"
+        "  push:\n"
+        "    tags:\n"
+        "      - 'v[0-9]+.[0-9]+.[0-9]+'\n"
+        "jobs:\n"
+        "  test:\n"
+        "    steps:\n"
+        "      - run: uv run pytest\n"
+    ).encode("utf-8")
+    sample_crlf = sample_lf.replace(b"\n", b"\r\n")
 
-    workflow = _parse_workflow_yaml(raw.decode("utf-8"))
+    decoded_lf = _decode_workflow_bytes(sample_lf)
+    decoded_crlf = _decode_workflow_bytes(sample_crlf)
+    assert decoded_crlf == decoded_lf
+
+    expected = {
+        "name": "Release",
+        "on": {"push": {"tags": ["v[0-9]+.[0-9]+.[0-9]+"]}},
+        "jobs": {"test": {"steps": [{"run": "uv run pytest"}]}},
+    }
+    assert _parse_workflow_yaml(decoded_crlf) == expected
+    assert _parse_workflow_yaml(sample_crlf.decode("utf-8")) == expected
+
+    with pytest.raises(AssertionError, match="tabs"):
+        _decode_workflow_bytes(b"name: Release\r\n\ton:\r\n")
+    with pytest.raises(AssertionError, match="end with a newline"):
+        _decode_workflow_bytes(b"name: Release\r\non: push")
+
+    real_lf = WORKFLOW.read_bytes().replace(b"\r\n", b"\n")
+    real_crlf = real_lf.replace(b"\n", b"\r\n")
+    assert _parse_workflow_yaml(_decode_workflow_bytes(real_crlf)) == _parse_workflow_yaml(
+        _decode_workflow_bytes(real_lf)
+    )
+
+
+def test_release_workflow_yaml_structure() -> None:
+    workflow = _parse_workflow_yaml(_decode_workflow_bytes(WORKFLOW.read_bytes()))
     assert workflow["on"] == {"push": {"tags": ["v[0-9]+.[0-9]+.[0-9]+"]}}
     assert workflow["permissions"] == {"contents": "read"}
 
