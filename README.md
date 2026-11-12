@@ -5,9 +5,9 @@ of study information. Personal project for study purposes.
 
 **Warning:** scraping violates Discord's Terms of Service. You use the tool at your own risk; account suspension is possible.
 
-**Status:** first `1.x` release (run `discoop --version` or see [CHANGELOG.md](CHANGELOG.md)); partly verified on a real account on Windows 10 (see the login and [analysis](docs/analyses/) notes; Linux and macOS untested). Working features include `login` (QR code in terminal, `--browser` window, or `--token`), `status`, `logout`,
+**Status:** first `1.x` release (run `discoop --version` or see [CHANGELOG.md](CHANGELOG.md)); partly verified on a real account on Windows 10 (see the login and [analysis](docs/analyses/) notes; Linux and macOS untested; live GitHub Actions release runs and GitHub Release update checks await the first workflow-driven release). Working features include `login` (QR code in terminal, `--browser` window, or `--token`), `status`, `logout`,
 `servers`, `channels`, `threads`, `config`, `messages` (printing messages to console, downloading attachments and resilient export to folder
-or zip with manifest and automatic resume, download modes `safe` and `fast`, incremental download `--since-last`, token splitting `--max-tokens`), interactive terminal user interface `discoop ui` (TUI), diagnostics `doctor`, diagnostic logging, profile management, and reference `discoop agent-guide`. Threads and forums are fully supported.
+or zip with manifest and automatic resume, download modes `safe` and `fast`, incremental download `--since-last`, token splitting `--max-tokens`), interactive terminal user interface `discoop ui` (TUI), passive GitHub release update notifications (CLI, TUI, and `doctor`), diagnostics `doctor`, diagnostic logging, profile management, and reference `discoop agent-guide`. Threads and forums are fully supported.
 
 ## Installation
 
@@ -33,10 +33,10 @@ macOS via Homebrew (alternative):
 brew install uv
 ```
 
-**2. Install discoop** (same on all operating systems):
+**2. Install discoop** (same on all operating systems; installs from the `stable` release branch):
 
 ```
-uv tool install git+https://github.com/filbam/Discoop
+uv tool install git+https://github.com/filbam/Discoop@stable
 ```
 
 ```
@@ -53,6 +53,12 @@ discoop --version
 
 ```
 uv tool upgrade discoop
+```
+
+If you previously installed Discoop from `main` (without `@stable`), switch once so future `uv tool upgrade discoop` runs track tested releases:
+
+```
+uv tool install --force git+https://github.com/filbam/Discoop@stable
 ```
 
 **Uninstall:** first `discoop logout` (removes the stored token), then:
@@ -83,6 +89,7 @@ discoop config set default-server "VUT FIT"
 discoop config set export-dir ~/discord-exports   # export folder (TUI: default, CLI: for relative paths)
 discoop config set mode safe               # mode: safe (default) or fast
 discoop config set browser-path <file>     # browser program for `login --browser` (default: found automatically)
+discoop config set update-check on         # passive GitHub release check: on (default) or off
 ```
 
 **Logging in:** `discoop login` shows a QR code in the terminal; scan it in the Discord app (Settings → Scan QR Code).
@@ -179,7 +186,7 @@ API verification via prototype is described in [prototype/README.md](prototype/R
 The tool includes diagnostic commands for checking status and optional safe logging:
 
 ```
-discoop doctor                         # diagnostics for login, network, export folder, and disk space
+discoop doctor                         # diagnostics for login, network, export folder, disk space, cache, version, updates
 discoop servers --format json          # machine-readable JSON output (also for channels, status, config list)
 discoop messages ... --progress-json   # JSONL progress events on stderr for scripts
 discoop --debug messages ...           # detailed diagnostic log on stderr (disables spinner)
@@ -187,9 +194,22 @@ discoop --log discoop.log messages ... # write diagnostic log to file
 ```
 
 - `--debug` and `--log FILE`: optional logging (disabled by default). Can also be activated via environment variables `DISCOOP_DEBUG=1` and `DISCOOP_LOG=path`. The log **never contains** authentication tokens, CDN URL signatures, message texts, or usernames (numeric IDs only).
-- `discoop doctor`: checks 6 items: login (`login`), Discord API availability (`network`), export folder writability (`export_dir`), available disk space (`disk_space`, FAIL below 100 MB), cache age (`cache`), and tool version (`version`). Plain mode outputs tab-separated lines; human mode outputs a table.
+- `discoop doctor`: checks 7 items: login (`login`), Discord API availability (`network`), export folder writability (`export_dir`), available disk space (`disk_space`, FAIL below 100 MB), cache age (`cache`), tool version (`version`), and available release (`update`, always `OK` so it never alters the exit code). Plain mode outputs tab-separated lines; human mode outputs a table.
 - `--format json`: machine-readable JSON output for `servers`, `channels`, `status`, `config list`, and `login --browser`.
 - `--progress-json`: structured JSONL messages about download progress on `stderr` with percentages and estimated time of arrival (ETA); `login --browser` has its own four events.
+
+## Update notifications
+
+Discoop passively checks GitHub Releases (`releases/latest`) to let you know when a newer release is published. The check is unauthenticated (sends `Accept` and `User-Agent: discoop/<version>` only, never tokens, cookies, or user data even if `GITHUB_TOKEN`/`GH_TOKEN` is set), uses a 2 s timeout, stays silent on network errors or when no release is published yet, and caches results in `update-check.json` inside Discoop's data folder (24 h check interval, 1 h backoff after errors).
+
+- **CLI notice:** on interactive TTY terminals (`stderr`), prints a 3-line notice after command output at most once every 24 h without changing the exit code (waits at most 1 s for a background check at command end). Suppressed automatically for non-TTY runs, `CI`, `ui`/`--ui`, `--version`, `--help`/bare `discoop`, usage errors, `--format json`/`jsonl`, `--progress-json`, and Ctrl+C (`130`).
+- **TUI (`discoop ui`):** checks in the background on startup without affecting the CLI's 24 h notice timer, displays `↑ <latest>` in the top bar when a newer release exists, and writes one reminder line with the upgrade command and release notes URL to the Log pane.
+- **`discoop doctor`:** the `update` row (7th check) always performs a fresh check (even in `CI`) and reports `up to date (latest <version>)`, `<version> available: uv tool upgrade discoop`, `no release published yet`, `skipped (update-check is off)`, or `could not check: <reason>` while always keeping status `OK`.
+- **Disabling update checks:**
+  - `discoop config set update-check off` (`on` by default; visible in `discoop config list` in text and JSON) disables all update checks across CLI, TUI, and `doctor` (no network requests). Re-enable with `discoop config set update-check on`.
+  - `DISCOOP_NO_UPDATE_NOTIFIER=1` (or `true`/`yes`/`on`) disables all update checks across CLI, TUI, and `doctor`.
+  - `CI=1` (or any truthy `CI`) suppresses the automatic CLI check and notice (`doctor` still checks when run explicitly).
+- **AI agents:** Discoop never upgrades itself automatically; `discoop agent-guide` instructs AI agents to inform you when they see an update notice or `doctor`'s `update` row and never run `uv tool upgrade` or `uv tool install`.
 
 ## Development
 
