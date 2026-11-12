@@ -1657,12 +1657,28 @@ def _start_cli_update_check() -> update_check.BackgroundUpdateCheck:
     return update_check.start_background_check(transport=_update_transport())
 
 
+# Top-level commands that never start the CLI background check (and so never print the notice): `ui` runs its own
+# check, `doctor` checks fresh in its `update` row, and `config` only manages settings (so `config set update-check
+# off` never makes the request it is turning off).
+_NO_BACKGROUND_CHECK = frozenset({"ui", "doctor", "config"})
+
+
+def _top_level_command_name(ctx: click.Context) -> str | None:
+    """Name of the subcommand directly under `discoop` that `ctx` belongs to (`config` for `discoop config set`)."""
+    cur = ctx
+    while cur.parent is not None and cur.parent.parent is not None:
+        cur = cur.parent
+    if cur.parent is None:
+        return None
+    return cur.command.name or cur.info_name
+
+
 def _maybe_start_update_check(ctx: click.Context, *, command_name: str | None = None) -> None:
     out = ctx.find_object(Output)
     if out is None or getattr(out, "_update_handle", None) is not None:
         return
     name = command_name if command_name is not None else (ctx.command.name or ctx.info_name)
-    if name in ("ui", "doctor"):
+    if name in _NO_BACKGROUND_CHECK or _top_level_command_name(ctx) in _NO_BACKGROUND_CHECK:
         return
     if not _stderr_is_tty() or _is_machine_output_ctx(ctx):
         return

@@ -488,6 +488,18 @@ def test_cli_notice_slow_check_hits_wait_cap_without_blocking_or_failing(
     assert err == ""
     assert 0.8 <= elapsed < 2.5
 
+    # The check finishes in the background after the command returned: its result is cached for the next run,
+    # and nothing was shown, so notified_at stays empty.
+    newer = _newer_version()
+    deadline = time.monotonic() + 10.0
+    while update_check.load_cache().latest_version != newer:
+        assert time.monotonic() < deadline, "the released background check never wrote the cache"
+        time.sleep(0.02)
+    cache = _read_cache()
+    assert cache["latest_version"] == newer
+    assert cache["checked_at"] is not None
+    assert cache["notified_at"] is None
+
 
 @pytest.mark.parametrize(
     "response",
@@ -507,7 +519,10 @@ def test_cli_notice_silent_on_up_to_date_404_and_errors(
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
 
-    def handler(_request: httpx.Request) -> httpx.Response:
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
         if isinstance(response, Exception):
             raise response
         return response
@@ -518,6 +533,18 @@ def test_cli_notice_silent_on_up_to_date_404_and_errors(
     code, _, err = _run_cli(capsys, "--plain", "logout")
     assert code == 0
     assert err == ""
+    assert len(calls) == 1
+
+    cache = _read_cache()
+    assert cache["notified_at"] is None
+    if isinstance(response, httpx.Response) and response.status_code in (200, 404):
+        assert cache["checked_at"] is not None
+        assert cache["failed_at"] is None
+        assert cache["latest_version"] == (__version__ if response.status_code == 200 else None)
+    else:
+        assert cache["failed_at"] is not None
+        assert cache["checked_at"] is None
+        assert cache["latest_version"] is None
 
 
 def test_cli_notice_swallows_unexpected_notifier_exceptions(
@@ -526,13 +553,23 @@ def test_cli_notice_swallows_unexpected_notifier_exceptions(
     tty_notifier: list[httpx.Request],
 ):
     # 1. Start failure
-    monkeypatch.setattr(cli, "_start_cli_update_check", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    start_calls: list[None] = []
+
+    def broken_start() -> update_check.BackgroundUpdateCheck:
+        start_calls.append(None)
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(cli, "_start_cli_update_check", broken_start)
     code, _, err = _run_cli(capsys, "--plain", "logout")
     assert (code, err) == (0, "")
+    assert len(start_calls) == 1
 
     # 2. Wait failure
+    wait_calls: list[float] = []
+
     class BrokenHandle:
         def wait(self, timeout: float = 1.0) -> None:
+            wait_calls.append(timeout)
             raise RuntimeError("wait boom")
 
         def mark_notified(self) -> None:
@@ -541,6 +578,7 @@ def test_cli_notice_swallows_unexpected_notifier_exceptions(
     monkeypatch.setattr(cli, "_start_cli_update_check", lambda: BrokenHandle())
     code, _, err = _run_cli(capsys, "--plain", "logout")
     assert (code, err) == (0, "")
+    assert wait_calls == [cli.CLI_NOTICE_WAIT_TIMEOUT]
 
     # 3. mark_notified failure still leaves exit code 0
     class BrokenMarkHandle:
@@ -560,29 +598,80 @@ def test_cli_notice_swallows_unexpected_notifier_exceptions(
     assert "A new release of discoop is available" in err
 
 
-def test_cli_notice_works_for_profiles_root_and_config_list(
+def test_cli_notice_works_for_profiles_root(
     capsys: pytest.CaptureFixture[str],
     tty_notifier: list[httpx.Request],
 ):
     newer = _newer_version()
 
-    code1, _, err1 = _run_cli(capsys, "--plain", "profiles")
-    assert code1 == 0
+    code, _, err = _run_cli(capsys, "--plain", "profiles")
+    assert code == 0
     assert len(tty_notifier) == 1
-    assert f"A new release of discoop is available: {__version__} -> {newer}" in err1
+    assert f"A new release of discoop is available: {__version__} -> {newer}" in err
 
-    # Reset notified_at to verify config list is also eligible (uses fresh cache).
-    _write_cache({
-        "checked_at": time.time(),
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["config", "set", "update-check", "off"],
+        ["config", "set", "update-check", "on"],
+        ["config", "set", "mode", "fast"],
+        ["config", "list"],
+        ["config", "get", "update-check"],
+        ["config", "unset", "update-check"],
+        ["config", "unset", "mode"],
+    ],
+)
+def test_config_commands_never_start_the_background_check(
+    capsys: pytest.CaptureFixture[str],
+    tty_notifier: list[httpx.Request],
+    argv: list[str],
+):
+    newer = _newer_version()
+    stale = {
+        "checked_at": time.time() - update_check.CHECK_INTERVAL - 60.0,
         "latest_version": newer,
         "latest_url": f"https://github.com/filbam/Discoop/releases/tag/v{newer}",
         "failed_at": None,
         "notified_at": None,
-    })
-    code2, _, err2 = _run_cli(capsys, "--plain", "config", "list")
-    assert code2 == 0
+    }
+    _write_cache(stale)
+
+    code, _, err = _run_cli(capsys, "--plain", *argv)
+    assert code == 0, err
+    assert tty_notifier == []
+    assert "A new release of discoop is available" not in err
+    assert _read_cache() == stale
+
+    # Settings management stays silent even when a fresh cache already knows a newer release.
+    fresh = {**stale, "checked_at": time.time()}
+    _write_cache(fresh)
+    code, _, err = _run_cli(capsys, "--plain", *argv)
+    assert code == 0, err
+    assert tty_notifier == []
+    assert "A new release of discoop is available" not in err
+    assert _read_cache() == fresh
+
+
+def test_config_set_update_check_off_then_other_commands_stay_offline(
+    capsys: pytest.CaptureFixture[str],
+    tty_notifier: list[httpx.Request],
+):
+    code, out, err = _run_cli(capsys, "--plain", "config", "set", "update-check", "off")
+    assert (code, out, err) == (0, "update-check = off\n", "")
+    assert tty_notifier == []
+    assert not update_check.update_cache_path().exists()
+
+    code, _, err = _run_cli(capsys, "--plain", "logout")
+    assert (code, err, tty_notifier) == (0, "", [])
+
+    # Back on: the next eligible command checks again (so the fixture really would have seen a request).
+    code, _, err = _run_cli(capsys, "--plain", "config", "unset", "update-check")
+    assert (code, err, tty_notifier) == (0, "", [])
+    code, _, err = _run_cli(capsys, "--plain", "logout")
+    assert code == 0
     assert len(tty_notifier) == 1
-    assert f"A new release of discoop is available: {__version__} -> {newer}" in err2
+    assert "A new release of discoop is available:" in err
 
 
 def test_cli_notice_works_for_agent_guide_on_tty(
