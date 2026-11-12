@@ -147,6 +147,9 @@ RULES FOR AI AGENTS
 - Always run large downloads in the default safe mode (--safe) to emulate human pacing and protect the account from bans.
 - If interrupted (Ctrl+C, network error) or if the command exits with code 9 (PARTIAL), re-run the exact same command.
   discoop will automatically resume from `<target>.partial` without re-downloading already completed channels.
+- Any update notice is informational and normally appears only in a terminal. If you see an update notice or
+  the `discoop doctor` `update` row showing a newer release, tell the user about it; never run
+  `uv tool upgrade` or `uv tool install`, and never reinstall `discoop` yourself.
 
 LOGGING IN (needs the human)
 ----------------------------

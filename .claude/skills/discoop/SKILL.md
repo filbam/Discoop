@@ -48,6 +48,9 @@ the exit codes of the installed version.
 5. **Never call the Discord API or CDN yourself** (curl, scripts). Use the CLI only.
 6. **Exports contain other people's messages.** Keep them out of git (`exports/` and `*.zip` are git-ignored in this
    repo), do not paste them into public places, and do not put real message texts or names into committed files.
+7. **Never upgrade or reinstall `discoop` yourself.** Any update notice is informational and normally appears only in a
+   terminal. If you see an update notice or the `discoop doctor` `update` row showing a newer release, tell the user
+   about it; never run `uv tool upgrade` or `uv tool install`, and never reinstall `discoop` yourself.
 
 ## Logging in (needs the human)
 
@@ -193,7 +196,7 @@ A profile stores server, channels, time window and mode.
 
 ```
 discoop --plain config list --format json
-discoop --plain doctor                       # login, network, export folder, disk space, cache, version
+discoop --plain doctor                       # login, network, export folder, disk space, cache, version, update
 discoop --plain --debug messages ...         # diagnostic log on stderr
 discoop --plain --log discoop.log messages ...
 discoop --plain -v messages ...              # show progress notes in plain mode

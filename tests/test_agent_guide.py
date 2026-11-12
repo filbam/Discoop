@@ -33,6 +33,18 @@ RULE_PHRASES = (
     "ask the user to run discoop login or discoop login --token in their own terminal",
 )
 
+# The rule for AI agents about update notices (requirement P34, ADR 0025).
+UPDATE_RULE_PHRASES = (
+    "update notice is informational",
+    "normally appears only in a terminal",
+    "discoop doctor",
+    "update row",
+    "newer release",
+    "tell the user",
+    "never run uv tool upgrade or uv tool install",
+    "never reinstall discoop yourself",
+)
+
 
 def normalized(text: str) -> str:
     return " ".join(text.replace("`", "").lower().split())
@@ -203,6 +215,19 @@ def test_the_skill_carries_the_same_login_rule_as_the_guide():
     # and it does not say any more that login is the user's QR code alone
     assert "never log in for the user" not in text
     assert "do not run `login`" not in skill
+
+
+def test_the_guide_and_skill_carry_the_same_update_rule():
+    """Both `discoop agent-guide` and `.claude/skills/discoop/SKILL.md` state the update-notice rule."""
+    guide_text = normalized(build_guide(cli_app))
+    skill = SKILL_FILE.read_text(encoding="utf-8")
+    skill_text = normalized(skill)
+
+    for phrase in UPDATE_RULE_PHRASES:
+        assert phrase in guide_text, f"the guide lacks: {phrase}"
+        assert phrase in skill_text, f"the skill lacks: {phrase}"
+
+    assert "cache, version, update" in skill
 
 
 def test_the_other_texts_for_agents_say_the_same_in_short():
