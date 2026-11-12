@@ -18,12 +18,14 @@ try:
 except ImportError:
     from typer import _click as click
 
+import httpx
 import typer
 from rich.progress import BarColumn, DownloadColumn, Progress, TextColumn, TransferSpeedColumn
 from rich.text import Text
 from rich.tree import Tree
+from typer.core import TyperCommand
 
-from discoop import __version__, agent_guide, export, login as login_flow, logs, paths, profiles, tokens
+from discoop import __version__, agent_guide, export, login as login_flow, logs, paths, profiles, tokens, update_check
 from discoop.api import DiscordAPI
 from discoop.attachments import DOWNLOADED, FAILED, NO_FILES, PRESENT, SKIPPED, FileJob, cdn_client
 from discoop.attachments import Progress as DownloadProgress
@@ -197,11 +199,34 @@ def _env_truthy(key: str) -> bool:
 
 _MODE_FLAGS = {"--plain", "--agent", "--human", "--verbose", "-v", "--debug"}
 _CONTEXT = {"help_option_names": ["-h", "--help"]}
+CLI_NOTICE_WAIT_TIMEOUT = 1.0
 
-app = typer.Typer(add_completion=False, pretty_exceptions_enable=False, context_settings=_CONTEXT)
-config_app = typer.Typer(help="Show or change settings.", add_completion=False, context_settings=_CONTEXT)
+
+class _CliCommand(TyperCommand):
+    """TyperCommand that kicks off an eligible CLI background update check before running."""
+
+    def invoke(self, ctx: click.Context) -> Any:
+        _maybe_start_update_check(ctx)
+        return super().invoke(ctx)
+
+
+class _CliTyper(typer.Typer):
+    """Typer app whose leaf commands use `_CliCommand` by default."""
+
+    def command(
+        self,
+        name: str | None = None,
+        *,
+        cls: type[TyperCommand] | None = None,
+        **kwargs: Any,
+    ) -> Callable[[Any], Any]:
+        return super().command(name, cls=cls or _CliCommand, **kwargs)
+
+
+app = _CliTyper(add_completion=False, pretty_exceptions_enable=False, context_settings=_CONTEXT)
+config_app = _CliTyper(help="Show or change settings.", add_completion=False, context_settings=_CONTEXT)
 app.add_typer(config_app, name="config")
-profiles_app = typer.Typer(help="List or delete saved profiles.", add_completion=False, context_settings=_CONTEXT)
+profiles_app = _CliTyper(help="List or delete saved profiles.", add_completion=False, context_settings=_CONTEXT)
 app.add_typer(profiles_app, name="profiles")
 
 _SERVER_OPTION = typer.Option(
@@ -607,6 +632,12 @@ def doctor(ctx: typer.Context) -> None:
     version_detail = __version__
     version_code = 0
 
+    update_result = _doctor_update_check()
+    update_ok = True
+    update_detail = update_check.format_doctor_detail(update_result)
+    update_code = 0
+    _attach_doctor_update_handle(out, update_result)
+
     checks = [
         ("login", login_ok, login_detail, login_code),
         ("network", network_ok, network_detail, network_code),
@@ -614,6 +645,7 @@ def doctor(ctx: typer.Context) -> None:
         ("disk_space", disk_ok, disk_detail, disk_code),
         ("cache", cache_ok, cache_detail, cache_code),
         ("version", version_ok, version_detail, version_code),
+        ("update", update_ok, update_detail, update_code),
     ]
 
     if out.plain:
@@ -1079,6 +1111,7 @@ def profiles_root(
 ) -> None:
     """List or delete saved profiles."""
     if ctx.invoked_subcommand is None:
+        _maybe_start_update_check(ctx, command_name="profiles")
         _list_profiles(ctx, output_format)
 
 
@@ -1588,6 +1621,105 @@ def _ago(seconds: float) -> str:
     return f"{hours} h ago" if hours < 48 else f"{hours // 24} days ago"
 
 
+def _update_transport() -> httpx.BaseTransport | None:
+    """Return an optional httpx transport override for update checks (test seam)."""
+    return None
+
+
+def _stderr_is_tty() -> bool:
+    stream = sys.stderr
+    if stream is None:
+        return False
+    isatty = getattr(stream, "isatty", None)
+    if not callable(isatty):
+        return False
+    try:
+        return bool(isatty())
+    except Exception:
+        return False
+
+
+def _is_machine_output_ctx(ctx: click.Context) -> bool:
+    cur: click.Context | None = ctx
+    while cur is not None:
+        if bool(cur.params.get("progress_json")):
+            return True
+        fmt = cur.params.get("output_format")
+        if fmt is None:
+            fmt = cur.params.get("format")
+        if isinstance(fmt, str) and fmt.strip().lower() in ("json", "jsonl"):
+            return True
+        cur = cur.parent
+    return False
+
+
+def _start_cli_update_check() -> update_check.BackgroundUpdateCheck:
+    return update_check.start_background_check(transport=_update_transport())
+
+
+def _maybe_start_update_check(ctx: click.Context, *, command_name: str | None = None) -> None:
+    out = ctx.find_object(Output)
+    if out is None or getattr(out, "_update_handle", None) is not None:
+        return
+    name = command_name if command_name is not None else (ctx.command.name or ctx.info_name)
+    if name in ("ui", "doctor"):
+        return
+    if not _stderr_is_tty() or _is_machine_output_ctx(ctx):
+        return
+    try:
+        if update_check.is_cli_disabled():
+            return
+        out._update_handle = _start_cli_update_check()  # type: ignore[attr-defined]
+    except Exception as exc:
+        update_check.logger.debug("Could not start update check: %s", exc)
+
+
+def _doctor_update_check() -> update_check.CheckResult:
+    try:
+        return update_check.check_for_update(
+            force=True,
+            include_ci=False,
+            transport=_update_transport(),
+        )
+    except Exception as exc:
+        update_check.logger.debug("Doctor update check failed unexpectedly: %s", exc)
+        return update_check.CheckResult(status=update_check.STATUS_ERROR, error=str(exc) or "unexpected error")
+
+
+def _attach_doctor_update_handle(out: Output, result: update_check.CheckResult) -> None:
+    if result.update is None:
+        return
+    if not _stderr_is_tty():
+        return
+    try:
+        if update_check.is_cli_disabled():
+            return
+        cache = update_check.load_cache()
+        out._update_handle = update_check.BackgroundUpdateCheck(  # type: ignore[attr-defined]
+            cache_path=update_check.update_cache_path(),
+            now=None,
+            check_now=time.time(),
+            result=result,
+            notified_at=cache.notified_at,
+        )
+    except Exception as exc:
+        update_check.logger.debug("Could not attach doctor update handle: %s", exc)
+
+
+def _finish_cli_update_check(out: Output) -> None:
+    handle: update_check.BackgroundUpdateCheck | None = getattr(out, "_update_handle", None)
+    if handle is None:
+        return
+    try:
+        info = handle.wait(timeout=CLI_NOTICE_WAIT_TIMEOUT)
+        if info is None:
+            return
+        out.update_notice(update_check.format_cli_notice_lines(info))
+        handle.mark_notified()
+    except Exception as exc:
+        update_check.logger.debug("CLI update notice failed: %s", exc)
+
+
 def main(argv: list[str] | None = None) -> None:
     args = _hoist_mode_flags(list(sys.argv[1:] if argv is None else argv))
     plain = detect_plain_mode("--plain" in args, "--human" in args, agent_flag="--agent" in args)
@@ -1595,26 +1727,35 @@ def main(argv: list[str] | None = None) -> None:
         _use_utf8_streams()
     out = Output(plain=plain)
     out.debug = False
+    out._update_handle = None  # type: ignore[attr-defined]
     for typer_app in (app, config_app, profiles_app):
         typer_app.rich_markup_mode = None if plain else "rich"
     app.info.help = _help_text(plain)
+    exit_code = 0
+    show_notice = True
     try:
         try:
             code = app(args=args, prog_name="discoop", standalone_mode=False, obj=out)
+            exit_code = code if isinstance(code, int) else 0
         except DiscoopError as e:
             out.error(e)
-            sys.exit(int(e.code))
+            exit_code = int(e.code)
         except typer.TyperException as e:
+            show_notice = False
             # Typer's usage errors (unknown command, bad option) carry exit_code 2.
             if getattr(e, "exit_code", 1) == 2:
                 out.error(DiscoopError(ExitCode.BAD_ARGS, e.format_message(), "Run `discoop --help`."))
-                sys.exit(int(ExitCode.BAD_ARGS))
-            out.error(DiscoopError(ExitCode.ERROR, e.format_message()))
-            sys.exit(int(ExitCode.ERROR))
+                exit_code = int(ExitCode.BAD_ARGS)
+            else:
+                out.error(DiscoopError(ExitCode.ERROR, e.format_message()))
+                exit_code = int(ExitCode.ERROR)
         except (typer.Abort, KeyboardInterrupt):
+            show_notice = False
             out.error(DiscoopError(ExitCode.ERROR, "Interrupted."))
-            sys.exit(130)
-        sys.exit(code if isinstance(code, int) else 0)
+            exit_code = 130
+        if show_notice and exit_code != 130:
+            _finish_cli_update_check(out)
+        sys.exit(exit_code)
     finally:
         logs.teardown_logging()
 

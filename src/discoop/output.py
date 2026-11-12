@@ -138,3 +138,12 @@ class Output:
         self.err_console.print(line)
         if err.hint:
             self.err_console.print(Text("Hint: ", style="bold") + Text(err.hint))
+
+    def update_notice(self, lines: Sequence[str]) -> None:
+        """Print the passive update notice to stderr (yellow in human mode, unstyled in plain mode)."""
+        if self._plain:
+            for line in lines:
+                print(line, file=sys.stderr)
+            return
+        for line in lines:
+            self.err_console.print(Text(line, style="yellow"), soft_wrap=True)
