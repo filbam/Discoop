@@ -17,9 +17,11 @@ Screen {
     text-wrap: nowrap;
 }
 
+/* 33 = "@" + the longest Discord username (32). That fits at 75 columns next to the update label; anything longer
+   ends in an ellipsis instead of pushing "F1 help" off the bar. */
 #status-indicator {
     margin-right: 2;
-    max-width: 45%;
+    max-width: 33;
     text-wrap: nowrap;
     text-overflow: ellipsis;
 }

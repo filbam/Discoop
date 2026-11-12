@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import time
 from typing import Any
 
@@ -31,6 +32,7 @@ from textual.timer import Timer
 from textual.widgets import Footer, Input, Label, ProgressBar, RichLog, Static
 from textual.widgets.option_list import Option
 from textual.widgets.tree import TreeNode
+from textual.worker import get_current_worker
 
 from discoop import profiles, update_check
 from discoop.api import DiscordAPI
@@ -110,6 +112,7 @@ STOP_LABEL = "[ Stop (Esc) ]"
 NO_COMMAND = "(select channels to preview CLI command)"
 FILTER_DELAY = 0.08  # seconds of no typing before the tree follows the filter
 DOWNLOAD_REPORT_INTERVAL = 0.1  # seconds between progress updates during a download
+UPDATE_POLL_INTERVAL = 0.1  # seconds between looks at whether the app is closing while the update check runs
 
 
 class UiCall(Message):
@@ -197,6 +200,8 @@ class DiscoopApp(App[None]):
         self._state_loaded = False  # the saved state of this account was read: only then may a change be saved
         self._state_save_failed = False  # the last write of tui-state.json failed: say so once, not on every key
         self._update_logged = False  # log a newer release at most once per TUI session
+        self._update_worker_ended = threading.Event()  # the update worker has returned (set from its thread)
+        self._update_worker_end = ""  # how it returned: "cancelled", "failed" or "finished"
         self._last_export_folder: Path | None = None
         self._tree_nodes: dict[str, TreeNode[Any]] = {}  # node of each server and channel in the tree
         self._expanded: set[str] = set()  # nodes the user opened; a filter opens its own and leaves this alone
@@ -1457,13 +1462,42 @@ class DiscoopApp(App[None]):
 
     @work(thread=True, group="update", exit_on_error=False)
     def _update_worker(self) -> None:
+        """Run the passive release check without ever holding up quitting.
+
+        A thread worker runs in asyncio's default executor, and `App.run()` (through `asyncio.run()`) waits for those
+        threads when it closes. So the check itself, whose HTTP request can hang on a slow network, runs in a daemon
+        thread of its own; this worker only waits for it and returns as soon as Textual cancels it on exit, without
+        touching the UI.
+        """
+        worker = get_current_worker()
+        end = "cancelled"
         try:
-            result = self.update_check_fn()
-        except Exception as exc:  # never let a passive update check crash the UI
-            logger.debug("Update check failed in TUI: %s", exc)
-            return
-        if result is not None and result.status == STATUS_UPDATE_AVAILABLE and result.update is not None:
-            self._ui(self._apply_update_available, result.update)
+            check = self.update_check_fn
+            outcome: list[CheckResult | Exception] = []
+
+            def run_check() -> None:
+                try:
+                    outcome.append(check())
+                except Exception as exc:  # never let a passive update check crash the UI
+                    outcome.append(exc)
+
+            checker = threading.Thread(target=run_check, name="discoop-tui-update-check", daemon=True)
+            checker.start()
+            while checker.is_alive() and not worker.is_cancelled:
+                checker.join(UPDATE_POLL_INTERVAL)
+            if worker.is_cancelled:
+                return
+            end = "failed"
+            result = outcome[0] if outcome else None
+            if isinstance(result, Exception):
+                logger.debug("Update check failed in TUI: %s", result)
+                return
+            end = "finished"
+            if result is not None and result.status == STATUS_UPDATE_AVAILABLE and result.update is not None:
+                self._ui(self._apply_update_available, result.update)
+        finally:
+            self._update_worker_end = end
+            self._update_worker_ended.set()
 
     def _apply_update_available(self, info: UpdateInfo) -> None:
         if not self.is_running or not self._update_indicator.is_mounted:

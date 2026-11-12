@@ -386,37 +386,145 @@ async def test_update_worker_isolated_from_net_group_and_discord_refresh() -> No
         gate.set()
 
 
-async def test_quit_does_not_hang_while_update_worker_is_pending() -> None:
-    gate = threading.Event()
-    entered = threading.Event()
+class _BlockedCheck:
+    """An update check that blocks until `release()`, like an HTTP request on a slow or blackholed network."""
 
-    def slow_update() -> CheckResult:
-        entered.set()
-        gate.wait(10)
-        return CheckResult(status=STATUS_UPDATE_AVAILABLE, update=_sample_info())
+    def __init__(self, result: CheckResult, *, block_for: float = 30.0) -> None:
+        self.result = result
+        self.block_for = block_for
+        self.gate = threading.Event()
+        self.entered = threading.Event()
+        self.returned = threading.Event()
+        self.threads: list[threading.Thread] = []
 
-    app = DiscoopApp(api_factory=_make_dummy_api_factory(), update_check_fn=slow_update)
-    t0 = time.monotonic()
+    def __call__(self) -> CheckResult:
+        self.threads.append(threading.current_thread())
+        self.entered.set()
+        self.gate.wait(self.block_for)
+        self.returned.set()
+        return self.result
+
+    def release(self) -> None:
+        self.gate.set()
+
+
+async def test_quit_cancels_update_worker_while_the_check_is_still_blocked() -> None:
+    check = _BlockedCheck(CheckResult(status=STATUS_UPDATE_AVAILABLE, update=_sample_info()))
+    app = DiscoopApp(api_factory=_make_dummy_api_factory(), update_check_fn=check)
     try:
         async with app.run_test(size=(140, 40)) as pilot:
             await started(app, pilot)
-            await wait_until(pilot, entered.is_set)
+            await wait_until(pilot, check.entered.is_set)
+            [worker] = [w for w in app.workers if w.group == "update"]
+            assert worker.is_running
+            assert not app._update_worker_ended.is_set()
+
+            pressed = time.monotonic()
             await pilot.press("q")
             await wait_until(pilot, lambda: app._exit)
+
+        # Textual cancelled the worker on exit and its thread function returned on its own, so nothing waits for
+        # the check: that is what lets `App.run()` (which joins executor threads) return. Bounds are generous and
+        # count only from the key press, never app startup.
+        assert app._update_worker_ended.wait(10.0)
+        assert time.monotonic() - pressed < 10.0
+        assert app._update_worker_end == "cancelled"
+        assert worker.is_cancelled
+        assert not check.returned.is_set(), "the check must still be blocked when the worker gives up"
+        assert check.threads and check.threads[0].daemon
+        assert check.threads[0].is_alive()
+        assert app._update_indicator.display is False
     finally:
-        gate.set()
-    assert time.monotonic() - t0 < 2.0
+        check.release()
 
 
-async def test_late_update_ui_call_after_close_is_harmless() -> None:
-    app = DiscoopApp(
-        api_factory=_make_dummy_api_factory(),
-        update_check_fn=lambda: CheckResult(status=STATUS_DISABLED),
-    )
-    async with app.run_test(size=(140, 40)) as pilot:
+def test_app_run_returns_promptly_while_update_check_blocks() -> None:
+    """Process-level: `App.run()` runs `asyncio.run()`, which waits for the executor threads of thread workers.
+
+    The injected check blocks for up to 30 s; `run()` must still return within a few seconds of quitting.
+    """
+    check = _BlockedCheck(CheckResult(status=STATUS_UPDATE_AVAILABLE, update=_sample_info()))
+    app = DiscoopApp(api_factory=_make_dummy_api_factory(), update_check_fn=check)
+    quit_at: list[float] = []
+    returned_at: list[float] = []
+    errors: list[BaseException] = []
+
+    async def auto_pilot(pilot: Any) -> None:
         await started(app, pilot)
-        await wait_until(pilot, lambda: _update_worker_done(app))
+        await wait_until(pilot, check.entered.is_set)
+        quit_at.append(time.monotonic())
+        await pilot.press("q")
+
+    def run() -> None:
+        try:
+            app.run(headless=True, size=(140, 40), auto_pilot=auto_pilot)
+        except BaseException as exc:  # reported by the assertions below
+            errors.append(exc)
+        finally:
+            returned_at.append(time.monotonic())
+
+    runner = threading.Thread(target=run, name="test-discoop-app-run", daemon=True)
+    try:
+        runner.start()
+        deadline = time.monotonic() + 30.0
+        while not quit_at and runner.is_alive() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert quit_at, f"the app never got to the quit key: {errors!r}"
+        runner.join(timeout=5.0)
+        assert not runner.is_alive(), "App.run() is still waiting for the blocked update check"
+        assert errors == []
+        assert returned_at[0] - quit_at[0] < 5.0
+        assert not check.returned.is_set()
+        assert app._update_worker_end == "cancelled"
+    finally:
+        check.release()
+        runner.join(timeout=30.0)
+
+
+async def test_check_released_after_close_posts_and_raises_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    thread_errors: list[Any] = []
+    monkeypatch.setattr(threading, "excepthook", thread_errors.append)
+    check = _BlockedCheck(CheckResult(status=STATUS_UPDATE_AVAILABLE, update=_sample_info()))
+    app = DiscoopApp(api_factory=_make_dummy_api_factory(), update_check_fn=check)
+    posted: list[str] = []
+    applied: list[UpdateInfo] = []
+    original_ui = app._ui
+    original_apply = app._apply_update_available
+
+    def recording_ui(function: Any, *args: Any) -> None:
+        posted.append(getattr(function, "__name__", repr(function)))
+        original_ui(function, *args)
+
+    def recording_apply(info: UpdateInfo) -> None:
+        applied.append(info)
+        original_apply(info)
+
+    app._ui = recording_ui  # type: ignore[method-assign]
+    app._apply_update_available = recording_apply  # type: ignore[method-assign]
+    try:
+        async with app.run_test(size=(140, 40)) as pilot:
+            await started(app, pilot)
+            await wait_until(pilot, check.entered.is_set)
+            await pilot.press("q")
+            await wait_until(pilot, lambda: app._exit)
+        assert app._update_worker_ended.wait(10.0)
+
+        # Let the "network" answer only now, after the app has closed.
+        check.release()
+        assert check.returned.wait(10.0)
+        check.threads[0].join(timeout=10.0)
+        assert not check.threads[0].is_alive()
+    finally:
+        check.release()
+
+    assert app._update_worker_end == "cancelled"
+    assert "recording_apply" not in posted and "_apply_update_available" not in posted
+    assert applied == []
+    assert thread_errors == []
+    assert app._update_indicator.display is False
+    # A stray direct call after close is still harmless.
     app._apply_update_available(_sample_info())
+    assert app._update_logged is False
 
 
 async def test_settings_modal_preserves_update_check_in_config() -> None:
@@ -464,13 +572,18 @@ def _make_user_api_factory(username: str):
     return api_factory
 
 
+LONGEST_USERNAME = "a_very_long_discord_username_32c"  # Discord usernames have at most 32 characters
+WIDEST_VERSION = "100.200.300"  # a wide version, so the update label takes 13 cells
+
+
 def _assert_top_bar_layout(
     app: DiscoopApp,
     size: tuple[int, int],
     *,
     show_update: bool,
     mode: str,
-    version_text: str = "10.20.30",
+    status_text: str,
+    version_text: str = WIDEST_VERSION,
 ) -> None:
     top_bar = app.query_one("#top-bar")
     assert top_bar.region.x == 0
@@ -495,19 +608,38 @@ def _assert_top_bar_layout(
         assert widget.region.right <= top_bar.region.right, widget
         assert screen_text(app, widget.region).strip(), widget
 
+    # The whole status is painted, never cut to an ellipsis.
+    status = app.query_one("#status-indicator", Label)
+    assert screen_text(app, status.region) == status_text
+    assert "…" not in screen_text(app, top_bar.region)
+
     top_text = screen_text(app, top_bar.region)
     assert "discoop" in top_text
+    assert status_text in top_text
     assert mode in top_text
-    assert "F1 help" in top_text
+    assert screen_text(app, app.query_one("#help-hint", Label).region).strip() == "F1 help"
     if show_update:
-        assert f"↑ {version_text}" in top_text
+        assert screen_text(app, app.query_one("#update-indicator", Label).region) == f"↑ {version_text}"
     else:
         assert "↑" not in top_text
 
 
+async def _wait_for_top_bar(app: DiscoopApp, pilot: Any, *, status_text: str, show_update: bool) -> None:
+    indicator = app.query_one("#update-indicator", Label)
+
+    def ready() -> bool:
+        top_text = screen_text(app, app.query_one("#top-bar").region)
+        if not (_update_worker_done(app) and status_text in top_text):
+            return False
+        return bool(indicator.display and f"↑ {WIDEST_VERSION}" in top_text) if show_update else True
+
+    await wait_until(pilot, ready)
+    assert indicator.display is show_update
+
+
 @pytest.mark.parametrize("size", [(75, 28), (80, 24), (140, 40)], ids=lambda s: f"{s[0]}x{s[1]}")
 @pytest.mark.parametrize("show_update", [False, True], ids=["hidden", "visible"])
-@pytest.mark.parametrize("username", ["student_a", "a_very_long_discord_username_32c"], ids=["short_user", "long_user"])
+@pytest.mark.parametrize("username", ["student_a", LONGEST_USERNAME], ids=["short_user", "long_user"])
 async def test_top_bar_responsive_layout(
     size: tuple[int, int],
     show_update: bool,
@@ -515,46 +647,59 @@ async def test_top_bar_responsive_layout(
 ) -> None:
     TokenStore.default().save("fake-token")
     result = (
-        CheckResult(status=STATUS_UPDATE_AVAILABLE, update=_sample_info("10.20.30", "1.0.0"))
+        CheckResult(status=STATUS_UPDATE_AVAILABLE, update=_sample_info(WIDEST_VERSION, "1.0.0"))
         if show_update
         else CheckResult(status=STATUS_UP_TO_DATE, latest_version="1.0.0")
     )
     app = DiscoopApp(api_factory=_make_user_api_factory(username), update_check_fn=lambda: result)
     async with app.run_test(size=size) as pilot:
         await started(app, pilot)
-        indicator = app.query_one("#update-indicator", Label)
-        if show_update:
-            await wait_until(
-                pilot,
-                lambda: indicator.display
-                and "↑ 10.20.30" in screen_text(app, app.query_one("#top-bar").region)
-                and _update_worker_done(app),
-            )
-        else:
-            await wait_until(pilot, lambda: _update_worker_done(app))
-            assert indicator.display is False
+        await _wait_for_top_bar(app, pilot, status_text=f"@{username}", show_update=show_update)
+        _assert_top_bar_layout(app, size, show_update=show_update, mode="safe", status_text=f"@{username}")
 
-        _assert_top_bar_layout(app, size, show_update=show_update, mode="safe")
+
+@pytest.mark.parametrize("size", [(75, 28), (80, 24), (140, 40)], ids=lambda s: f"{s[0]}x{s[1]}")
+@pytest.mark.parametrize("show_update", [False, True], ids=["hidden", "visible"])
+async def test_top_bar_status_longer_than_a_discord_username_ends_in_ellipsis(
+    size: tuple[int, int],
+    show_update: bool,
+) -> None:
+    TokenStore.default().save("fake-token")
+    too_long = "x" * 45
+    result = (
+        CheckResult(status=STATUS_UPDATE_AVAILABLE, update=_sample_info(WIDEST_VERSION, "1.0.0"))
+        if show_update
+        else CheckResult(status=STATUS_UP_TO_DATE, latest_version="1.0.0")
+    )
+    app = DiscoopApp(api_factory=_make_user_api_factory(too_long), update_check_fn=lambda: result)
+    async with app.run_test(size=size) as pilot:
+        await started(app, pilot)
+        shown = "@" + "x" * 31 + "…"  # 33 cells, the cap of #status-indicator
+        await _wait_for_top_bar(app, pilot, status_text=shown, show_update=show_update)
+
+        status = app.query_one("#status-indicator", Label)
+        assert status.region.width == 33
+        assert screen_text(app, status.region) == shown
+        help_hint = app.query_one("#help-hint", Label)
+        assert screen_text(app, help_hint.region).strip() == "F1 help"
+        assert help_hint.region.right <= app.query_one("#top-bar").region.right
+        if show_update:
+            assert screen_text(app, app.query_one("#update-indicator", Label).region) == f"↑ {WIDEST_VERSION}"
 
 
 @pytest.mark.parametrize("size", [(75, 28), (80, 24), (140, 40)], ids=lambda s: f"{s[0]}x{s[1]}")
 async def test_top_bar_fast_mode_with_update_indicator_responsive(size: tuple[int, int]) -> None:
     TokenStore.default().save("fake-token")
-    result = CheckResult(status=STATUS_UPDATE_AVAILABLE, update=_sample_info("10.20.30", "1.0.0"))
+    result = CheckResult(status=STATUS_UPDATE_AVAILABLE, update=_sample_info(WIDEST_VERSION, "1.0.0"))
     app = DiscoopApp(
-        api_factory=_make_user_api_factory("a_very_long_discord_username_32c"),
+        api_factory=_make_user_api_factory(LONGEST_USERNAME),
         update_check_fn=lambda: result,
     )
     async with app.run_test(size=size) as pilot:
         await started(app, pilot)
         indicator = app.query_one("#update-indicator", Label)
         mode_indicator = app.query_one("#mode-indicator", Label)
-        await wait_until(
-            pilot,
-            lambda: indicator.display
-            and "↑ 10.20.30" in screen_text(app, app.query_one("#top-bar").region)
-            and _update_worker_done(app),
-        )
+        await _wait_for_top_bar(app, pilot, status_text=f"@{LONGEST_USERNAME}", show_update=True)
 
         # Switch to fast mode at runtime while #update-indicator is visible.
         await pilot.press("2")
@@ -570,4 +715,4 @@ async def test_top_bar_fast_mode_with_update_indicator_responsive(size: tuple[in
         )
 
         assert mode_indicator.styles.color == indicator.styles.color
-        _assert_top_bar_layout(app, size, show_update=True, mode="fast")
+        _assert_top_bar_layout(app, size, show_update=True, mode="fast", status_text=f"@{LONGEST_USERNAME}")
