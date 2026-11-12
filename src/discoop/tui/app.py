@@ -32,7 +32,7 @@ from textual.widgets import Footer, Input, Label, ProgressBar, RichLog, Static
 from textual.widgets.option_list import Option
 from textual.widgets.tree import TreeNode
 
-from discoop import profiles
+from discoop import profiles, update_check
 from discoop.api import DiscordAPI
 from discoop.attachments import DOWNLOADED, FAILED, NO_FILES, PRESENT, SKIPPED, cdn_client
 from discoop.cache import Cache
@@ -54,6 +54,7 @@ from discoop.service import (
 )
 from discoop.snowflake import parse_window, utc_now
 from discoop.tokenstore import TokenStore
+from discoop.update_check import STATUS_UPDATE_AVAILABLE, CheckResult, UpdateInfo, format_tui_log_message
 from discoop.tui.bridge import CancelToken, TuiEvents
 from discoop.tui.modals import (
     WINDOW_CANCELLED,
@@ -137,6 +138,11 @@ def default_open_folder(path: Path) -> None:
         subprocess.Popen(["xdg-open", str(path)])
 
 
+def default_update_check() -> CheckResult:
+    """Run the passive cached release check without CLI-only `CI` suppression."""
+    return update_check.check_for_update(force=False)
+
+
 class DiscoopApp(App[None]):
     """The Discoop Terminal User Interface application."""
 
@@ -170,12 +176,14 @@ class DiscoopApp(App[None]):
         api_factory: Callable[..., DiscordAPI] | None = None,
         cdn_factory: Callable[[], httpx.Client] | None = None,
         open_folder: Callable[[Path], None] | None = None,
+        update_check_fn: Callable[[], CheckResult] | None = None,
     ) -> None:
         super().__init__()
         self.theme = "ansi-dark"
         self.api_factory = api_factory or DiscordAPI
         self.cdn_factory = cdn_factory or cdn_client
         self.open_folder_fn = open_folder or default_open_folder
+        self.update_check_fn = update_check_fn or default_update_check
         self.selection = SelectionState()
         self.settings = ExportSettings()
         self.servers: list[Server] = []
@@ -188,6 +196,7 @@ class DiscoopApp(App[None]):
         self.last_exported: dict[str, str] = {}  # channel ID -> ISO time of its last export on this account
         self._state_loaded = False  # the saved state of this account was read: only then may a change be saved
         self._state_save_failed = False  # the last write of tui-state.json failed: say so once, not on every key
+        self._update_logged = False  # log a newer release at most once per TUI session
         self._last_export_folder: Path | None = None
         self._tree_nodes: dict[str, TreeNode[Any]] = {}  # node of each server and channel in the tree
         self._expanded: set[str] = set()  # nodes the user opened; a filter opens its own and leaves this alone
@@ -209,11 +218,13 @@ class DiscoopApp(App[None]):
         self._selected_list = SelectedList(id="selected-list")
         self._form = FormPanel(id="export-form")
         self._start_row = ActionRow(START_LABEL, id="row-start")
+        self._update_indicator = Label("", id="update-indicator", markup=False)
 
         with Horizontal(id="top-bar"):
             yield Label("discoop", id="app-title")
             yield Label("checking...", id="status-indicator", markup=False)
             yield Label("safe", id="mode-indicator")
+            yield self._update_indicator
             yield Label("F1 help", id="help-hint")
 
         with Container(id="main-columns"):
@@ -284,11 +295,13 @@ class DiscoopApp(App[None]):
         self.screen.add_class(f"show-tab-{self.current_narrow_tab}")
         self._progress.display = False
         self._selected_list.display = False
+        self._update_indicator.display = False
 
         self._load_config()
         self._sync_form()
         self._tree.focus()
         self._start_directory(refresh=False)
+        self._start_update_check()
         self.set_interval(NAME_REFRESH, self._update_command_preview)
         self.set_interval(SUFFIX_REFRESH, self._refresh_suffixes)
 
@@ -1436,6 +1449,30 @@ class DiscoopApp(App[None]):
             files = "no files"
         self._log_line(f"{exported.path} ({files})", "yellow" if failed or too_large else "")
         return bool(failed or too_large)
+
+    # ==================== Update check ====================
+
+    def _start_update_check(self) -> None:
+        self._update_worker()
+
+    @work(thread=True, group="update", exit_on_error=False)
+    def _update_worker(self) -> None:
+        try:
+            result = self.update_check_fn()
+        except Exception as exc:  # never let a passive update check crash the UI
+            logger.debug("Update check failed in TUI: %s", exc)
+            return
+        if result is not None and result.status == STATUS_UPDATE_AVAILABLE and result.update is not None:
+            self._ui(self._apply_update_available, result.update)
+
+    def _apply_update_available(self, info: UpdateInfo) -> None:
+        if not self.is_running or not self._update_indicator.is_mounted:
+            return
+        self._update_indicator.update(f"↑ {info.latest_version}")
+        self._update_indicator.display = True
+        if not self._update_logged:
+            self._update_logged = True
+            self._log_line(format_tui_log_message(info), "yellow")
 
     # ==================== Log panel ====================
 

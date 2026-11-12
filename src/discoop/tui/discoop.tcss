@@ -14,10 +14,14 @@ Screen {
 #app-title {
     text-style: bold;
     margin-right: 2;
+    text-wrap: nowrap;
 }
 
 #status-indicator {
     margin-right: 2;
+    max-width: 45%;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
 }
 
 #status-indicator.-ok {
@@ -34,17 +38,28 @@ Screen {
 
 #mode-indicator {
     color: $success;
+    text-wrap: nowrap;
 }
 
 #mode-indicator.-fast {
     color: $warning;
 }
 
+#update-indicator {
+    display: none;
+    color: $warning;
+    margin-left: 2;
+    text-wrap: nowrap;
+}
+
 #help-hint {
     width: 1fr;
+    min-width: 7;
+    margin-left: 1;
     text-align: right;
     color: $text-muted;
     text-style: dim;
+    text-wrap: nowrap;
 }
 
 /* ==================== Panels ==================== */
