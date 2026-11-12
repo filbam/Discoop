@@ -518,7 +518,10 @@ def test_release_workflow_yaml_structure() -> None:
     # Verify step order and exact commands in release job.
     assert "scripts/release_notes.py" in release_steps[2]["run"]
     assert '--tag "$GITHUB_REF_NAME"' in release_steps[2]["run"]
-    assert "--out notes.md" in release_steps[2]["run"]
+    # The notes live in the runner's temp folder, outside the checkout, so `uv build` cannot pack them into the sdist.
+    notes_path = '"$RUNNER_TEMP/notes.md"'
+    out_args = re.findall(r"--out\s+(\S+)", release_steps[2]["run"])
+    assert out_args == [notes_path]
     assert release_steps[3]["run"] == "uv build"
     assert release_steps[4]["run"] == 'git push origin "$GITHUB_SHA:refs/heads/stable"'
     assert "--force" not in release_steps[4]["run"]
@@ -527,7 +530,14 @@ def test_release_workflow_yaml_structure() -> None:
     assert "dist/*" in release_steps[5]["run"]
     assert "--verify-tag" in release_steps[5]["run"]
     assert '--title "discoop ${GITHUB_REF_NAME#v}"' in release_steps[5]["run"]
-    assert "--notes-file notes.md" in release_steps[5]["run"]
+    notes_file_args = re.findall(r"--notes-file\s+(\S+)", release_steps[5]["run"])
+    assert notes_file_args == [notes_path], "gh must read the same notes file the generate step wrote"
+    assert notes_path.startswith('"$RUNNER_TEMP/')
+    # Nothing in the release job writes or reads a notes file inside the checkout.
+    for step in release_steps:
+        run = step.get("run", "")
+        assert isinstance(run, str)
+        assert not re.search(r"(?<![/\w])notes\.md", run), run
     assert release_steps[5]["env"] == {"GH_TOKEN": "${{ github.token }}"}
 
     # Restrict third-party actions strictly to actions/checkout and astral-sh/setup-uv.

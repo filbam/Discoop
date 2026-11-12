@@ -30,8 +30,9 @@ jobs:
         with:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v10.3.3
+      # The notes go to the runner's temp folder, outside the checkout, so `uv build` never packs them into the sdist.
       - name: Generate release notes
-        run: uv run --no-sync python scripts/release_notes.py --tag "$GITHUB_REF_NAME" --out notes.md
+        run: uv run --no-sync python scripts/release_notes.py --tag "$GITHUB_REF_NAME" --out "$RUNNER_TEMP/notes.md"
       - name: Build distribution
         run: uv build
       - name: Move stable branch
@@ -39,4 +40,4 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "discoop ${GITHUB_REF_NAME#v}" --notes-file notes.md
+        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "discoop ${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/notes.md"
