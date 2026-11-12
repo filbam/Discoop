@@ -6,6 +6,12 @@ Chronological record of work: what was done, what was decided, incidents, and ne
 
 ## 2026-11-12
 
+**Release 1.1.0 prepared (Claude, [ADR 0023](decisions/0023-version-and-single-source.md), [ADR 0024](decisions/0024-releases-tags-and-stable-branch.md)):**
+- **What was done:** after the review fixes below were fast-forwarded into `main`, `project.version` was set to `1.1.0` in `pyproject.toml`, `uv lock` changed only the `discoop` version line in `uv.lock`, `uv sync` ran, `[Unreleased]` in `CHANGELOG.md` became `## [1.1.0] - 2026-11-12`, and the annotated tag `v1.1.0` was created locally on the release commit. Nothing was pushed.
+- **Verified:** `scripts/release_notes.py --tag v1.1.0` writes the 37-line `1.1.0` section and `--tag v1.0.1` is refused (exit 1, version mismatch); `uv build` builds `discoop-1.1.0.tar.gz` and `discoop-1.1.0-py3-none-any.whl`; `uv run pytest` twice: **1355 passed, 1 skipped** (30.8 s, 31.0 s); `uv lock --check` passes; `uv run discoop --version` prints the new version.
+- **Incident:** the first local `uv build` put `Temp/` (the owner's scratch logs with real server and channel names) into the sdist: `.gitignore` says `/temp/`, hatchling matches it case-sensitively, git on Windows does not. The build went to Claude's scratchpad only, was deleted at once and never published. Fixed with an sdist `exclude` list in `pyproject.toml` and `/Temp/` in `.gitignore` (CHANGELOG `1.1.0`, Fixed); the rebuilt sdist has 168 files and none of those paths. GitHub's build is from a clean checkout and never had `Temp/`.
+- **Next (only on the user's instruction):** push the tag first (`git push origin v1.1.0`), so the workflow runs the tests on Ubuntu, Windows and macOS, creates `stable` and publishes the Release while `main` on GitHub still has the old README; push `main` only after the workflow succeeded. If it fails, fix on `main`, move the tag (it has not been released) and try again.
+
 **Release pipeline, `@stable` branch, and passive update notifier (P34–P35, [ADR 0024](decisions/0024-releases-tags-and-stable-branch.md), [ADR 0025](decisions/0025-update-notifier.md), [analysis](analyses/release-process.md)):**
 - **What was done (Waves 1–3 on `feature/releases-and-update-notifier`):**
   - **Wave 1 (`A1` release pipeline, `B1` update-check core/config, `D1` ADRs & design):**

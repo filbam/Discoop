@@ -5,6 +5,10 @@ versions adhere to [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-12
+
+Releases through tags, GitHub Releases and the `stable` branch, a passive update notifier in the CLI, the TUI and `discoop doctor`, and a test suite that runs in parallel. Installation now uses `uv tool install git+https://github.com/filbam/Discoop@stable`; an existing install from `main` moves once with `uv tool install --force git+https://github.com/filbam/Discoop@stable`.
+
 ### Added
 - **Update notifier across core, CLI, TUI, `doctor`, `config`, and AI instructions (2026-11-12, P34, [ADR 0025](docs/decisions/0025-update-notifier.md)):**
   - **Core module (`src/discoop/update_check.py`):** passive, unauthenticated `GET https://api.github.com/repos/filbam/Discoop/releases/latest` using the existing `httpx` dependency (no new dependencies), `Accept: application/vnd.github+json`, `User-Agent: discoop/<version>`, and a `2` s timeout. Strictly never sends `Authorization`, cookies, or user data (even when `GITHUB_TOKEN` or `GH_TOKEN` is set). HTTP `404` counts as no release published yet; all other HTTP, network, timeout, or payload errors are silent to users and logged at `DEBUG` on `discoop.update_check` (`NullHandler`).
@@ -37,6 +41,9 @@ versions adhere to [SemVer](https://semver.org/).
   - Serial run for one file or for debugging with `print`/`pdb`: `uv run pytest -n0 tests/test_x.py`. Quick run without the TUI tests: `uv run pytest --ignore-glob="tests/test_tui_*.py"` (about 18 s).
   - `[VERIFIED]` on 2026-11-12 on the owner's Windows 10 machine (16 logical cores): the full suite went from 226.6 s serially to about 35 s in parallel.
   - Two TUI tests that read the footer after a single `pilot.pause()` were flaky in parallel (`test_footer_lists_p_and_o_and_not_the_ctrl_keys`, `test_footer_key_runs_the_binding`); they now wait with `wait_until`, and 6 full parallel runs in a row passed.
+
+### Fixed
+- **No local-only files in a locally built sdist (2026-11-12):** `uv build` on Windows packed `Temp/` (scratch logs with real server and channel names) into the sdist, because `.gitignore` says `/temp/` and hatchling matches it case-sensitively while git on Windows does not. `pyproject.toml` now has `[tool.hatch.build.targets.sdist] exclude` for `/Temp`, `/temp`, `/exports`, `/prototype/out`, `*.zip`, `config.toml`, `.env`, `*.env` and `.claude/settings.local.json`, and `.gitignore` also lists `/Temp/`. `[VERIFIED]` 2026-11-12: the sdist went from 171 files (3 of them in `Temp/`) to 168 with none of those paths; the local build output was deleted and never published. The release workflow builds from a clean checkout, where `Temp/` does not exist.
 
 ## [1.0.0] - 2026-11-10
 
