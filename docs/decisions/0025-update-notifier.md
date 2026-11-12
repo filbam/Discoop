@@ -57,8 +57,11 @@ Discoop is run interactively in both the CLI and the TUI (`discoop ui`), and non
      - a subcommand ran and is not `ui` / `--ui`,
      - not `--version`,
      - not help (`--help` or bare invocation with no subcommand),
+     - not a usage error (unknown command or option, exit code `2` from Typer/Click),
      - not `--format json`, `--format jsonl`, or `--progress-json`,
      - not Ctrl+C (exit code `130`).
+   - No background check for any `config` command (settings management), so `config set update-check off` never makes a request.
+   - `doctor` does not start a background check; it reuses its own fresh forced result (section 8) for the notice, so it makes no second request.
    - ASCII 3-line text (yellow in Rich/human mode, unstyled in plain mode):
      ```
      A new release of discoop is available: <current> -> <latest>

@@ -300,7 +300,7 @@ Stored in `config.toml` in the configuration directory (section 10).
   In the TUI, it is the default export folder, falling back to `Documents/discoop` ([ADR 0016](decisions/0016-default-export-folder-in-tui.md)).
   CLI without it keeps defaulting to the current directory.
 - **`browser-path`** (added 2026-11-10, P31): the browser program that `login --browser` starts. Stored as an absolute path and checked on `set`: it must be an existing file (a folder is rejected; on macOS that means the program inside the `.app` bundle). Without it the browser is found automatically (Chrome, Edge, Chromium, Brave). `--browser-path` on the command wins over it. No default: `config list` shows it empty.
-- **`update-check`** ([ADR 0025](decisions/0025-update-notifier.md)): enables (`on`, default) or disables (`off`) passive GitHub release update checking across CLI, TUI, and `discoop doctor`. Shown by `discoop config list` in both text and `--format json` output. When set to `off`, no update-check network request is made.
+- **`update-check`** (added 2026-11-12, P34, [ADR 0025](decisions/0025-update-notifier.md)): enables (`on`, default) or disables (`off`) passive GitHub release update checking across CLI, TUI, and `discoop doctor`. Shown by `discoop config list` in both text and `--format json` output. When set to `off`, no update-check network request is made.
 - **Machine-readable output:** `discoop config list --format json` returns configuration as a JSON object on stdout.
 - **Unknown key** or invalid value exits with code `8`.
 
@@ -824,6 +824,7 @@ Releases follow Semantic Versioning (`vX.Y.Z` annotated git tags) with `project.
 - Users install from the `stable` branch: `uv tool install git+https://github.com/filbam/Discoop@stable`.
 - Upgrades use `uv tool upgrade discoop`.
 - Existing installations previously tracking `main` switch once with `uv tool install --force git+https://github.com/filbam/Discoop@stable`.
+- **Required push order:** `stable` is created by the first workflow-driven release and does not exist on GitHub yet (as of 2026-11-12); until then `@stable` installs fail ("ref not found"). When the merged `main` with the `@stable` README is pushed, `stable` must exist at the same time: either push the tag `v1.1.0` together with `main` (`git push origin main v1.1.0`; the workflow creates `stable`), or create `stable` by hand first. Both only on the user's explicit instruction.
 
 **Owner's release steps (only on the user's explicit instruction):**
 1. Bump `project.version` in `pyproject.toml` and run `uv lock` and `uv sync`.
@@ -836,10 +837,10 @@ Releases follow Semantic Versioning (`vX.Y.Z` annotated git tags) with `project.
 - Top-level `permissions: contents: read`; uses only `actions/checkout` and `astral-sh/setup-uv` pinned to released versions (no other third-party actions).
 - **Job `test`:** runs on `ubuntu-latest`, `windows-latest`, and `macos-latest` with `uv sync --locked` and `uv run pytest`.
 - **Job `release`:** requires `needs: test`, runs on `ubuntu-latest` with `permissions: contents: write` and checkout `fetch-depth: 0`, and runs four steps in order:
-  1. `scripts/release_notes.py --tag "$GITHUB_REF_NAME" --out notes.md` — standalone Python standard-library script (not part of the installed package); aborts if the tag does not match `project.version` in `pyproject.toml` or if the matching `CHANGELOG.md` section is missing or empty.
+  1. `uv run --no-sync python scripts/release_notes.py --tag "$GITHUB_REF_NAME" --out "$RUNNER_TEMP/notes.md"` — writes the notes outside the checkout so they do not land in the sdist; standalone Python standard-library script (not part of the installed package); aborts if the tag does not match `project.version` in `pyproject.toml` or if the matching `CHANGELOG.md` section is missing or empty.
   2. `uv build` — builds sdist and wheel artifacts into `dist/`.
   3. `git push origin "$GITHUB_SHA:refs/heads/stable"` without `--force` — creates `stable` on first run and rejects non-fast-forward updates so `stable` can never move backwards.
-  4. `gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "discoop X.Y.Z" --notes-file notes.md` with `GH_TOKEN: ${{ github.token }}`.
+  4. `gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "discoop X.Y.Z" --notes-file "$RUNNER_TEMP/notes.md"` with `GH_TOKEN: ${{ github.token }}`.
 
 CI workflows for ordinary pushes or pull requests and PyPI publishing remain out of scope.
 
@@ -862,7 +863,7 @@ The update check module (`src/discoop/update_check.py`) passively checks GitHub 
 - `DISCOOP_NO_UPDATE_NOTIFIER` truthy, `discoop config set update-check off` (`on`/`off`, default `on`, shown by `config list` in text and JSON), and (for CLI notice) `CI` truthy. When turned off, no network request is made.
 
 **Surfaces:**
-- **CLI notice (`cli.py`):** printed on `stderr` after command completion (after output and any error), at most once per `24` h (`notified_at`), never changes exit code. Eligible only when `stderr.isatty()`, `CI` is not truthy, notifier is not off, a subcommand ran and is not `ui`/`--ui`, not `--version`, not help (`--help` or no subcommand), not `--format json`/`jsonl` or `--progress-json`, and not Ctrl+C (exit `130`). When a check is due, a daemon thread starts at command start and is joined for at most `1` s at command end. Prints ASCII 3-line notice (yellow in Rich/human mode, unstyled in plain mode):
+- **CLI notice (`cli.py`):** printed on `stderr` after command completion (after output and any error), at most once per `24` h (`notified_at`), never changes exit code. Eligible only when `stderr.isatty()`, `CI` is not truthy, notifier is not off, a subcommand ran and is not `ui`/`--ui`, not `--version`, not help (`--help` or no subcommand), not a usage error (unknown command or option, exit `2` from Typer/Click), not `--format json`/`jsonl` or `--progress-json`, and not Ctrl+C (exit `130`). When a check is due, a daemon thread starts at command start and is joined for at most `1` s at command end. No background check runs for any `config` command (settings management), so `config set update-check off` never makes a request. `doctor` does not start a background check; it reuses its own fresh forced result for the notice (no second request). Prints ASCII 3-line notice (yellow in Rich/human mode, unstyled in plain mode):
   ```
   A new release of discoop is available: <current> -> <latest>
   To upgrade, run: uv tool upgrade discoop

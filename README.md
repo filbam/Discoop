@@ -39,6 +39,8 @@ brew install uv
 uv tool install git+https://github.com/filbam/Discoop@stable
 ```
 
+**Note:** the `stable` branch is created by the first workflow-driven release. Until that release exists, the `@stable` command fails ("ref not found"). For now install from `main` (`uv tool install git+https://github.com/filbam/Discoop`) and switch later with the `--force` command under **Upgrade** below.
+
 ```
 uv tool update-shell
 ```
@@ -55,11 +57,13 @@ discoop --version
 uv tool upgrade discoop
 ```
 
-If you previously installed Discoop from `main` (without `@stable`), switch once so future `uv tool upgrade discoop` runs track tested releases:
+If you previously installed Discoop from `main` (without `@stable`), switch once so future `uv tool upgrade discoop` runs track tested releases (works only once the `stable` branch exists, see the note above):
 
 ```
 uv tool install --force git+https://github.com/filbam/Discoop@stable
 ```
+
+Release notes for every version are on the [Releases page](https://github.com/filbam/Discoop/releases).
 
 **Uninstall:** first `discoop logout` (removes the stored token), then:
 
@@ -89,7 +93,7 @@ discoop config set default-server "VUT FIT"
 discoop config set export-dir ~/discord-exports   # export folder (TUI: default, CLI: for relative paths)
 discoop config set mode safe               # mode: safe (default) or fast
 discoop config set browser-path <file>     # browser program for `login --browser` (default: found automatically)
-discoop config set update-check on         # passive GitHub release check: on (default) or off
+discoop config set update-check off        # turn off the passive GitHub release check (on by default)
 ```
 
 **Logging in:** `discoop login` shows a QR code in the terminal; scan it in the Discord app (Settings → Scan QR Code).
@@ -202,8 +206,8 @@ discoop --log discoop.log messages ... # write diagnostic log to file
 
 Discoop passively checks GitHub Releases (`releases/latest`) to let you know when a newer release is published. The check is unauthenticated (sends `Accept` and `User-Agent: discoop/<version>` only, never tokens, cookies, or user data even if `GITHUB_TOKEN`/`GH_TOKEN` is set), uses a 2 s timeout, stays silent on network errors or when no release is published yet, and caches results in `update-check.json` inside Discoop's data folder (24 h check interval, 1 h backoff after errors).
 
-- **CLI notice:** on interactive TTY terminals (`stderr`), prints a 3-line notice after command output at most once every 24 h without changing the exit code (waits at most 1 s for a background check at command end). Suppressed automatically for non-TTY runs, `CI`, `ui`/`--ui`, `--version`, `--help`/bare `discoop`, usage errors, `--format json`/`jsonl`, `--progress-json`, and Ctrl+C (`130`).
-- **TUI (`discoop ui`):** checks in the background on startup without affecting the CLI's 24 h notice timer, displays `↑ <latest>` in the top bar when a newer release exists, and writes one reminder line with the upgrade command and release notes URL to the Log pane.
+- **CLI notice:** on interactive TTY terminals (`stderr`), prints a 3-line notice after command output at most once every 24 h without changing the exit code (waits at most 1 s for a background check at command end). Suppressed automatically for non-TTY runs, `CI`, `ui`/`--ui`, `config` commands, `--version`, `--help`/bare `discoop`, usage errors, `--format json`/`jsonl`, `--progress-json`, and Ctrl+C (`130`).
+- **TUI (`discoop ui`):** checks in the background on startup (using the same 24 h cache and 1 h retry delay after a failure) without affecting the CLI's 24 h notice timer, displays `↑ <latest>` in the top bar when a newer release exists, and writes one reminder line with the upgrade command and release notes URL to the Log pane.
 - **`discoop doctor`:** the `update` row (7th check) always performs a fresh check (even in `CI`) and reports `up to date (latest <version>)`, `<version> available: uv tool upgrade discoop`, `no release published yet`, `skipped (update-check is off)`, or `could not check: <reason>` while always keeping status `OK`.
 - **Disabling update checks:**
   - `discoop config set update-check off` (`on` by default; visible in `discoop config list` in text and JSON) disables all update checks across CLI, TUI, and `doctor` (no network requests). Re-enable with `discoop config set update-check on`.

@@ -20,12 +20,12 @@ Everything that is committed to the repository is English (docs, code, comments,
 
 ## Hard Rules
 
-- **No Discord API, Discord CDN, or GitHub API calls:** agents must NEVER call Discord API, Discord CDN, or GitHub API directly.
+- **No Discord API, Discord CDN, or GitHub API calls:** agents must NEVER call Discord API, Discord CDN, or GitHub API directly (except `git push` and `gh release` commands the user explicitly asks for).
 - **Offline tests:** all tests must run strictly offline with fake Discord/CDP or mocks (`httpx.MockTransport`).
 - **No secrets or other people's data:** no tokens, cookies, passwords, or personal names or message texts. Anonymise examples.
 - **No new dependencies:** do not add new dependencies without asking the user first.
 - **Line endings:** `.py` files and workflow YAML files (such as `.github/workflows/release.yml`) must use LF (`\n`) line endings in git (keep in mind Windows `core.autocrlf=true` working-copy checkouts).
-- **Single-source version and releases:** `pyproject.toml` (`project.version`) is the single source of truth ([ADR 0023](docs/decisions/0023-version-and-single-source.md)); ongoing docs do not repeat the current version literal. Releases use annotated `vX.Y.Z` tags pushing through `.github/workflows/release.yml` to update `stable` and publish GitHub Releases ([ADR 0024](docs/decisions/0024-releases-tags-and-stable-branch.md)); tags and pushes happen only on the user's explicit instruction.
+- **Single-source version and releases:** `pyproject.toml` (`project.version`) is the single source of truth ([ADR 0023](docs/decisions/0023-version-and-single-source.md)); ongoing docs do not repeat the current version literal. A release is an annotated `vX.Y.Z` tag; pushing it (only on the user's explicit instruction) triggers `.github/workflows/release.yml`, which runs the tests on Ubuntu, Windows and macOS, builds the package, fast-forwards `stable` and creates the GitHub Release ([ADR 0024](docs/decisions/0024-releases-tags-and-stable-branch.md)). Tags are also created only on the user's explicit instruction.
 - **Protected paths:** do not touch or modify `temp/` (or `Temp/`), `exports/`, or `prototype/out/`.
 
 ## Git Rules

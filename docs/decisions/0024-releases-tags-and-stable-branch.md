@@ -37,10 +37,10 @@ Previously ([ADR 0015](0015-public-repo-and-installation.md)), users installed D
    - Uses only `actions/checkout` and `astral-sh/setup-uv` (pinned to released versions); no other third-party actions.
    - **Job `test`:** runs on a matrix of `ubuntu-latest`, `windows-latest`, and `macos-latest`; runs `uv sync --locked` and `uv run pytest`.
    - **Job `release`:** requires `needs: test`, runs on `ubuntu-latest`, sets `permissions: contents: write`, and checks out with `fetch-depth: 0`. Executes in order:
-     1. `scripts/release_notes.py --tag "$GITHUB_REF_NAME" --out notes.md` (a standalone Python stdlib-only script, not part of the installed package; fails if the tag does not match `project.version` or if the matching `CHANGELOG.md` section is missing or empty).
+     1. `uv run --no-sync python scripts/release_notes.py --tag "$GITHUB_REF_NAME" --out "$RUNNER_TEMP/notes.md"` (writes the notes outside the checkout so they do not land in the sdist; a standalone Python stdlib-only script, not part of the installed package; fails if the tag does not match `project.version` or if the matching `CHANGELOG.md` section is missing or empty).
      2. `uv build` (builds distributions into `dist/`).
      3. Move `stable`: `git push origin "$GITHUB_SHA:refs/heads/stable"` without `--force` (creates `stable` the first time and refuses non-fast-forward updates so `stable` can never move backwards).
-     4. Create the GitHub Release: `gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "discoop X.Y.Z" --notes-file notes.md` with `GH_TOKEN: ${{ github.token }}`.
+     4. Create the GitHub Release: `gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "discoop X.Y.Z" --notes-file "$RUNNER_TEMP/notes.md"` with `GH_TOKEN: ${{ github.token }}`.
 
 4. **User installation and upgrade:**
    - Installation becomes `uv tool install git+https://github.com/filbam/Discoop@stable`.
@@ -53,6 +53,7 @@ Previously ([ADR 0015](0015-public-repo-and-installation.md)), users installed D
 - Existing users moving from `main` perform a one-time reinstall with `uv tool install --force git+https://github.com/filbam/Discoop@stable`.
 - `1.0.0` (commit `4788d98`) predates the workflow: the owner tags it `v1.0.0` and creates its GitHub Release by hand later.
 - `1.1.0` will be the first workflow-driven release (containing the release workflow and the update notifier).
+- Required push order: `stable` does not exist on GitHub until the first workflow-driven release (as of 2026-11-12), and `uv tool install ...@stable` fails without it. When the merged `main` with the `@stable` README is pushed, `stable` must exist at the same time: either push the tag `v1.1.0` together with `main` (`git push origin main v1.1.0`; the workflow creates `stable`), or create `stable` by hand first. Both only on the user's explicit instruction.
 - Tags and pushes happen only on the user's explicit instruction; CI workflows for ordinary pushes or pull requests and PyPI publishing remain out of scope.
 - `scripts/release_notes.py` uses only the Python standard library and lives outside `src/`, adding no runtime dependencies or package files.
 - `[ASSUMPTION]` The cross-platform `test` matrix (`ubuntu-latest`, `windows-latest`, `macos-latest`), fast-forward `stable` push, and GitHub Release creation will be exercised live when `v1.1.0` is pushed.
