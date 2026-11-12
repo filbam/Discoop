@@ -39,7 +39,7 @@ brew install uv
 uv tool install git+https://github.com/filbam/Discoop@stable
 ```
 
-**Note:** the `stable` branch is created by the first workflow-driven release. Until that release exists, the `@stable` command fails ("ref not found"). For now install from `main` (`uv tool install git+https://github.com/filbam/Discoop`) and switch later with the `--force` command under **Upgrade** below.
+**Note:** `stable` always points to the latest release made by the release workflow (see the Releases page under **Upgrade**).
 
 ```
 uv tool update-shell
@@ -57,7 +57,7 @@ discoop --version
 uv tool upgrade discoop
 ```
 
-If you previously installed Discoop from `main` (without `@stable`), switch once so future `uv tool upgrade discoop` runs track tested releases (works only once the `stable` branch exists, see the note above):
+If you previously installed Discoop from `main` (without `@stable`), switch once so future `uv tool upgrade discoop` runs track tested releases:
 
 ```
 uv tool install --force git+https://github.com/filbam/Discoop@stable

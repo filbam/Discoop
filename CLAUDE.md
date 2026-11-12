@@ -59,7 +59,7 @@ The main Claude does not do the work directly; he dispatches agents and manages 
 
 ## Git
 
-- Repo: `github.com/filbam/Discoop` (public); `main` branch for development, `stable` branch updated by `.github/workflows/release.yml` for user installations (created by the first workflow-driven release; not on GitHub yet as of 2026-11-12, so when the merged `main` with the `@stable` README is pushed, `stable` must exist at the same time: push the tag `v1.1.0` together with `main` or create `stable` by hand first, both only on the user's instruction) ([ADR 0002](docs/decisions/0002-private-repo-and-identity.md), [ADR 0024](docs/decisions/0024-releases-tags-and-stable-branch.md) superseding [ADR 0015](docs/decisions/0015-public-repo-and-installation.md)).
+- Repo: `github.com/filbam/Discoop` (public); `main` branch for development, `stable` branch updated by `.github/workflows/release.yml` for user installations (created by the first workflow-driven release on 2026-11-12, so when the merged `main` with the `@stable` README is pushed, `stable` must exist at the same time: push the tag `v1.1.0` together with `main` or create `stable` by hand first, both only on the user's instruction) ([ADR 0002](docs/decisions/0002-private-repo-and-identity.md), [ADR 0024](docs/decisions/0024-releases-tags-and-stable-branch.md) superseding [ADR 0015](docs/decisions/0015-public-repo-and-installation.md)).
 - **Author:** commits are written by `filbam <f.bambura@gmail.com>` (local `git config`).
 - **GitHub login:** as `filbam` (`credential.https://github.com.username`). Push goes through this account,
   default is `FilipBambura`.
