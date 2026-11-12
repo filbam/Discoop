@@ -1,3 +1,5 @@
+import re
+
 import httpx
 import pytest
 
@@ -106,7 +108,8 @@ def test_the_root_help_names_the_three_ways_to_log_in_and_the_rule_for_agents(ca
 def test_login_help_lists_the_browser_options_and_the_rule_for_agents(capsys, mode):
     code, out, _ = run(capsys, mode, "login", "--help")
     assert code == 0
-    text = " ".join(out.split())  # the human help is boxed and wrapped
+    # The human help is boxed and wrapped; with GITHUB_ACTIONS set (CI), Typer forces colours, so drop ANSI codes too.
+    text = " ".join(re.sub(r"\x1b\[[0-9;]*m", "", out).split())
     for needle in (
         "Log in with a QR code, a browser window (--browser) or a token (--token).",
         "--browser",

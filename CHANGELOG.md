@@ -44,6 +44,8 @@ Releases through tags, GitHub Releases and the `stable` branch, a passive update
 
 ### Fixed
 - **No local-only files in a locally built sdist (2026-11-12):** `uv build` on Windows packed `Temp/` (scratch logs with real server and channel names) into the sdist, because `.gitignore` says `/temp/` and hatchling matches it case-sensitively while git on Windows does not. `pyproject.toml` now has `[tool.hatch.build.targets.sdist] exclude` for `/Temp`, `/temp`, `/exports`, `/prototype/out`, `*.zip`, `config.toml`, `.env`, `*.env` and `.claude/settings.local.json`, and `.gitignore` also lists `/Temp/`. `[VERIFIED]` 2026-11-12: the sdist went from 171 files (3 of them in `Temp/`) to 168 with none of those paths; the local build output was deleted and never published. The release workflow builds from a clean checkout, where `Temp/` does not exist.
+- **The test suite passes under GitHub Actions (2026-11-12):** the first release run ([run 43313940888](https://github.com/filbam/Discoop/actions/runs/43313940888)) failed on `ubuntu-latest` with 1 of 1356 tests, `tests/test_cli.py::test_login_help_lists_the_browser_options_and_the_rule_for_agents[--human]`: with `GITHUB_ACTIONS` set, Typer forces coloured help, and the test searched text that ANSI codes split. The test now strips ANSI codes. `[VERIFIED]` 2026-11-12: with `GITHUB_ACTIONS=true CI=true` the local suite went from 1 failed to 1355 passed, 1 skipped.
+- **Every OS reports in the release workflow:** the test matrix has `fail-fast: false`, so a failure on one OS no longer cancels the others (in the first run, Windows and macOS were cancelled before they finished).
 
 ## [1.0.0] - 2026-11-10
 

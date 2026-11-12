@@ -64,6 +64,12 @@ All items below remain **[ASSUMPTION]** until the first workflow-driven release 
 - **GitHub Release creation:** `gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "discoop ${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/notes.md"` with `GH_TOKEN: ${{ github.token }}`, and relying on bash's default `dist/*` glob (with `dotglob` off) to skip `dist/.gitignore` while uploading `.whl` and `.tar.gz`.
 - **HTTPS installation and upgrades from GitHub:** `uv tool install git+https://github.com/filbam/Discoop@stable` and `uv tool upgrade discoop` over HTTPS across Windows, Linux, and macOS.
 
+### 2.4 First run on GitHub (2026-11-12)
+
+- A tag pushed while the workflow existed only in the tagged commit, not on the default branch, started no run: no workflow was listed and the Actions tab showed "Get started". After `main` with the workflow was pushed, deleting and re-pushing the same tag started the run. **[VERIFIED]** (2026-11-12, GitHub REST API and Actions tab; why GitHub ignored the first push is **[ASSUMPTION]**, documentation says workflows are read from the tagged commit)
+- Run 43313940888 on `ubuntu-latest` (Ubuntu 26.04, Python 3.14.4 from `/usr/bin/python3`, uv 0.13.8, `-n auto` gave 4 workers): 1 failed, 1354 passed, 1 skipped in 56.84 s; Windows and macOS were cancelled by `fail-fast`. The failure was a test that did not expect ANSI codes in Typer's help under `GITHUB_ACTIONS`; fixed in the test, and the matrix now has `fail-fast: false`. **[VERIFIED]** (2026-11-12, job log)
+- `actions/checkout@v6` and `astral-sh/setup-uv@v10.3.3` resolved and ran; the `release` job (stable push, Release) has still not run. **[VERIFIED]** / **[ASSUMPTION]** for the release job.
+
 ---
 
 ## 3. Planned Owner Release Workflow

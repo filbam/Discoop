@@ -492,7 +492,11 @@ def test_release_workflow_yaml_structure() -> None:
 
     test_job = jobs["test"]
     assert isinstance(test_job, dict)
-    assert test_job["strategy"] == {"matrix": {"os": ["ubuntu-latest", "windows-latest", "macos-latest"]}}
+    # fail-fast is off so a failure on one OS does not cancel the others and hide their results.
+    assert test_job["strategy"] == {
+        "fail-fast": False,
+        "matrix": {"os": ["ubuntu-latest", "windows-latest", "macos-latest"]},
+    }
     assert test_job["runs-on"] == "${{ matrix.os }}"
     test_steps = test_job["steps"]
     assert isinstance(test_steps, list)
