@@ -74,6 +74,9 @@ The main Claude does not do the work directly; he dispatches agents and manages 
 - **uv missing from PATH:** might be missing in Claude's shell. In that case:
   `export PATH="$PATH:/c/Users/Filip/AppData/Local/Microsoft/WinGet/Packages/astral-sh.uv_Microsoft.Winget.Source_8wekyb3d8bbwe"`.
 - **Commands:** `uv sync`, `uv run pytest`, `uv run discoop …`.
+  - `uv run pytest` runs in parallel by default (`-n auto --dist worksteal`, [ADR 0026](docs/decisions/0026-parallel-tests.md)).
+  - `uv run pytest -n0 tests/test_x.py` runs serially: for one file or for debugging with `print`/`pdb`.
+  - `uv run pytest --ignore-glob="tests/test_tui_*.py"` is a quick run without the TUI tests (about 18 s).
 - **Version:** `pyproject.toml` (`project.version`) is the single source of truth ([ADR 0023](docs/decisions/0023-version-and-single-source.md)); `discoop.__version__` reads it from package metadata and docs do not repeat the current number. To release: update `pyproject.toml`, run `uv lock` and `uv sync`, rename `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md) to `## [X.Y.Z] - YYYY-MM-DD` (with a fresh empty `[Unreleased]` above it), and add a journal line.
 - **Tool help and messages** are in English ([ADR 0007](docs/decisions/0007-english-in-the-tool.md)).
 - **Discord API** is called only by the prototype or the tool executed by the user. Exception: `login --handshake-only`

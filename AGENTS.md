@@ -11,7 +11,9 @@ Everything that is committed to the repository is English (docs, code, comments,
 ## Commands
 
 - `uv sync`: sync dependencies into `.venv`.
-- `uv run pytest`: run test suite (all tests must pass offline).
+- `uv run pytest`: run test suite (all tests must pass offline); runs in parallel by default (`-n auto --dist worksteal`, [ADR 0026](docs/decisions/0026-parallel-tests.md)).
+- `uv run pytest -n0 tests/test_x.py`: run serially, for one file or for debugging with `print`/`pdb`.
+- `uv run pytest --ignore-glob="tests/test_tui_*.py"`: quick run without the TUI tests (about 18 s).
 - `uv run discoop …`: run the CLI tool during development.
 - uv missing from PATH: if missing in the agent's shell:
   `export PATH="$PATH:/c/Users/Filip/AppData/Local/Microsoft/WinGet/Packages/astral-sh.uv_Microsoft.Winget.Source_8wekyb3d8bbwe"`

@@ -502,6 +502,7 @@ async def test_footer_lists_p_and_o_and_not_the_ctrl_keys(tmp_path: Path) -> Non
         def footer() -> dict[str, str]:
             return {key.key: str(key.description) for key in app.query("FooterKey")}
 
+        await wait_until(pilot, lambda: "p" in footer())  # under load the footer can lag behind startup
         keys = footer()
         assert keys["p"] == "Profile" and keys["L"] == "Load all"
         assert "o" not in keys, "nothing to open before an export"
@@ -510,7 +511,7 @@ async def test_footer_lists_p_and_o_and_not_the_ctrl_keys(tmp_path: Path) -> Non
 
         app._last_export_folder = tmp_path
         app.refresh_bindings()
-        await pilot.pause()
+        await wait_until(pilot, lambda: "o" in footer())  # one pause is not enough when the suite runs in parallel
         keys = footer()
         assert keys["o"] == "Open" and keys["p"] == "Profile" and keys["L"] == "Load all"
         assert not {"ctrl+s", "ctrl+o"} & set(keys)

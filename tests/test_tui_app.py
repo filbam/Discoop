@@ -1261,6 +1261,7 @@ async def test_footer_key_runs_the_binding() -> None:
     app = DiscoopApp(api_factory=_make_dummy_api_factory())
     async with app.run_test(size=(140, 40)) as pilot:
         await started(app, pilot)
+        await wait_until(pilot, lambda: bool(app.query("FooterKey")))  # under load the footer can lag behind startup
         await pilot.click("FooterKey", offset=(1, 0))  # whichever comes first: Space on the tree, only a hint here
         await pilot.pause()
         assert app.is_running
@@ -1268,8 +1269,7 @@ async def test_footer_key_runs_the_binding() -> None:
         keys = [key for key in app.query("FooterKey") if key.key == "f1"]
         assert keys
         await pilot.click(keys[0])
-        await pilot.pause()
-        assert isinstance(app.screen, HelpScreen)
+        await wait_until(pilot, lambda: isinstance(app.screen, HelpScreen))
 
 
 async def test_function_keys_open_the_dialogs() -> None:

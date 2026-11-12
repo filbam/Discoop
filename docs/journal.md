@@ -4,6 +4,26 @@ Chronological record of work: what was done, what was decided, incidents, and ne
 
 ---
 
+## 2026-11-12
+
+**Parallel tests by default (P36, [ADR 0026](decisions/0026-parallel-tests.md), [analysis](analyses/test-speed.md)):**
+- **What was done:**
+  - The full serial suite took about 3:46, so the user asked to run the tests in parallel. Recorded requirement P36 in [requirements.md](requirements.md) and [ADR 0026](decisions/0026-parallel-tests.md) (`Accepted`).
+  - `uv add --dev pytest-xdist`: `pytest-xdist>=3.8.0` in the `dev` group of `pyproject.toml`; `uv.lock` only gained `pytest-xdist 3.8.0` and its dependency `execnet 2.1.2` (no other package changed). The runtime `dependencies` are unchanged.
+  - `pyproject.toml` `[tool.pytest.ini_options]`: `addopts = ["-n", "auto", "--dist", "worksteal"]`, so plain `uv run pytest` is parallel for people, agents and the release workflow (`.github/workflows/release.yml` unchanged).
+  - Commands in `CLAUDE.md` and `AGENTS.md`: `uv run pytest` is parallel by default, `uv run pytest -n0 tests/test_x.py` for one file or for debugging, `uv run pytest --ignore-glob="tests/test_tui_*.py"` as a quick run without the TUI tests. Measurements in [test-speed.md](analyses/test-speed.md); entry in `CHANGELOG.md` `[Unreleased]` under Changed.
+- **Decisions:**
+  - Chosen: pytest-xdist with `-n auto --dist worksteal` by default. Rejected: keeping the serial run (3:46) and xdist only on request (easy to forget; agents run plain `uv run pytest`). Not now: speeding up the TUI tests themselves (the slowest test bounds the parallel run).
+  - `-n0` stays the way to run serially (one small file, `print`, `pdb`); `PYTEST_XDIST_AUTO_NUM_WORKERS` caps the worker count when several runs share the machine.
+- **Verified and test count** (2026-11-12, Windows 10, 16 logical cores, in a separate worktree on branch `chore/parallel-tests` based on `e76423a`):
+  - Owner's earlier measurements on `main` at `4788d98`: serial 1190 passed, 1 skipped in 226.6 s; `-n auto` 36.5 s and 36.2 s; `-n 8` 40.8 s; `-n auto --dist worksteal` 34.9 s; without the TUI files 17.8 s in parallel (41.2 s serially).
+  - With the new default: `uv run pytest` twice: 1252 passed, 1 skipped, 1 failed in 34.50 s and 35.09 s (`created: 16/16 workers`); serially (`-n0`) the same 1254 tests took 212.37 s, so the parallel run is about 6 times faster; `--ignore-glob="tests/test_tui_*.py"`: 978 passed, 1 skipped, 1 failed in 16.61 s; `uv run pytest -n0 tests/test_config.py`: 12 passed in 0.35 s without workers (5.26 s in parallel); `uv lock --check` passed.
+  - The one failure, `tests/test_release_notes.py::test_release_workflow_yaml_structure`, is not caused by xdist: the worktree was checked out with `core.autocrlf=true`, so `.github/workflows/release.yml` has CRLF in the working copy (LF in git), and the test fails the same way with `-n0`.
+- **Review fix (Claude):** 2 of 5 full parallel runs failed `tests/test_tui_r4g.py::test_footer_lists_p_and_o_and_not_the_ctrl_keys` and 1 of 5 `tests/test_tui_app.py::test_footer_key_runs_the_binding` (both read the footer after a single `pilot.pause()`; they pass on their own). Both now wait with `wait_until`; afterwards 6 full parallel runs in a row passed apart from the line-ending failure above ([analysis](analyses/test-speed.md), section 7).
+- **Next:**
+  - Decide how to keep LF in fresh Windows checkouts so `test_release_workflow_yaml_structure` passes there (for example a `.gitattributes` with `eol=lf`, or a test that reads the committed blob); not started.
+  - Measure the first GitHub Actions run of the release workflow (fewer cores, not measured yet).
+
 ## 2026-11-10
 
 **Browser login `discoop login --browser`, AI consent rule, and TUI integration (P31–P33, [ADR 0022](decisions/0022-browser-login.md), [analysis](analyses/browser-login.md)):**

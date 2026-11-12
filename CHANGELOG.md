@@ -5,6 +5,14 @@ versions adhere to [SemVer](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **Tests run in parallel by default (2026-11-12, P36, [ADR 0026](docs/decisions/0026-parallel-tests.md), [analysis](docs/analyses/test-speed.md)):** plain `uv run pytest` now runs the suite with pytest-xdist on all logical cores.
+  - New dev dependency `pytest-xdist` (in the `dev` group only, with its dependency `execnet` in `uv.lock`); the runtime dependencies of the package are unchanged.
+  - `pyproject.toml` `[tool.pytest.ini_options]` sets `addopts = ["-n", "auto", "--dist", "worksteal"]`, so people, agents and the release workflow (`.github/workflows/release.yml`, unchanged) all get the parallel run.
+  - Serial run for one file or for debugging with `print`/`pdb`: `uv run pytest -n0 tests/test_x.py`. Quick run without the TUI tests: `uv run pytest --ignore-glob="tests/test_tui_*.py"` (about 18 s).
+  - `[VERIFIED]` on 2026-11-12 on the owner's Windows 10 machine (16 logical cores): the full suite went from 226.6 s serially to about 35 s in parallel.
+  - Two TUI tests that read the footer after a single `pilot.pause()` were flaky in parallel (`test_footer_lists_p_and_o_and_not_the_ctrl_keys`, `test_footer_key_runs_the_binding`); they now wait with `wait_until`, and 6 full parallel runs in a row passed.
+
 ## [1.0.0] - 2026-11-10
 
 First `1.x` release; earlier `0.x` numbers were never published.

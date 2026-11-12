@@ -37,6 +37,7 @@ Decisions that are not yet resolved are in [design.md, section 15](../design.md#
 | [0023](0023-version-and-single-source.md) | Version 1.0.0 and single source of truth | Accepted | 2026-11-10 |
 | [0024](0024-releases-tags-and-stable-branch.md) | Releases, tags, and the `stable` branch | Accepted | 2026-11-12 |
 | [0025](0025-update-notifier.md) | Update notifier | Accepted | 2026-11-12 |
+| [0026](0026-parallel-tests.md) | Parallel tests by default (`pytest-xdist`, `-n auto --dist worksteal`) | Accepted | 2026-11-12 |
 
 ## Template
 
